@@ -122,9 +122,16 @@
 #define SD_PIN_D2            18
 #define SD_PIN_D3            15
 
-/* Touch (C606 Pro / HW variant): I2C, controller probed at 0x38 then 0x5A */
-#define TOUCH_I2C_ADDR_A     0x38
-#define TOUCH_I2C_ADDR_B     0x5A
+/* Touch: I2C0 SDA GPIO21 / SCL GPIO12, internal pull-ups, 400 kHz
+ * (InitI2CBus / I2CManagerAddDev). Controller probed at 0x38 (FocalTech
+ * FT6x36: reg 0xA8 vendor id, 0x02 touch data) then 0x5A (Hynitron CST328:
+ * 16-bit regs, 0xD045 probe, 0xD000 data, 0xD000AB ack). No RST/INT GPIO. */
+#define TOUCH_I2C_PORT       0
+#define TOUCH_I2C_SDA        21
+#define TOUCH_I2C_SCL        12
+#define TOUCH_I2C_HZ         400000
+#define TOUCH_ADDR_FT6X36    0x38
+#define TOUCH_ADDR_CST328    0x5A
 
 /* On HW variant (NVS "Res1Page11" byte3 == 2) the vendor drives GPIO43/44
  * (default UART0 pins) high as plain outputs during LCD init. */

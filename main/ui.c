@@ -10,12 +10,14 @@
 #include "ui_port.h"
 #include "ui.h"
 
-#define LOG_LINES 3
+#define LOG_LINES 2
 
 static lv_obj_t *s_page_status, *s_page_ride;
 static lv_obj_t *s_hdr_bat, *s_hdr_rec, *s_arc, *s_arc_lbl, *s_env, *s_nrf, *s_gps, *s_sd, *s_log, *s_foot;
 static lv_obj_t *s_key[3];
 static lv_obj_t *s_big, *s_big_caption, *s_ride_env, *s_ride_gps, *s_ride_pos, *s_ride_time, *s_ride_rec;
+static lv_obj_t *s_cursor, *s_touch_lbl, *s_btn_rec, *s_btn_usb;
+static ui_action_cb_t s_on_rec, s_on_usb;
 
 static char s_log_buf[LOG_LINES][32];
 static int s_log_n;
@@ -121,10 +123,25 @@ static void build_status(lv_obj_t *scr)
     lv_obj_align(s_log, LV_ALIGN_TOP_LEFT, 8, 268);
     lv_label_set_text(s_log, "press a key...");
 
+    s_touch_lbl = label(s_page_status, &lv_font_unscii_8, lv_palette_main(LV_PALETTE_CYAN));
+    lv_obj_align(s_touch_lbl, LV_ALIGN_TOP_LEFT, 8, 290);
+    lv_label_set_text(s_touch_lbl, "touch: none");
+
     /* footer */
     s_foot = label(s_page_status, &lv_font_unscii_8, lv_palette_main(LV_PALETTE_GREY));
     lv_obj_align(s_foot, LV_ALIGN_BOTTOM_LEFT, 8, -4);
     lv_label_set_text(s_foot, "");
+}
+
+static lv_obj_t *button(lv_obj_t *parent, const char *txt, lv_color_t color, void *unused)
+{
+    lv_obj_t *b = lv_button_create(parent);
+    lv_obj_set_size(b, 96, 36);
+    lv_obj_set_style_bg_color(b, color, 0);
+    lv_obj_t *l = label(b, &lv_font_montserrat_14, lv_color_white());
+    lv_label_set_text(l, txt);
+    lv_obj_center(l);
+    return b;
 }
 
 static void build_ride(lv_obj_t *scr)
@@ -159,12 +176,47 @@ static void build_ride(lv_obj_t *scr)
 
     s_ride_rec = label(s_page_ride, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_RED));
     lv_label_set_text(s_ride_rec, "");
-    lv_obj_align(s_ride_rec, LV_ALIGN_TOP_MID, 0, 268);
+    lv_obj_align(s_ride_rec, LV_ALIGN_TOP_MID, 0, 262);
 
-    lv_obj_t *hint = label(s_page_ride, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_GREY));
-    lv_label_set_text(hint, "0:page 1/2:light\nhold 0:off 1:usb 2:rec");
-    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -6);
+    /* touch buttons (the user-data pointer is resolved at click time) */
+    s_btn_rec = button(s_page_ride, LV_SYMBOL_STOP " REC", lv_palette_main(LV_PALETTE_RED), NULL);
+    lv_obj_align(s_btn_rec, LV_ALIGN_BOTTOM_LEFT, 16, -8);
+    s_btn_usb = button(s_page_ride, LV_SYMBOL_USB " USB", lv_palette_main(LV_PALETTE_BLUE), NULL);
+    lv_obj_align(s_btn_usb, LV_ALIGN_BOTTOM_RIGHT, -16, -8);
+}
+
+static void rec_btn_cb(lv_event_t *e) { if (s_on_rec) s_on_rec(); }
+static void usb_btn_cb(lv_event_t *e) { if (s_on_usb) s_on_usb(); }
+
+void ui_set_actions(ui_action_cb_t on_rec, ui_action_cb_t on_usb)
+{
+    s_on_rec = on_rec;
+    s_on_usb = on_usb;
+    ui_lock();
+    lv_obj_add_event_cb(s_btn_rec, rec_btn_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(s_btn_usb, usb_btn_cb, LV_EVENT_CLICKED, NULL);
+    ui_unlock();
+}
+
+void ui_set_touch(const char *chip_name)
+{
+    ui_lock();
+    lv_label_set_text_fmt(s_touch_lbl, "touch: %s", chip_name);
+    ui_unlock();
+}
+
+/* A small ring that follows the finger, on top of every page. */
+static void cursor_timer_cb(lv_timer_t *t)
+{
+    int16_t x, y;
+    bool down = ui_port_touch_state(&x, &y);
+    if (down) {
+        lv_obj_set_hidden(s_cursor, false);
+        lv_obj_set_pos(s_cursor, x - 12, y - 12);
+        lv_label_set_text_fmt(s_touch_lbl, "touch: %d,%d", x, y);
+    } else if (!lv_obj_is_hidden(s_cursor)) {
+        lv_obj_set_hidden(s_cursor, true);
+    }
 }
 
 void ui_create(void)
@@ -174,6 +226,16 @@ void ui_create(void)
     lv_obj_set_style_bg_color(scr, C_BG, 0);
     build_status(scr);
     build_ride(scr);
+
+    s_cursor = lv_obj_create(scr);
+    lv_obj_remove_style_all(s_cursor);
+    lv_obj_set_size(s_cursor, 24, 24);
+    lv_obj_set_style_radius(s_cursor, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_width(s_cursor, 3, 0);
+    lv_obj_set_style_border_color(s_cursor, lv_palette_main(LV_PALETTE_YELLOW), 0);
+    lv_obj_set_clickable(s_cursor, false);
+    lv_obj_set_hidden(s_cursor, true);
+    lv_timer_create(cursor_timer_cb, 30, NULL);
     ui_unlock();
 }
 

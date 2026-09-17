@@ -13,6 +13,7 @@ This PoC replaces only the ESP32 application. It:
 * reads the Airoha AG3352Q GNSS on UART0 (auto-baud, NMEA RMC/GGA/GSV),
 * mounts the on-board 4 GB eMMC (FAT, `/sdcard`) and records CSV tracks to `/sdcard/c606oss/`,
 * exposes the eMMC over USB as a mass-storage disk on demand,
+* touchscreen (FT6336 over I2C) as an LVGL pointer: on-screen REC / USB buttons,
 * keys: 0 = switch page, 1/2 = backlight down/up, hold 2 = start/stop recording,
   hold 1 = USB storage mode (hold 1 again to reboot out of it), hold 0 = power off.
 
@@ -121,6 +122,7 @@ main/gps.c         UART0 NMEA reader with baud probing
 main/sdcard.c      eMMC mount (SDMMC 4-bit)
 main/tracklog.c    CSV track recorder
 main/usb_msc.c     TinyUSB mass storage over the eMMC (esp_tinyusb)
+main/touch.c       FT6336 / CST328 touch controller over I2C
 main/main.c        glue: frame decoding -> UI, key actions, handshake
 tools/flash_poc.py flash/restore helper
 docs/HARDWARE.md   reverse-engineering notes with addresses

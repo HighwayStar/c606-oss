@@ -25,6 +25,7 @@
 #include "sdcard.h"
 #include "tracklog.h"
 #include "usb_msc.h"
+#include "touch.h"
 #include "esp_system.h"
 #include "tinyusb.h"
 
@@ -46,6 +47,32 @@ static void set_backlight(int pct)
     ui_set_backlight(pct);
 }
 
+static void toggle_recording(void)
+{
+    if (tracklog_active()) {
+        tracklog_stop();
+    } else {
+        gps_fix_t fix;
+        gps_get(&fix);
+        if (tracklog_start(&fix) != ESP_OK) {
+            ESP_LOGW(TAG, "cannot start recording (SD?)");
+        }
+    }
+    ui_set_rec(tracklog_active(), tracklog_points());
+}
+
+static void enter_usb_mode(void)
+{
+    if (usb_msc_active()) {
+        return;
+    }
+    if (usb_msc_enter() == ESP_OK) {
+        ui_show_usb_mode();
+    } else {
+        ESP_LOGW(TAG, "USB mode failed");
+    }
+}
+
 static void on_key(const nrf_key_event_t *ev)
 {
     ESP_LOGI(TAG, "KEY idx=%u event=%u aux=%u", ev->key, ev->event, ev->aux);
@@ -54,11 +81,7 @@ static void on_key(const nrf_key_event_t *ev)
         if (usb_msc_active()) {
             usb_msc_leave_and_restart();   /* restores USB-Serial-JTAG, then reboots */
         }
-        if (usb_msc_enter() == ESP_OK) {
-            ui_show_usb_mode();
-        } else {
-            ESP_LOGW(TAG, "USB mode failed");
-        }
+        enter_usb_mode();
         return;
     }
     if (ev->key == 0 && ev->event == KEY_EVT_LONG_RELEASE) {
@@ -77,16 +100,7 @@ static void on_key(const nrf_key_event_t *ev)
         return;   /* only the holds above are meaningful in USB mode */
     }
     if (ev->key == 2 && ev->event == KEY_EVT_LONG_RELEASE) {
-        if (tracklog_active()) {
-            tracklog_stop();
-        } else {
-            gps_fix_t fix;
-            gps_get(&fix);
-            if (tracklog_start(&fix) != ESP_OK) {
-                ESP_LOGW(TAG, "cannot start recording (SD?)");
-            }
-        }
-        ui_set_rec(tracklog_active(), tracklog_points());
+        toggle_recording();
         return;
     }
     if (ev->event != KEY_EVT_CLICK) {
@@ -156,8 +170,11 @@ void app_main(void)
 
     ESP_ERROR_CHECK(backlight_init());
     ESP_ERROR_CHECK(lcd_init());
+    touch_init();                        /* optional: logs and continues if absent */
     ESP_ERROR_CHECK(ui_port_init());
     ui_create();
+    ui_set_touch(touch_chip_name());
+    ui_set_actions(toggle_recording, enter_usb_mode);
     vTaskDelay(pdMS_TO_TICKS(100));      /* let the first frame render */
     set_backlight(s_bl_pct);
 

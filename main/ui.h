@@ -16,4 +16,9 @@ void ui_set_rec(bool active, uint32_t points);
 void ui_key_event(uint8_t key, uint8_t evt);
 void ui_toggle_page(void);
 void ui_show_usb_mode(void);
+
+/* Touch: chip name for the status page; callbacks for the on-screen buttons. */
+void ui_set_touch(const char *chip_name);
+typedef void (*ui_action_cb_t)(void);
+void ui_set_actions(ui_action_cb_t on_rec, ui_action_cb_t on_usb);
 void ui_tick(uint32_t uptime_s);   /* call ~1x per second */

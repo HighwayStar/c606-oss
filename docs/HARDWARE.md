@@ -73,11 +73,23 @@ re-init. This is only done when NVS `Res1Page11` byte 3 != 2 (HW variant) and
 looks like "power-cycle the LCD" on wake-up. The PoC does not send it; the
 panel is already powered when the ESP32 boots.
 
-### Touch (C606 Pro / newer HW)
+### Touch
 
-`FUN_42031b14`: I2C touch controller probed at address **0x38** (FocalTech
-FT6x36 style) then **0x5A**. Registered with LVGL as a pointer input device
-("touch_driver_read"). I2C pins not yet extracted.
+`InitI2CBus` (`0x420321f4`): **I2C0, SDA GPIO21, SCL GPIO12**, internal
+pull-ups, glitch filter 7; devices added at 400 kHz (`I2CManagerAddDev`).
+`FUN_42031b14` probes **0x38** first, then **0x5A**; no reset/interrupt GPIO,
+LVGL polls it from `touch_driver_read`. Touches are ignored while the screen
+is off (`FUN_4216681c`).
+
+* 0x38 = **FocalTech FT6336** (this unit: reg 0xA8 vendor 0x11, 0xA3 chip 0x64, 0xA6 fw 0x09).
+  Init: read 0xA8, write reg 0x00 = 0, read 0xA6, 0xAF. Read: reg 0x02 -> 5 bytes
+  `[count, XH, XL, YH, YL]`, pressed when count == 1, X = (XH&0x0F)<<8|XL, Y likewise.
+* 0x5A = **Hynitron CST328** (other HW revision): 16-bit registers, probe by reading
+  4 bytes at 0xD045; data = 7 bytes at 0xD000, pressed when `b0 & 0x0F == 6`,
+  X = b1<<4 | b3>>4, Y = b2<<4 | b3&0x0F; after each read write `D0 00 AB`.
+
+Coordinates map 1:1 onto the 240x320 panel (measured: top-left ≈ 11,27,
+bottom-right ≈ 219,293), no swap or mirror.
 
 ## nRF co-processor link
 
