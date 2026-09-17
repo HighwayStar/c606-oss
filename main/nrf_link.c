@@ -76,6 +76,11 @@ esp_err_t nrf_link_send_power_on(void)
     return nrf_link_send_ctrl(NRF_TYPE_SET, 0x02, 0x00, 0x01);
 }
 
+esp_err_t nrf_link_send_gps_power(uint8_t val)
+{
+    return nrf_link_send_ctrl(NRF_TYPE_SET, 0x02, 0x07, val);
+}
+
 bool nrf_link_decode_key(const uint8_t *f, size_t len, nrf_key_event_t *ev)
 {
     /* payload = f[6..], needs at least 7 payload bytes */

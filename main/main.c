@@ -3,7 +3,8 @@
  *
  * Brings up the ST7789 over the i80 bus, LVGL 9 with draw buffers in internal
  * RAM and objects in PSRAM, the backlight, and the UART link to the nRF
- * co-processor. Keys: 0 = switch page, 1/2 = backlight down/up.
+ * co-processor, and the GNSS receiver on UART0.
+ * Keys: 0 = switch page, 1/2 = backlight down/up.
  */
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -18,6 +19,7 @@
 #include "nrf_link.h"
 #include "ui_port.h"
 #include "ui.h"
+#include "gps.h"
 
 static const char *TAG = "main";
 
@@ -77,6 +79,19 @@ static void on_frame(const uint8_t *f, size_t len, void *ctx)
     }
 }
 
+static void on_gps(const gps_fix_t *fix, void *ctx)
+{
+    static uint32_t last_log;
+    ui_set_gps(fix);
+    if (fix->last_rx_ms - last_log > 5000) {
+        last_log = fix->last_rx_ms;
+        ESP_LOGI(TAG, "GPS %s q=%u sats %u/%u hdop %.1f  %.5f %.5f alt %.0f  %.1f km/h  %02u:%02u:%02u  n=%lu bad=%lu",
+                 fix->valid ? "FIX" : "nofix", fix->fix_quality, fix->sats_used, fix->sats_in_view, fix->hdop,
+                 fix->lat, fix->lon, fix->alt_m, fix->speed_kmh, fix->hh, fix->mm, fix->ss,
+                 (unsigned long)fix->sentences, (unsigned long)fix->bad_checksum);
+    }
+}
+
 void app_main(void)
 {
     ESP_LOGI(TAG, "heap: internal %u KB, psram %u KB",
@@ -91,6 +106,7 @@ void app_main(void)
     set_backlight(s_bl_pct);
 
     ESP_ERROR_CHECK(nrf_link_init(on_frame, NULL));
+    ESP_ERROR_CHECK(gps_init(on_gps, NULL));
 
     uint32_t last_pwr_ms = 0;
     bool first = true;
@@ -102,6 +118,9 @@ void app_main(void)
             first = false;
             last_pwr_ms = now;
             nrf_link_send_power_on();
+            if (!s_nrf_alive) {
+                nrf_link_send_gps_power(NRF_GPS_ON);  /* vendor default; harmless if already on */
+            }
         }
         ui_tick(now / 1000);
         vTaskDelay(pdMS_TO_TICKS(1000));

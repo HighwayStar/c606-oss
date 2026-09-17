@@ -104,7 +104,11 @@
 /* ------------------------------------------------------------------ */
 /* Other peripherals (not used by the PoC, documented for later)         */
 /* ------------------------------------------------------------------ */
-/* GPS: UART0 @ 921600, TX=GPIO1, RX=GPIO0 (MidCommInit(0, 921600, ...)) */
+/* GPS: Airoha AG3352, UART0 @ 921600, TX=GPIO1, RX=GPIO0
+ * (MidCommInit(0, 921600, ...)). Powered through the nRF: E2 02 07 <val>. */
+#define NRF_GPS_OFF          0
+#define NRF_GPS_ON           1
+#define NRF_GPS_RESET        2   /* vendor "GpsHdRst" */
 #define GPS_UART_NUM         0
 #define GPS_UART_TX          1
 #define GPS_UART_RX          0

@@ -10,6 +10,7 @@ This PoC replaces only the ESP32 application. It:
 * runs **LVGL 9** (draw buffers in internal DMA RAM, objects in the 2 MB PSRAM),
 * opens the UART link to the nRF, sends the vendor's power-on handshake,
 * decodes button, battery, temperature/pressure and version frames,
+* reads the Airoha AG3352Q GNSS on UART0 (auto-baud, NMEA RMC/GGA/GSV),
 * keys: 0 = switch page, 1/2 = backlight down/up.
 
 Everything hardware-specific lives in `main/board.h`; the analysis behind it
@@ -62,8 +63,10 @@ with `esp32_image_parser.py dump_partition`.)
 1. Status page: header with battery %, battery arc with mV, temperature and
    pressure (once the nRF starts its sensor stream), `nRF ok reason 4 fw 0.2.19`,
    three key boxes, an event log and a footer with free internal/PSRAM heap.
-2. Key 0 click switches to the "ride" page (big uptime digits, temperature);
-   key 1 / key 2 step the backlight by 10 %. A key box flashes green on a
+   The `GPS` line shows fix state, satellites used/in view and HDOP.
+2. Key 0 click switches to the "ride" page: UTC time, big speed digits,
+   position/altitude/course once there is a fix, temperature.
+   Key 1 / key 2 step the backlight by 10 %. A key box flashes green on a
    click and stays red while long-pressed (event 4), clears on release (5).
 
 Console: `tools/serial_log.py /dev/ttyACM0 20 --reset` (inside the IDF
@@ -90,6 +93,7 @@ main/ui_port.c     LVGL 9 display driver, tick, render task, lock
 main/ui.c          demo pages (status / ride)
 main/backlight.c   LEDC PWM
 main/nrf_link.c    UART framing, CRC16, TX helpers, key decoding
+main/gps.c         UART0 NMEA reader with baud probing
 main/main.c        glue: frame decoding -> UI, key actions, handshake
 tools/flash_poc.py flash/restore helper
 docs/HARDWARE.md   reverse-engineering notes with addresses

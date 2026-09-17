@@ -190,6 +190,28 @@ in `USER` every 10 s it goes through state `0xb` which polls the nRF.
 No watchdog behaviour observed so far; the PoC re-sends `SendPowerOnCmd`
 every 5 s anyway.
 
+## GNSS receiver
+
+**Airoha AG3352Q**, firmware `AG3352Q_V3.0.2.AG3352_20230717` (from its
+`$PAIR021` banner). UART0 @ **921600** 8N1, TX GPIO1, RX GPIO0
+(`MidCommInit(0, 921600, 0x1000, 0x400, 1)`; `MidCommBaudrateSwitch` only
+runs if the stored baud differs, so 921600 is the module's configured rate).
+Plain NMEA (`$GN…` RMC/GGA/GSA/GSV/…, ~20 sentences/s) is on by default.
+
+Power is controlled by the nRF: `E2 02 07 00 00 <v> 00 00` with `v` = 0 off,
+1 on, 2 hard reset (`GpsHdRst`, used after 50 ticks without data). The vendor
+never sends "on" at boot; the module is already powered.
+
+`GpsPthreadMachine` (`0x42167e90`) command flow for the Airoha (chip type 4/5;
+table at `0x3fca499c`, `FUN_421cb228(n)` sends entry `n+0x1f`):
+`$PAIR867,0,0` -> ack `$PAIR001,867` -> `$PAIR866,0,0,0` -> `$PAIR490,1` -> `$PAIR491`
+-> running; `$PAIR470,0` after an EPO/AGNSS upload (`$PAIR590,…` + binary
+`0x4B0/0x4B1/0x4B2` packets built by `FUN_42167c3c` from `/sdcard/…_agnss.bin`).
+These only affect EPO/AGNSS behaviour. Reset table (`0x3fca4954`, 6 chip
+columns): `$PAIR004/005/006` = hot/warm/cold start. The same driver also
+carries CASIC (`$CFGMSG…`, chip 0) and Unicore-style (`$CCMSG…`) tables for
+other hardware revisions.
+
 ## Other peripherals
 
 * **SD card**: SDMMC 4-bit, CLK 13, CMD 14, D0 16, D1 17, D2 18, D3 15 (`MidVFSMount`), mounted at `/sdcard`.

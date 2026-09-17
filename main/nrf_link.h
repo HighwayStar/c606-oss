@@ -27,6 +27,9 @@ esp_err_t nrf_link_send_ctrl(uint8_t type, uint8_t grp, uint8_t id, uint8_t val)
 /* Same as vendor SendPowerOnCmd(): E2 02 00 00 00 01 00 00, type 2 */
 esp_err_t nrf_link_send_power_on(void);
 
+/* GPS power: NRF_GPS_OFF / NRF_GPS_ON / NRF_GPS_RESET */
+esp_err_t nrf_link_send_gps_power(uint8_t val);
+
 /* Helper: returns true and fills `ev` if `frame` is a button event. */
 bool nrf_link_decode_key(const uint8_t *frame, size_t len, nrf_key_event_t *ev);
 

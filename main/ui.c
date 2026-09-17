@@ -10,12 +10,12 @@
 #include "ui_port.h"
 #include "ui.h"
 
-#define LOG_LINES 5
+#define LOG_LINES 4
 
 static lv_obj_t *s_page_status, *s_page_ride;
-static lv_obj_t *s_hdr_bat, *s_arc, *s_arc_lbl, *s_env, *s_nrf, *s_log, *s_foot;
+static lv_obj_t *s_hdr_bat, *s_arc, *s_arc_lbl, *s_env, *s_nrf, *s_gps, *s_log, *s_foot;
 static lv_obj_t *s_key[3];
-static lv_obj_t *s_big, *s_big_caption, *s_ride_env;
+static lv_obj_t *s_big, *s_big_caption, *s_ride_env, *s_ride_gps, *s_ride_pos, *s_ride_time;
 
 static char s_log_buf[LOG_LINES][32];
 static int s_log_n;
@@ -88,7 +88,11 @@ static void build_status(lv_obj_t *scr)
 
     s_nrf = label(s_page_status, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_ORANGE));
     lv_label_set_text(s_nrf, "nRF: no reply yet");
-    lv_obj_align(s_nrf, LV_ALIGN_TOP_MID, 0, 180);
+    lv_obj_align(s_nrf, LV_ALIGN_TOP_MID, 0, 178);
+
+    s_gps = label(s_page_status, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_ORANGE));
+    lv_label_set_text(s_gps, "GPS: probing baud");
+    lv_obj_align(s_gps, LV_ALIGN_TOP_MID, 0, 196);
 
     /* key indicators */
     for (int i = 0; i < 3; i++) {
@@ -98,7 +102,7 @@ static void build_status(lv_obj_t *scr)
         lv_obj_set_style_bg_color(s_key[i], C_IDLE, 0);
         lv_obj_set_style_bg_opa(s_key[i], LV_OPA_COVER, 0);
         lv_obj_set_style_radius(s_key[i], 6, 0);
-        lv_obj_align(s_key[i], LV_ALIGN_TOP_LEFT, 12 + i * 76, 204);
+        lv_obj_align(s_key[i], LV_ALIGN_TOP_LEFT, 12 + i * 76, 218);
         lv_obj_t *l = label(s_key[i], &lv_font_montserrat_14, lv_color_white());
         lv_label_set_text_fmt(l, "key %d", i);
         lv_obj_center(l);
@@ -107,7 +111,7 @@ static void build_status(lv_obj_t *scr)
     /* event log */
     s_log = label(s_page_status, &lv_font_unscii_8, lv_palette_lighten(LV_PALETTE_GREY, 2));
     lv_obj_set_width(s_log, LCD_H_RES - 16);
-    lv_obj_align(s_log, LV_ALIGN_TOP_LEFT, 8, 238);
+    lv_obj_align(s_log, LV_ALIGN_TOP_LEFT, 8, 250);
     lv_label_set_text(s_log, "press a key...");
 
     /* footer */
@@ -121,17 +125,30 @@ static void build_ride(lv_obj_t *scr)
     s_page_ride = page(scr);
     lv_obj_set_hidden(s_page_ride, true);
 
-    s_big_caption = label(s_page_ride, &lv_font_montserrat_20, lv_palette_main(LV_PALETTE_GREY));
-    lv_label_set_text(s_big_caption, "uptime");
-    lv_obj_align(s_big_caption, LV_ALIGN_TOP_MID, 0, 60);
+    s_ride_time = label(s_page_ride, &lv_font_montserrat_20, lv_palette_main(LV_PALETTE_GREY));
+    lv_label_set_text(s_ride_time, "--:--:-- UTC");
+    lv_obj_align(s_ride_time, LV_ALIGN_TOP_MID, 0, 12);
 
     s_big = label(s_page_ride, &lv_font_montserrat_48, lv_color_white());
-    lv_label_set_text(s_big, "00:00");
-    lv_obj_align(s_big, LV_ALIGN_TOP_MID, 0, 90);
+    lv_label_set_text(s_big, "0.0");
+    lv_obj_align(s_big, LV_ALIGN_TOP_MID, 0, 56);
+
+    s_big_caption = label(s_page_ride, &lv_font_montserrat_20, lv_palette_main(LV_PALETTE_GREY));
+    lv_label_set_text(s_big_caption, "km/h");
+    lv_obj_align(s_big_caption, LV_ALIGN_TOP_MID, 0, 112);
+
+    s_ride_gps = label(s_page_ride, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_ORANGE));
+    lv_label_set_text(s_ride_gps, "no GPS data");
+    lv_obj_align(s_ride_gps, LV_ALIGN_TOP_MID, 0, 150);
+
+    s_ride_pos = label(s_page_ride, &lv_font_montserrat_14, lv_color_white());
+    lv_obj_set_style_text_align(s_ride_pos, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(s_ride_pos, "");
+    lv_obj_align(s_ride_pos, LV_ALIGN_TOP_MID, 0, 172);
 
     s_ride_env = label(s_page_ride, &lv_font_montserrat_28, lv_palette_main(LV_PALETTE_CYAN));
     lv_label_set_text(s_ride_env, "--.- C");
-    lv_obj_align(s_ride_env, LV_ALIGN_TOP_MID, 0, 180);
+    lv_obj_align(s_ride_env, LV_ALIGN_TOP_MID, 0, 230);
 
     lv_obj_t *hint = label(s_page_ride, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_GREY));
     lv_label_set_text(hint, "key0: page  key1/2: backlight");
@@ -235,6 +252,36 @@ void ui_key_event(uint8_t key, uint8_t evt)
     ui_unlock();
 }
 
+void ui_set_gps(const gps_fix_t *g)
+{
+    char buf[64];
+    ui_lock();
+    if (g->baud == 0) {
+        lv_label_set_text(s_gps, "GPS: probing baud");
+        lv_label_set_text(s_ride_gps, "no GPS data");
+    } else {
+        const char *fix = g->valid ? (g->fix_quality == 2 ? "DGPS" : "fix") : "no fix";
+        snprintf(buf, sizeof buf, "GPS %s  %u/%u sats  hdop %.1f", fix, g->sats_used, g->sats_in_view, g->hdop);
+        lv_label_set_text(s_gps, buf);
+        lv_obj_set_style_text_color(s_gps, g->valid ? lv_palette_main(LV_PALETTE_GREEN)
+                                                    : lv_palette_main(LV_PALETTE_ORANGE), 0);
+        snprintf(buf, sizeof buf, "%s  %u/%u sats  %lu sent", fix, g->sats_used, g->sats_in_view,
+                 (unsigned long)g->sentences);
+        lv_label_set_text(s_ride_gps, buf);
+        lv_obj_set_style_text_color(s_ride_gps, g->valid ? lv_palette_main(LV_PALETTE_GREEN)
+                                                         : lv_palette_main(LV_PALETTE_ORANGE), 0);
+        if (g->valid) {
+            lv_label_set_text_fmt(s_big, "%.1f", g->speed_kmh);
+            snprintf(buf, sizeof buf, "%.5f  %.5f\nalt %.0f m  crs %.0f", g->lat, g->lon, g->alt_m, g->course_deg);
+            lv_label_set_text(s_ride_pos, buf);
+        }
+        if (g->hh || g->mm || g->ss) {
+            lv_label_set_text_fmt(s_ride_time, "%02u:%02u:%02u UTC", g->hh, g->mm, g->ss);
+        }
+    }
+    ui_unlock();
+}
+
 void ui_toggle_page(void)
 {
     ui_lock();
@@ -249,6 +296,5 @@ void ui_tick(uint32_t uptime_s)
     s_uptime = uptime_s;
     ui_lock();
     refresh_footer();
-    lv_label_set_text_fmt(s_big, "%02lu:%02lu", (unsigned long)(uptime_s / 60), (unsigned long)(uptime_s % 60));
     ui_unlock();
 }
