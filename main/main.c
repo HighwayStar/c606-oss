@@ -5,7 +5,7 @@
  * RAM and objects in PSRAM, the backlight, and the UART link to the nRF
  * co-processor, and the GNSS receiver on UART0.
  * Keys: 0 = switch page, 1/2 = backlight down/up, hold 2 = start/stop
- * recording a CSV track to the SD card.
+ * recording a CSV track, hold 1 = USB mass storage mode (hold again: reboot).
  */
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -23,6 +23,8 @@
 #include "gps.h"
 #include "sdcard.h"
 #include "tracklog.h"
+#include "usb_msc.h"
+#include "esp_system.h"
 
 static const char *TAG = "main";
 
@@ -46,6 +48,21 @@ static void on_key(const nrf_key_event_t *ev)
 {
     ESP_LOGI(TAG, "KEY idx=%u event=%u aux=%u", ev->key, ev->event, ev->aux);
     ui_key_event(ev->key, ev->event);
+    if (ev->key == 1 && ev->event == KEY_EVT_LONG_RELEASE) {
+        if (usb_msc_active()) {
+            ESP_LOGI(TAG, "leaving USB mode: reboot");
+            esp_restart();
+        }
+        if (usb_msc_enter() == ESP_OK) {
+            ui_show_usb_mode();
+        } else {
+            ESP_LOGW(TAG, "USB mode failed");
+        }
+        return;
+    }
+    if (usb_msc_active()) {
+        return;   /* only "hold key 1" is meaningful in USB mode */
+    }
     if (ev->key == 2 && ev->event == KEY_EVT_LONG_RELEASE) {
         if (tracklog_active()) {
             tracklog_stop();

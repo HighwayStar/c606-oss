@@ -18,21 +18,30 @@ static const char *TAG = "sd";
 static sdmmc_card_t *s_card;
 static sdcard_info_t s_info;
 
+void sdcard_host_config(sdmmc_host_t *host, sdmmc_slot_config_t *slot)
+{
+    sdmmc_host_t h = SDMMC_HOST_DEFAULT();
+    h.slot = SDMMC_HOST_SLOT_1;
+    h.max_freq_khz = SDMMC_FREQ_DEFAULT;
+    *host = h;
+
+    sdmmc_slot_config_t sc = SDMMC_SLOT_CONFIG_DEFAULT();
+    sc.clk = SD_PIN_CLK;
+    sc.cmd = SD_PIN_CMD;
+    sc.d0 = SD_PIN_D0;
+    sc.d1 = SD_PIN_D1;
+    sc.d2 = SD_PIN_D2;
+    sc.d3 = SD_PIN_D3;
+    sc.width = 4;
+    sc.flags = SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
+    *slot = sc;
+}
+
 esp_err_t sdcard_mount(void)
 {
-    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
-    host.slot = SDMMC_HOST_SLOT_1;
-    host.max_freq_khz = SDMMC_FREQ_DEFAULT;
-
-    sdmmc_slot_config_t slot = SDMMC_SLOT_CONFIG_DEFAULT();
-    slot.clk = SD_PIN_CLK;
-    slot.cmd = SD_PIN_CMD;
-    slot.d0 = SD_PIN_D0;
-    slot.d1 = SD_PIN_D1;
-    slot.d2 = SD_PIN_D2;
-    slot.d3 = SD_PIN_D3;
-    slot.width = 4;
-    slot.flags = SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
+    sdmmc_host_t host;
+    sdmmc_slot_config_t slot;
+    sdcard_host_config(&host, &slot);
 
     esp_vfs_fat_sdmmc_mount_config_t mount = {
         .format_if_mount_failed = false,
@@ -66,6 +75,16 @@ esp_err_t sdcard_mount(void)
         s_info.root_entries = n;
     }
     return ESP_OK;
+}
+
+esp_err_t sdcard_unmount(void)
+{
+    if (!s_info.mounted) return ESP_OK;
+    esp_err_t err = esp_vfs_fat_sdcard_unmount(SD_MOUNT_POINT, s_card);
+    s_card = NULL;
+    s_info.mounted = false;
+    ESP_LOGI(TAG, "unmounted (%s)", esp_err_to_name(err));
+    return err;
 }
 
 const sdcard_info_t *sdcard_info(void)

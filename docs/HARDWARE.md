@@ -220,6 +220,22 @@ other hardware revisions.
   the vendor code). FAT with long names, mounted at `/sdcard`. Vendor directory tree:
   `System Volume Information/ FONT/ MAP/ BOOT/ SD/ APP/ GPS/ FITS/ COURSE/ NAVIGATION/ EPHEMERIS/ CONFIG/`
   (`FITS/` = ride recordings, `EPHEMERIS/` = AGNSS/EPO files for the GNSS, `MAP/` = map tiles).
-  The open firmware writes only under `/sdcard/c606oss/`.
+  Full root as seen over USB: `ABNORMAL APP AUDIO BOOT CONFIG COURSE EPHEMERIS FITS FONT GPS
+  GROUPRIDE LOG MAP ModuleDataTest NAVIGATION NOTIFY REGION SD SEGMENT SMART TMP USER WIFI`,
+  plus `hello.txt` ("hello emmc!") and an empty `<date>.logg`.
+  * `LOG/<yyyymmdd>.log` — the vendor's full text log (2–3 MB/day, the same strings we see in
+    Ghidra with live values). Best source for protocol behaviour.
+  * `APP/<timestamp>_<n>/N21_V<ver>_A.bin` — OTA packages for the ESP32 (V1.409 … V1.956, the
+    latter from 2026-07); `N22_V1.902_A.bin` alongside is most likely the nRF firmware. Not raw
+    ESP images: obfuscated with a repeating 4-byte pattern (`9a 92 45 42` where padding would be
+    zero) — looks like a 4-byte XOR. Not decoded yet.
+  * `FITS/FIT/<unix time>.fit` — ride recordings (Garmin FIT).
+  * `CONFIG/sensor_list.json` (paired sensors), `ProductInfo.config`, `FileVer.info`.
+  * `EPHEMERIS/<unix time>_agnss.bin` — AGNSS/EPO data for the Airoha GNSS.
+  The open firmware writes only under `/sdcard/c606oss/`. A copy of everything except
+  `MAP/` and `FONT/` lives in `~/devel/magene/emmc/` (outside this repo).
+
+  USB: with `esp_tinyusb` MSC over the same SDMMC card the host sees a 7,733,248-sector
+  (3.96 GB) removable disk; ~ the vendor does the same with TinyUSB CDC+MSC.
 * **NVS**: standard `nvs` partition; vendor config blob `Res1Page11` (byte 3 = HW variant).
 * GPIO43/44 (default UART0 pins) are driven high as outputs on HW variant 2 before LCD init.

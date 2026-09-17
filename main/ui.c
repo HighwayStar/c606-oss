@@ -162,7 +162,7 @@ static void build_ride(lv_obj_t *scr)
     lv_obj_align(s_ride_rec, LV_ALIGN_TOP_MID, 0, 268);
 
     lv_obj_t *hint = label(s_page_ride, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_GREY));
-    lv_label_set_text(hint, "0:page 1/2:light hold2:rec");
+    lv_label_set_text(hint, "0:page 1/2:light hold1:usb hold2:rec");
     lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -10);
 }
 
@@ -316,6 +316,25 @@ void ui_set_rec(bool active, uint32_t points)
         lv_label_set_text(s_hdr_rec, "");
         lv_label_set_text(s_ride_rec, points ? "stopped" : "");
     }
+    ui_unlock();
+}
+
+void ui_show_usb_mode(void)
+{
+    ui_lock();
+    lv_obj_set_hidden(s_page_status, true);
+    lv_obj_set_hidden(s_page_ride, true);
+    lv_obj_t *p = page(lv_screen_active());
+    lv_obj_t *icon = label(p, &lv_font_montserrat_48, lv_palette_main(LV_PALETTE_BLUE));
+    lv_label_set_text(icon, LV_SYMBOL_USB);
+    lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 70);
+    lv_obj_t *t = label(p, &lv_font_montserrat_20, lv_color_white());
+    lv_label_set_text(t, "USB storage");
+    lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 140);
+    lv_obj_t *h = label(p, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_GREY));
+    lv_obj_set_style_text_align(h, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(h, "eMMC is exposed to the host.\nEject it, then hold key 1\nto reboot.");
+    lv_obj_align(h, LV_ALIGN_TOP_MID, 0, 180);
     ui_unlock();
 }
 

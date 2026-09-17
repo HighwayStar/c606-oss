@@ -12,7 +12,9 @@ This PoC replaces only the ESP32 application. It:
 * decodes button, battery, temperature/pressure and version frames,
 * reads the Airoha AG3352Q GNSS on UART0 (auto-baud, NMEA RMC/GGA/GSV),
 * mounts the on-board 4 GB eMMC (FAT, `/sdcard`) and records CSV tracks to `/sdcard/c606oss/`,
-* keys: 0 = switch page, 1/2 = backlight down/up, hold 2 = start/stop recording.
+* exposes the eMMC over USB as a mass-storage disk on demand,
+* keys: 0 = switch page, 1/2 = backlight down/up, hold 2 = start/stop recording,
+  hold 1 = USB storage mode (hold 1 again to reboot out of it).
 
 Everything hardware-specific lives in `main/board.h`; the analysis behind it
 is in [`docs/HARDWARE.md`](docs/HARDWARE.md).
@@ -74,6 +76,11 @@ with `esp32_image_parser.py dump_partition`.)
    (position, altitude, speed, course, sats, HDOP, temperature, pressure). A key box flashes green on a
    click and stays red while long-pressed (event 4), clears on release (5).
 
+3. Hold key 1: the eMMC appears on the host as a 3.7 GB USB disk
+   (`303a:4002 c606-oss C606 eMMC`, auto-mounted by most desktops). The S3
+   has a single USB PHY, so the console and esptool auto-reset are gone
+   while in this mode — eject the disk and hold key 1 again to reboot.
+
 Console: `tools/serial_log.py /dev/ttyACM0 20 --reset` (inside the IDF
 container, or anywhere with pyserial) prints the boot log and every non-periodic
 nRF frame.
@@ -103,6 +110,7 @@ main/nrf_link.c    UART framing, CRC16, TX helpers, key decoding
 main/gps.c         UART0 NMEA reader with baud probing
 main/sdcard.c      eMMC mount (SDMMC 4-bit)
 main/tracklog.c    CSV track recorder
+main/usb_msc.c     TinyUSB mass storage over the eMMC (esp_tinyusb)
 main/main.c        glue: frame decoding -> UI, key actions, handshake
 tools/flash_poc.py flash/restore helper
 docs/HARDWARE.md   reverse-engineering notes with addresses
