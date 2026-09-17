@@ -12,7 +12,7 @@ strings (`__func__` arguments to the logger), not from symbols.
 | Framework | ESP-IDF 5.3+ (`esp_driver_gpio`, `esp_driver_ledc`, `esp_driver_uart`, `esp_driver_sdmmc`, `esp_driver_i2c`), FreeRTOS |
 | UI | LVGL 8.x (`lv_disp_drv_t` with `flush_cb` at +0x14, `user_data` at +0x3c) |
 | Flash | 16 MB, DIO, 80 MHz (vendor app image header byte 3 = `0x4f`) |
-| PSRAM | **embedded 2 MB Quad (esptool: "Embedded PSRAM 2MB (AP_3v3)")**, chip rev v0.2, QFN56 |
+| PSRAM | **embedded 2 MB Quad** (esptool: "Embedded PSRAM 2MB (AP_3v3)"; IDF: "Found 2MB PSRAM device, 80MHz, memory test OK"), chip rev v0.2, QFN56 |
 | Partitions (read from device) | `nvs` 0x9000/0x4000, `otadata` 0xd000/0x2000, `phy_init` 0xf000, `coredump` 0x10000/0x10000, **`ota_0` 0x20000**, `ota_1` 0x760000, each 0x73A000 |
 | Co-processor | Nordic nRF ("Minor MCU", `mSysTimeStampFromNrf`) on UART2. Handles buttons, power, charging, sensors, RTC. Upgradable from the ESP32 ("Upgrade Slave MCU"). |
 | USB | TinyUSB CDC (+ SD as MSC), so the USB-C goes to the S3 native USB pins (19/20). USB-Serial-JTAG console works on the same pins. |

@@ -4,23 +4,20 @@
  * The vendor firmware uses esp_lcd's i80 bus + panel_io with its own copy of
  * the ST7789 panel driver ("mg_esp_lcd_panel_st7789.c"). We use the same bus
  * and panel-io drivers from ESP-IDF and replay the vendor's init sequence
- * verbatim, then drive the panel with raw CASET/RASET/RAMWR from a full-frame
- * RGB565 framebuffer in internal (DMA-capable) RAM.
+ * verbatim, then drive the panel with raw CASET/RASET/RAMWR. LVGL renders
+ * into partial buffers and hands them to lcd_draw_bitmap() (see ui_port.c).
  */
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/semphr.h"
 #include "driver/gpio.h"
 #include "esp_lcd_panel_io.h"
-#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_check.h"
 #include "esp_attr.h"
 
 #include "board.h"
 #include "lcd.h"
-#include "font.h"
 
 static const char *TAG = "lcd";
 
@@ -29,20 +26,21 @@ static const char *TAG = "lcd";
 #define LCD_MADCTL 0x00
 #endif
 
-#define FB_PIXELS (LCD_H_RES * LCD_V_RES)
-#define FB_BYTES  (FB_PIXELS * 2)
-
 static esp_lcd_i80_bus_handle_t s_bus;
 static esp_lcd_panel_io_handle_t s_io;
-static uint16_t *s_fb;
-static SemaphoreHandle_t s_done;
+static esp_lcd_panel_io_color_trans_done_cb_t s_done_cb;
+static void *s_done_ctx;
 
 static bool IRAM_ATTR on_color_done(esp_lcd_panel_io_handle_t io,
                                     esp_lcd_panel_io_event_data_t *ev, void *ctx)
 {
-    BaseType_t hp = pdFALSE;
-    xSemaphoreGiveFromISR(s_done, &hp);
-    return hp == pdTRUE;
+    return s_done_cb ? s_done_cb(io, ev, s_done_ctx) : false;
+}
+
+void lcd_set_done_cb(esp_lcd_panel_io_color_trans_done_cb_t cb, void *ctx)
+{
+    s_done_ctx = ctx;
+    s_done_cb = cb;
 }
 
 static void cmd(uint8_t c, const void *p, size_t n)
@@ -96,13 +94,6 @@ static void st7789_vendor_init(void)
 
 esp_err_t lcd_init(void)
 {
-    s_done = xSemaphoreCreateBinary();
-    ESP_RETURN_ON_FALSE(s_done, ESP_ERR_NO_MEM, TAG, "sem");
-
-    s_fb = heap_caps_malloc(FB_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-    ESP_RETURN_ON_FALSE(s_fb, ESP_ERR_NO_MEM, TAG, "framebuffer (%d bytes)", FB_BYTES);
-    memset(s_fb, 0, FB_BYTES);
-
     /* Vendor: RD is a plain output held high (we never read from the panel). */
     gpio_config_t rd = {
         .pin_bit_mask = 1ULL << LCD_PIN_RD,
@@ -122,7 +113,7 @@ esp_err_t lcd_init(void)
             LCD_PIN_D12, LCD_PIN_D13, LCD_PIN_D14, LCD_PIN_D15,
         },
         .bus_width = LCD_BUS_WIDTH,
-        .max_transfer_bytes = FB_BYTES,           /* we push whole frames */
+        .max_transfer_bytes = LCD_MAX_TRANSFER,   /* one LVGL draw buffer */
     };
     ESP_RETURN_ON_ERROR(esp_lcd_new_i80_bus(&bus, &s_bus), TAG, "i80 bus");
 
@@ -156,73 +147,15 @@ void lcd_display_on(bool on)
 }
 
 /* ---------------------------------------------------------------- */
-/* Framebuffer drawing                                               */
+/* Drawing                                                           */
 /* ---------------------------------------------------------------- */
 
-void lcd_fill(uint16_t color)
-{
-    for (int i = 0; i < FB_PIXELS; i++) {
-        s_fb[i] = color;
-    }
-}
-
-void lcd_fill_rect(int x, int y, int w, int h, uint16_t color)
-{
-    if (x < 0) { w += x; x = 0; }
-    if (y < 0) { h += y; y = 0; }
-    if (x + w > LCD_H_RES) w = LCD_H_RES - x;
-    if (y + h > LCD_V_RES) h = LCD_V_RES - y;
-    for (int yy = y; yy < y + h; yy++) {
-        uint16_t *row = &s_fb[yy * LCD_H_RES + x];
-        for (int xx = 0; xx < w; xx++) {
-            row[xx] = color;
-        }
-    }
-}
-
-static void draw_glyph(int x, int y, char ch, uint16_t fg, uint16_t bg)
-{
-    if (ch < FONT_FIRST || ch > FONT_LAST) ch = '?';
-    const uint8_t *g = font_glyphs[ch - FONT_FIRST];
-    for (int gy = 0; gy < FONT_H; gy++) {
-        int py = y + gy;
-        if (py < 0 || py >= LCD_V_RES) continue;
-        for (int gx = 0; gx < FONT_W; gx++) {
-            int px = x + gx;
-            if (px < 0 || px >= LCD_H_RES) continue;
-            bool on = g[gy * FONT_BPR + (gx >> 3)] & (0x80 >> (gx & 7));
-            s_fb[py * LCD_H_RES + px] = on ? fg : bg;
-        }
-    }
-}
-
-void lcd_draw_text(int x, int y, const char *s, uint16_t fg, uint16_t bg)
-{
-    for (; *s; s++, x += FONT_W) {
-        draw_glyph(x, y, *s, fg, bg);
-    }
-}
-
-void lcd_text_rc(int col, int row, const char *s, uint16_t fg, uint16_t bg)
-{
-    lcd_draw_text(col * FONT_W, row * FONT_H, s, fg, bg);
-}
-
-int lcd_text_cols(void) { return LCD_H_RES / FONT_W; }
-int lcd_text_rows(void) { return LCD_V_RES / FONT_H; }
-
-/* ---------------------------------------------------------------- */
-/* Flush                                                             */
-/* ---------------------------------------------------------------- */
-
-void lcd_flush(void)
+void lcd_draw_bitmap(int x1, int y1, int x2, int y2, const void *px)
 {
     /* vendor mg_panel_st7789_draw_bitmap(): CASET, RASET, then RAMWR+color */
-    const uint8_t caset[] = {0, 0, (LCD_H_RES - 1) >> 8, (LCD_H_RES - 1) & 0xFF};
-    const uint8_t raset[] = {0, 0, (LCD_V_RES - 1) >> 8, (LCD_V_RES - 1) & 0xFF};
+    const uint8_t caset[] = {x1 >> 8, x1 & 0xFF, (x2 - 1) >> 8, (x2 - 1) & 0xFF};
+    const uint8_t raset[] = {y1 >> 8, y1 & 0xFF, (y2 - 1) >> 8, (y2 - 1) & 0xFF};
     cmd(0x2A, caset, sizeof caset);
     cmd(0x2B, raset, sizeof raset);
-    ESP_ERROR_CHECK(esp_lcd_panel_io_tx_color(s_io, 0x2C, s_fb, FB_BYTES));
-    /* Block until DMA has finished reading the framebuffer. */
-    xSemaphoreTake(s_done, pdMS_TO_TICKS(1000));
+    ESP_ERROR_CHECK(esp_lcd_panel_io_tx_color(s_io, 0x2C, px, (size_t)(x2 - x1) * (y2 - y1) * 2));
 }

@@ -45,7 +45,8 @@
 #define LCD_PARAM_BITS       8
 #define LCD_TRANS_QUEUE_DEPTH 10
 /* vendor: 28800 bytes = 240 px * 60 lines * 2 bytes per LVGL draw buffer */
-#define LCD_VENDOR_MAX_TRANSFER 28800
+#define LCD_BUF_LINES        60
+#define LCD_MAX_TRANSFER     (LCD_H_RES * LCD_BUF_LINES * 2)
 
 /* ------------------------------------------------------------------ */
 /* Backlight: LEDC PWM.  Source: MidLcdPwmInit()                        */
