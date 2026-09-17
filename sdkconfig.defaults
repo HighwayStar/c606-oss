@@ -1,0 +1,24 @@
+# Magene C606: ESP32-S3, 16 MB flash, DIO @ 80 MHz (matches vendor app header)
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+
+# We flash only the app into the vendor's existing ota_0 slot; this table is
+# only used to size-check the build (see tools/flash_poc.py).
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# PSRAM type/mode of the module is unknown - keep it off for the PoC so a
+# wrong guess cannot abort boot. Framebuffer lives in internal RAM.
+# CONFIG_SPIRAM is not set
+
+# Logs over the S3's built-in USB-Serial-JTAG (USB-C on the device).
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# Reduce boot-time verbosity a bit, keep info logs
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
+
+CONFIG_FREERTOS_HZ=1000
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y

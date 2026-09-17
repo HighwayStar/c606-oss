@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""Flash the PoC app into the vendor's ota_0 slot without touching the
+bootloader, partition table or NVS.
+
+  1. reads the partition table from the device (0x8000, or scans for it)
+  2. (unless --no-backup) dumps the whole flash to backup-<timestamp>.bin
+  3. writes build/c606_oss.bin at the ota_0 offset
+  4. erases otadata so the bootloader falls back to ota_0
+
+Restore the vendor firmware later with:
+  tools/flash_poc.py -p PORT --restore <vendor_ota_0.bin>
+
+Requires esptool (comes with ESP-IDF: run inside `. export.sh`).
+"""
+import argparse, os, struct, subprocess, sys, tempfile, time
+
+def esptool(port, *args, after="no_reset"):
+    cmd = [sys.executable, "-m", "esptool", "--chip", "esp32s3", "-p", port, "--after", after] + list(args)
+    print("+", " ".join(cmd))
+    subprocess.run(cmd, check=True)
+
+def read_flash(port, off, size, out):
+    esptool(port, "read_flash", hex(off), hex(size), out)
+
+def parse_parttable(data):
+    ents = {}
+    for base in [0x8000, 0x7000, 0x9000] + list(range(0, 0x10000, 0x1000)):
+        if data[base:base + 2] != b"\xaa\x50":
+            continue
+        p = base
+        while data[p:p + 2] == b"\xaa\x50":
+            typ, sub, off, size = struct.unpack("<BBII", data[p + 2:p + 12])
+            name = data[p + 12:p + 28].split(b"\0")[0].decode(errors="replace")
+            ents[name] = dict(type=typ, sub=sub, off=off, size=size)
+            p += 32
+        return base, ents
+    return None, ents
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("-p", "--port", required=True)
+    ap.add_argument("--app", default="build/c606_oss.bin")
+    ap.add_argument("--no-backup", action="store_true")
+    ap.add_argument("--flash-size", default="16MB", help="for the full backup")
+    ap.add_argument("--restore", metavar="VENDOR_OTA0_BIN", help="write this image to ota_0 instead of the PoC")
+    ap.add_argument("--dry-run", action="store_true")
+    a = ap.parse_args()
+
+    img = a.restore or a.app
+    if not os.path.exists(img):
+        sys.exit(f"{img} not found (build first: idf.py build)")
+
+    with tempfile.TemporaryDirectory() as td:
+        pt = os.path.join(td, "pt.bin")
+        read_flash(a.port, 0, 0x10000, pt)
+        base, ents = parse_parttable(open(pt, "rb").read())
+    if base is None:
+        sys.exit("no partition table found in the first 64 KB - refusing to guess")
+    print(f"partition table @ {base:#x}:")
+    for n, e in ents.items():
+        print(f"  {n:16s} type={e['type']} sub={e['sub']:#04x} off={e['off']:#09x} size={e['size']:#09x}")
+
+    app_slot = ents.get("ota_0") or ents.get("factory") or ents.get("app0")
+    if not app_slot or app_slot["type"] != 0:
+        sys.exit("no ota_0/factory app partition found")
+    otadata = next((e for e in ents.values() if e["type"] == 1 and e["sub"] == 0), None)
+
+    sz = os.path.getsize(img)
+    if sz > app_slot["size"]:
+        sys.exit(f"{img} ({sz} bytes) does not fit into the app slot ({app_slot['size']} bytes)")
+    print(f"\nwill write {img} ({sz} bytes) to {app_slot['off']:#x}"
+          + (f" and erase otadata @ {otadata['off']:#x}" if otadata else " (no otadata partition)"))
+    if a.dry_run:
+        return
+
+    if not a.no_backup:
+        out = time.strftime("backup-%Y%m%d-%H%M%S.bin")
+        print(f"\nfull flash backup -> {out} (this takes a few minutes)")
+        esptool(a.port, "read_flash", "0", a.flash_size, out)
+
+    esptool(a.port, "write_flash", hex(app_slot["off"]), img)
+    if otadata:
+        esptool(a.port, "erase_region", hex(otadata["off"]), hex(otadata["size"]))
+    esptool(a.port, "chip_id", after="hard_reset")
+    print("\ndone - device reset")
+
+if __name__ == "__main__":
+    main()
