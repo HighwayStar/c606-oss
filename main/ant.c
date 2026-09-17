@@ -33,8 +33,11 @@ static void *s_cb_ctx;
 static ant_scan_cb_t s_scan_cb;
 static void *s_scan_ctx;
 
-/* previous page values for delta computations */
-static struct { uint16_t t, revs; bool valid; } s_cad, s_spd;
+/* previous page values for delta computations; last_change_ms is when the
+ * event time last advanced - after STALE_MS without a new event the sensor
+ * is standing still (vendor: 12 identical pages -> 0) */
+#define STALE_MS 3000
+static struct { uint16_t t, revs; bool valid; uint32_t last_change_ms; } s_cad, s_spd;
 
 static bool is_ant_type(uint8_t t)
 {
@@ -148,8 +151,14 @@ static void decode_page(uint8_t dev_type, const uint8_t *pg, uint32_t now)
             uint16_t t = cad[0] | (cad[1] << 8), r = cad[2] | (cad[3] << 8);
             if (s_cad.valid) {
                 uint16_t dt = t - s_cad.t, dr = r - s_cad.revs;
-                if (dt) s_val.cadence_rpm = dr * 60.0f * 1024.0f / dt;
-                else if (now - s_cad.t > 0) { /* no new event: keep value, decays below */ }
+                if (dt) {
+                    s_val.cadence_rpm = dr * 60.0f * 1024.0f / dt;
+                    s_cad.last_change_ms = now;
+                } else if (now - s_cad.last_change_ms > STALE_MS) {
+                    s_val.cadence_rpm = 0;
+                }
+            } else {
+                s_cad.last_change_ms = now;
             }
             s_cad.t = t; s_cad.revs = r; s_cad.valid = true;
         }
@@ -157,8 +166,15 @@ static void decode_page(uint8_t dev_type, const uint8_t *pg, uint32_t now)
             uint16_t t = spd[0] | (spd[1] << 8), r = spd[2] | (spd[3] << 8);
             if (s_spd.valid) {
                 uint16_t dt = t - s_spd.t, dr = r - s_spd.revs;
-                if (dt) s_val.speed_kmh = dr * ANT_WHEEL_CIRC_M * 1024.0f / dt * 3.6f;
+                if (dt) {
+                    s_val.speed_kmh = dr * ANT_WHEEL_CIRC_M * 1024.0f / dt * 3.6f;
+                    s_spd.last_change_ms = now;
+                } else if (now - s_spd.last_change_ms > STALE_MS) {
+                    s_val.speed_kmh = 0;
+                }
                 s_val.wheel_revs += dr;
+            } else {
+                s_spd.last_change_ms = now;
             }
             s_spd.t = t; s_spd.revs = r; s_spd.valid = true;
         }
