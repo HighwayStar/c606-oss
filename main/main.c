@@ -51,8 +51,9 @@ static void on_frame(const uint8_t *f, size_t len, void *ctx)
     nrf_key_event_t ev;
     xSemaphoreTake(s.lock, portMAX_DELAY);
     s.rx_frames++;
-    /* periodic battery/status frames are noisy; log the rest */
-    if (!(f[5] == 0x00 && f[6] == 0x52) && !(f[5] == NRF_CMD_SYS && f[6] == 0xF0)) {
+    /* periodic battery/status/RTC/sensor frames are noisy; log the rest */
+    if (!(f[5] == 0x00 && (f[6] == 0x52 || f[6] == 0x53)) &&
+        !(f[5] == NRF_CMD_SYS && (f[6] == 0xF0 || f[6] == 0xF1))) {
         ESP_LOG_BUFFER_HEX_LEVEL(TAG, f, len, ESP_LOG_INFO);
     }
     s.last_frame_len = len < sizeof s.last_frame ? len : sizeof s.last_frame;
@@ -79,7 +80,8 @@ static void on_frame(const uint8_t *f, size_t len, void *ctx)
         s.keys[0].ev = ev;
         s.keys[0].t_ms = esp_timer_get_time() / 1000;
         if (ev.key < KEY_MAX) {
-            s.key_state[ev.key] = ev.event;
+            /* box stays lit only while a long press is in progress */
+            s.key_state[ev.key] = (ev.event == KEY_EVT_LONG_START) ? ev.event : 0;
         }
         ESP_LOGI(TAG, "KEY idx=%u event=%u aux=%u", ev.key, ev.event, ev.aux);
     }
@@ -116,7 +118,7 @@ static void draw_screen(void)
     for (int k = 0; k < KEY_MAX; k++) {
         int x = 66 + k * 34, y = 4 * 20;
         uint8_t st = s.key_state[k];
-        uint16_t c = st == 0 ? C_DGREY : (st == KEY_EVT_LONG_START || st == KEY_EVT_HOLD_REPEAT) ? C_RED : C_GREEN;
+        uint16_t c = st == KEY_EVT_LONG_START ? C_RED : C_DGREY;
         lcd_fill_rect(x, y, 30, 20, c);
         snprintf(line, sizeof line, "%d", k);
         lcd_draw_text(x + 9, y, line, C_WHITE, c);

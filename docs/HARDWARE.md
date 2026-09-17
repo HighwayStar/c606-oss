@@ -123,7 +123,7 @@ the receive task (`0x42051330`) frames them.
 | **0x49** | **button event**: `[1]` key index (0..2 stored, up to 4 accepted), `[5]` aux, `[6]` event value. Queued as "type 0" -> `ArmSendBtnEvent` -> `KeyQueueReceive`. |
 | 0xE2 | reply to E2 control: `[1]=2` -> power-on reason in `[5]` (4 = manual power-on, 5/6 = charger) |
 | 0xF0 | `[1]=2`: 1-byte status (type 3) |
-| 0xF1 | `[1]`: 1/2 = sensor values (u32 @2, u16 @6), 3 = something with doubles (type 2), 4 = 8-byte record (type 9), 10 = float |
+| 0xF1 | sensor stream, ~5 Hz, all subtypes back-to-back (see below) |
 | 0xF3 | `[1]=3`: type 7 record |
 
 Key event values seen in `KeyQueueReceive` (`0x42056ad0`):
@@ -132,9 +132,16 @@ held, and reports "Hold Up" when the next non-4 event arrives). In the main
 state machine key 0 with value 1 is logged as "A button pressed!" and key 0
 with value 4 triggers shutdown.
 
-**Observed on hardware (PoC, 2026-09-17):** a short press yields exactly one
-frame `49 <idx> 00 00 00 00 01 80` (event 1, aux 0, payload[7] = 0x80); the
-three physical keys are idx 0, 1, 2. Long-press values not captured yet.
+**Measured on hardware (PoC, 2026-09-17)**, frames are `49 <idx> 00 00 00 00 <evt> 80`:
+
+| evt | meaning | timing |
+|---|---|---|
+| 1 | short press ("click") | one frame, sent on release |
+| 4 | long press | first frame ~0.5 s after press-down, then repeated by the nRF every ~250 ms while held |
+| 5 | release after a long press | one frame |
+
+The three physical keys are idx 0, 1, 2. (Value 6 is generated inside the
+vendor firmware, never seen on the wire.)
 
 ### Observed unsolicited / reply traffic (PoC log)
 
@@ -146,6 +153,21 @@ In reply to `SendPowerOnCmd`:
 * `A5 0C 6F F1 05 10 E2 02 01 00 00 00 00 00` — ack (type 5)
 * `A5 0C 6F F1 04 10 E2 02 00 00 FF 04 00 FF` — power-on reason `@5` = 4 (manual)
 * `A5 0E 6F F1 04 01 01 01 00 00 00 00 00 00 02 13` — nRF firmware version, vendor parses `@7,@8,@9` -> 0 / 2 / 19
+
+Every second (repeated 5x):
+* `A5 0C 6F F1 04 00 53 FF ss mm hh dd MM yy` — cmd 0 `'S'`: RTC, `sec, min, hour, day&0x1f, month-1, year-1900` (observed `.. 3A 0C 91 08 7E` = 2026-09-17 12:58 UTC, correct).
+
+Sensor stream `cmd 0x10, F1 <sub>`, ~5 Hz, starts some time after boot
+(not seen in the first 45 s; possibly motion-triggered). Interpretation of
+the values is a hypothesis from the vendor's math and plausibility:
+
+| sub | payload[2..7] | reading |
+|---|---|---|
+| 01 | 3 x int16 | accelerometer raw, ~4096 LSB/g (`3C 06 F0 04 1A 0E` -> magnitude ≈ 1.01 g at rest) |
+| 02 | 3 x int16 | gyro raw (`ED FF F7 FF 1B 00` = -19, -9, 27 at rest) |
+| 03 | int16 @2, u32 @4 | temperature in 0.01 °C (`AD 0B` = 29.89 °C), pressure in 0.01 Pa (`BC 2B 92 00` = 957.9 hPa). Vendor feeds these into the barometric altitude formula (44330 * (1 - (p/1013.25)^0.19)). |
+| 04 | u32 @2, u16 @6 | unknown (`32 00 00 00 77 00`), queued as type 9 |
+| 0A | int16 @2 | unknown float source (`F6 0C` = 3318) |
 
 The nRF keeps sending without any ESP32 traffic and does not power the ESP32
 down on its own (tested for several minutes with only `SendPowerOnCmd` every 5 s).

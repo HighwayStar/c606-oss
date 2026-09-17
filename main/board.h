@@ -94,9 +94,11 @@
  *   E2 02 08 .. 01  factory init
  *   E2 01 XX        LED / misc, XX < 0x1c                                 */
 
-/* Button event values seen in KeyQueueReceive() */
-#define KEY_EVT_LONG_START   4   /* "Long Press Start" */
-#define KEY_EVT_HOLD_REPEAT  6   /* synthesized by vendor every 300 ms while held */
+/* Button event values (payload[6]); measured on hardware */
+#define KEY_EVT_CLICK        1   /* short press, one frame on release */
+#define KEY_EVT_LONG_START   4   /* long press: repeated by the nRF every ~250 ms while held */
+#define KEY_EVT_LONG_RELEASE 5   /* release after a long press */
+#define KEY_EVT_HOLD_REPEAT  6   /* synthesized by the vendor firmware, never on the wire */
 
 /* ------------------------------------------------------------------ */
 /* Other peripherals (not used by the PoC, documented for later)         */

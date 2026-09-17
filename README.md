@@ -59,7 +59,7 @@ with `esp32_image_parser.py dump_partition`.)
 2. Status screen: uptime, frame counter, `nRF ok r4 fw0.2.19` (power-on
    reason, nRF firmware), `bat 100% 4343mV st0`.
 3. Pressing a button adds a row `time key evt aux` and lights the key box
-   (keys are idx 0/1/2, short press = event 1). Long press (event 4) shows red.
+   (keys are idx 0/1/2; event 1 = click, 4 = long press repeating while held, 5 = release). The box is red while a key is long-pressed.
 
 Console: `tools/serial_log.py /dev/ttyACM0 20 --reset` (inside the IDF
 container, or anywhere with pyserial) prints the boot log and every non-periodic
@@ -76,7 +76,7 @@ works. If colours are swapped (red <-> blue) build with
   hard power-off on its own regardless of what the ESP32 does.
 * **PSRAM** is disabled in the PoC. The chip reports embedded 2 MB Quad PSRAM,
   so `CONFIG_SPIRAM=y` + `CONFIG_SPIRAM_MODE_QUAD=y` should be safe to enable.
-* Long-press / release event values are not mapped yet (only event 1 seen).
+* Sensor stream (IMU, barometer) decoding in docs/HARDWARE.md is unverified guesswork.
 
 ## Layout
 
