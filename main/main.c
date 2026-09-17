@@ -4,7 +4,8 @@
  * Brings up the ST7789 over the i80 bus, LVGL 9 with draw buffers in internal
  * RAM and objects in PSRAM, the backlight, and the UART link to the nRF
  * co-processor, and the GNSS receiver on UART0.
- * Keys: 0 = switch page, 1/2 = backlight down/up.
+ * Keys: 0 = switch page, 1/2 = backlight down/up, hold 2 = start/stop
+ * recording a CSV track to the SD card.
  */
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -20,6 +21,8 @@
 #include "ui_port.h"
 #include "ui.h"
 #include "gps.h"
+#include "sdcard.h"
+#include "tracklog.h"
 
 static const char *TAG = "main";
 
@@ -27,6 +30,8 @@ static bool s_nrf_alive;
 static uint8_t s_nrf_reason;
 static uint8_t s_nrf_fw[3];
 static uint8_t s_bl_pct = 70;
+static int16_t s_temp_c100;
+static uint32_t s_press_pa100;
 
 static void set_backlight(int pct)
 {
@@ -41,6 +46,19 @@ static void on_key(const nrf_key_event_t *ev)
 {
     ESP_LOGI(TAG, "KEY idx=%u event=%u aux=%u", ev->key, ev->event, ev->aux);
     ui_key_event(ev->key, ev->event);
+    if (ev->key == 2 && ev->event == KEY_EVT_LONG_RELEASE) {
+        if (tracklog_active()) {
+            tracklog_stop();
+        } else {
+            gps_fix_t fix;
+            gps_get(&fix);
+            if (tracklog_start(&fix) != ESP_OK) {
+                ESP_LOGW(TAG, "cannot start recording (SD?)");
+            }
+        }
+        ui_set_rec(tracklog_active(), tracklog_points());
+        return;
+    }
     if (ev->event != KEY_EVT_CLICK) {
         return;
     }
@@ -71,9 +89,9 @@ static void on_frame(const uint8_t *f, size_t len, void *ctx)
     } else if (cmd == 0x00 && p[0] == 0x52) {
         ui_set_battery(p[6], p[4] | (p[5] << 8));
     } else if (cmd == NRF_CMD_SYS && p[0] == 0xF1 && p[1] == 0x03) {
-        int16_t t = p[2] | (p[3] << 8);
-        uint32_t pr = p[4] | (p[5] << 8) | (p[6] << 16) | ((uint32_t)p[7] << 24);
-        ui_set_env(t, pr);
+        s_temp_c100 = p[2] | (p[3] << 8);
+        s_press_pa100 = p[4] | (p[5] << 8) | (p[6] << 16) | ((uint32_t)p[7] << 24);
+        ui_set_env(s_temp_c100, s_press_pa100);
     } else if (!(cmd == 0x00 && p[0] == 0x53) && !(cmd == NRF_CMD_SYS && (p[0] == 0xF0 || p[0] == 0xF1))) {
         ESP_LOG_BUFFER_HEX_LEVEL(TAG, f, len, ESP_LOG_INFO); /* anything not yet understood */
     }
@@ -83,6 +101,10 @@ static void on_gps(const gps_fix_t *fix, void *ctx)
 {
     static uint32_t last_log;
     ui_set_gps(fix);
+    if (tracklog_active()) {
+        tracklog_point(fix, s_temp_c100, s_press_pa100);
+        ui_set_rec(true, tracklog_points());
+    }
     if (fix->last_rx_ms - last_log > 5000) {
         last_log = fix->last_rx_ms;
         ESP_LOGI(TAG, "GPS %s q=%u sats %u/%u hdop %.1f  %.5f %.5f alt %.0f  %.1f km/h  %02u:%02u:%02u  n=%lu bad=%lu",
@@ -107,6 +129,11 @@ void app_main(void)
 
     ESP_ERROR_CHECK(nrf_link_init(on_frame, NULL));
     ESP_ERROR_CHECK(gps_init(on_gps, NULL));
+
+    if (sdcard_mount() == ESP_OK) {
+        const sdcard_info_t *sd = sdcard_info();
+        ui_set_sd(true, sd->name, sd->size_mb);
+    }
 
     uint32_t last_pwr_ms = 0;
     bool first = true;

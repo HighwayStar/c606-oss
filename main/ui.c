@@ -10,12 +10,12 @@
 #include "ui_port.h"
 #include "ui.h"
 
-#define LOG_LINES 4
+#define LOG_LINES 3
 
 static lv_obj_t *s_page_status, *s_page_ride;
-static lv_obj_t *s_hdr_bat, *s_arc, *s_arc_lbl, *s_env, *s_nrf, *s_gps, *s_log, *s_foot;
+static lv_obj_t *s_hdr_bat, *s_hdr_rec, *s_arc, *s_arc_lbl, *s_env, *s_nrf, *s_gps, *s_sd, *s_log, *s_foot;
 static lv_obj_t *s_key[3];
-static lv_obj_t *s_big, *s_big_caption, *s_ride_env, *s_ride_gps, *s_ride_pos, *s_ride_time;
+static lv_obj_t *s_big, *s_big_caption, *s_ride_env, *s_ride_gps, *s_ride_pos, *s_ride_time, *s_ride_rec;
 
 static char s_log_buf[LOG_LINES][32];
 static int s_log_n;
@@ -62,6 +62,9 @@ static void build_status(lv_obj_t *scr)
     s_hdr_bat = label(hdr, &lv_font_montserrat_14, lv_color_white());
     lv_label_set_text(s_hdr_bat, "--%");
     lv_obj_align(s_hdr_bat, LV_ALIGN_RIGHT_MID, -6, 0);
+    s_hdr_rec = label(hdr, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_RED));
+    lv_label_set_text(s_hdr_rec, "");
+    lv_obj_align(s_hdr_rec, LV_ALIGN_CENTER, 20, 0);
 
     /* battery arc */
     s_arc = lv_arc_create(s_page_status);
@@ -94,6 +97,10 @@ static void build_status(lv_obj_t *scr)
     lv_label_set_text(s_gps, "GPS: probing baud");
     lv_obj_align(s_gps, LV_ALIGN_TOP_MID, 0, 196);
 
+    s_sd = label(s_page_status, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_ORANGE));
+    lv_label_set_text(s_sd, "SD: not mounted");
+    lv_obj_align(s_sd, LV_ALIGN_TOP_MID, 0, 214);
+
     /* key indicators */
     for (int i = 0; i < 3; i++) {
         s_key[i] = lv_obj_create(s_page_status);
@@ -102,7 +109,7 @@ static void build_status(lv_obj_t *scr)
         lv_obj_set_style_bg_color(s_key[i], C_IDLE, 0);
         lv_obj_set_style_bg_opa(s_key[i], LV_OPA_COVER, 0);
         lv_obj_set_style_radius(s_key[i], 6, 0);
-        lv_obj_align(s_key[i], LV_ALIGN_TOP_LEFT, 12 + i * 76, 218);
+        lv_obj_align(s_key[i], LV_ALIGN_TOP_LEFT, 12 + i * 76, 236);
         lv_obj_t *l = label(s_key[i], &lv_font_montserrat_14, lv_color_white());
         lv_label_set_text_fmt(l, "key %d", i);
         lv_obj_center(l);
@@ -111,7 +118,7 @@ static void build_status(lv_obj_t *scr)
     /* event log */
     s_log = label(s_page_status, &lv_font_unscii_8, lv_palette_lighten(LV_PALETTE_GREY, 2));
     lv_obj_set_width(s_log, LCD_H_RES - 16);
-    lv_obj_align(s_log, LV_ALIGN_TOP_LEFT, 8, 250);
+    lv_obj_align(s_log, LV_ALIGN_TOP_LEFT, 8, 268);
     lv_label_set_text(s_log, "press a key...");
 
     /* footer */
@@ -150,8 +157,12 @@ static void build_ride(lv_obj_t *scr)
     lv_label_set_text(s_ride_env, "--.- C");
     lv_obj_align(s_ride_env, LV_ALIGN_TOP_MID, 0, 230);
 
+    s_ride_rec = label(s_page_ride, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_RED));
+    lv_label_set_text(s_ride_rec, "");
+    lv_obj_align(s_ride_rec, LV_ALIGN_TOP_MID, 0, 268);
+
     lv_obj_t *hint = label(s_page_ride, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_GREY));
-    lv_label_set_text(hint, "key0: page  key1/2: backlight");
+    lv_label_set_text(hint, "0:page 1/2:light hold2:rec");
     lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -10);
 }
 
@@ -278,6 +289,32 @@ void ui_set_gps(const gps_fix_t *g)
         if (g->hh || g->mm || g->ss) {
             lv_label_set_text_fmt(s_ride_time, "%02u:%02u:%02u UTC", g->hh, g->mm, g->ss);
         }
+    }
+    ui_unlock();
+}
+
+void ui_set_sd(bool mounted, const char *name, uint32_t size_mb)
+{
+    ui_lock();
+    if (mounted) {
+        lv_label_set_text_fmt(s_sd, "SD %s  %lu.%lu GB", name, (unsigned long)(size_mb / 1024),
+                              (unsigned long)((size_mb % 1024) * 10 / 1024));
+        lv_obj_set_style_text_color(s_sd, lv_palette_main(LV_PALETTE_GREEN), 0);
+    } else {
+        lv_label_set_text(s_sd, "SD: not mounted");
+    }
+    ui_unlock();
+}
+
+void ui_set_rec(bool active, uint32_t points)
+{
+    ui_lock();
+    if (active) {
+        lv_label_set_text_fmt(s_hdr_rec, LV_SYMBOL_STOP " %lu", (unsigned long)points);
+        lv_label_set_text_fmt(s_ride_rec, "REC " LV_SYMBOL_STOP " %lu points", (unsigned long)points);
+    } else {
+        lv_label_set_text(s_hdr_rec, "");
+        lv_label_set_text(s_ride_rec, points ? "stopped" : "");
     }
     ui_unlock();
 }

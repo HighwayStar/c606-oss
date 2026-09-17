@@ -11,7 +11,8 @@ This PoC replaces only the ESP32 application. It:
 * opens the UART link to the nRF, sends the vendor's power-on handshake,
 * decodes button, battery, temperature/pressure and version frames,
 * reads the Airoha AG3352Q GNSS on UART0 (auto-baud, NMEA RMC/GGA/GSV),
-* keys: 0 = switch page, 1/2 = backlight down/up.
+* mounts the on-board 4 GB eMMC (FAT, `/sdcard`) and records CSV tracks to `/sdcard/c606oss/`,
+* keys: 0 = switch page, 1/2 = backlight down/up, hold 2 = start/stop recording.
 
 Everything hardware-specific lives in `main/board.h`; the analysis behind it
 is in [`docs/HARDWARE.md`](docs/HARDWARE.md).
@@ -63,10 +64,14 @@ with `esp32_image_parser.py dump_partition`.)
 1. Status page: header with battery %, battery arc with mV, temperature and
    pressure (once the nRF starts its sensor stream), `nRF ok reason 4 fw 0.2.19`,
    three key boxes, an event log and a footer with free internal/PSRAM heap.
-   The `GPS` line shows fix state, satellites used/in view and HDOP.
+   The `GPS` line shows fix state, satellites used/in view and HDOP; the
+   `SD` line shows the eMMC name and size.
 2. Key 0 click switches to the "ride" page: UTC time, big speed digits,
    position/altitude/course once there is a fix, temperature.
-   Key 1 / key 2 step the backlight by 10 %. A key box flashes green on a
+   Key 1 / key 2 step the backlight by 10 %. Long-press key 2 to start a
+   recording (`REC` + point count in the header); files land in
+   `/sdcard/c606oss/<utc date-time>.csv`, one line per second with a fix
+   (position, altitude, speed, course, sats, HDOP, temperature, pressure). A key box flashes green on a
    click and stays red while long-pressed (event 4), clears on release (5).
 
 Console: `tools/serial_log.py /dev/ttyACM0 20 --reset` (inside the IDF
@@ -80,6 +85,8 @@ works. If colours are swapped (red <-> blue) build with
 
 ## Known unknowns / risks
 
+* The eMMC holds the vendor's data (maps, fonts, ride files, AGNSS). Nothing
+  outside `/sdcard/c606oss/` is touched, but treat it with care.
 * **Long press on key 0** makes the vendor firmware shut down; the nRF may do a
   hard power-off on its own regardless of what the ESP32 does.
 * Sensor stream (IMU, barometer) decoding in docs/HARDWARE.md is unverified guesswork.
@@ -94,6 +101,8 @@ main/ui.c          demo pages (status / ride)
 main/backlight.c   LEDC PWM
 main/nrf_link.c    UART framing, CRC16, TX helpers, key decoding
 main/gps.c         UART0 NMEA reader with baud probing
+main/sdcard.c      eMMC mount (SDMMC 4-bit)
+main/tracklog.c    CSV track recorder
 main/main.c        glue: frame decoding -> UI, key actions, handshake
 tools/flash_poc.py flash/restore helper
 docs/HARDWARE.md   reverse-engineering notes with addresses

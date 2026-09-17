@@ -11,6 +11,8 @@ void ui_set_env(int16_t temp_c100, uint32_t pressure_pa100);
 void ui_set_nrf(bool alive, uint8_t reason, const uint8_t fw[3]);
 void ui_set_backlight(uint8_t pct);
 void ui_set_gps(const gps_fix_t *fix);
+void ui_set_sd(bool mounted, const char *name, uint32_t size_mb);
+void ui_set_rec(bool active, uint32_t points);
 void ui_key_event(uint8_t key, uint8_t evt);
 void ui_toggle_page(void);
 void ui_tick(uint32_t uptime_s);   /* call ~1x per second */

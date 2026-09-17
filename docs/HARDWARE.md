@@ -214,6 +214,12 @@ other hardware revisions.
 
 ## Other peripherals
 
-* **SD card**: SDMMC 4-bit, CLK 13, CMD 14, D0 16, D1 17, D2 18, D3 15 (`MidVFSMount`), mounted at `/sdcard`.
+* **"SD card" = on-board 4 GB eMMC** (`004GA1`, 3776 MB, MMC, 20 MHz): SDMMC host slot 1, 4-bit,
+  CLK 13, CMD 14, D0 16, D1 17, D2 18, D3 15, internal pull-ups (`MidVFSMount`, host =
+  `SDMMC_HOST_DEFAULT`, `max_files` 17, 16 KB allocation unit, **format_if_mount_failed = true** in
+  the vendor code). FAT with long names, mounted at `/sdcard`. Vendor directory tree:
+  `System Volume Information/ FONT/ MAP/ BOOT/ SD/ APP/ GPS/ FITS/ COURSE/ NAVIGATION/ EPHEMERIS/ CONFIG/`
+  (`FITS/` = ride recordings, `EPHEMERIS/` = AGNSS/EPO files for the GNSS, `MAP/` = map tiles).
+  The open firmware writes only under `/sdcard/c606oss/`.
 * **NVS**: standard `nvs` partition; vendor config blob `Res1Page11` (byte 3 = HW variant).
 * GPIO43/44 (default UART0 pins) are driven high as outputs on HW variant 2 before LCD init.
