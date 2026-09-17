@@ -106,7 +106,11 @@ esp_err_t ant_connect(uint8_t dev_type, uint16_t dev_num, uint8_t trans_type)
 
 esp_err_t ant_disconnect(uint8_t dev_type)
 {
-    /* vendor StartAntDisConnectDrive: 17 <type> 00 00 00 01 00 00 */
+    /* vendor StartAntDisConnectDrive: 17 <type> 00 00 00 01 00 00.
+     * WARNING: on this unit, closing channels at boot left the nRF refusing
+     * every subsequent open (immediate status 4, no search) until it was
+     * power-cycled (hold key 0). The vendor only closes before re-pairing.
+     * Not used by the firmware at the moment. */
     uint8_t p[8] = {SUB_CHANNEL, dev_type, 0, 0, 0, 0x01, 0, 0};
     ant_channel_t *c = find_ch(dev_type);
     if (c) c->state = ANT_ST_IDLE;
@@ -187,8 +191,8 @@ bool ant_handle_frame(const uint8_t *f, size_t len)
         if (st != 4) {
             ESP_LOGI(TAG, "%s: %s", ant_dev_name(p[1]),
                      st == 3 ? "connected" : st == 5 ? "search timeout" : "event");
-            ESP_LOG_BUFFER_HEX_LEVEL(TAG, p, 8, ESP_LOG_INFO);
         }
+        ESP_LOG_BUFFER_HEX_LEVEL(TAG, p, 8, ESP_LOG_DEBUG);
         if (c) {
             if (st == 3) {
                 c->state = ANT_ST_CONNECTED;
@@ -214,8 +218,9 @@ bool ant_handle_frame(const uint8_t *f, size_t len)
     }
     if (is_ant_type(cmd)) {
         ant_channel_t *c = find_ch(cmd);
-        static uint32_t logged;
-        if (logged < 20 || (logged % 50) == 0) {
+        static uint32_t logged, last_page_log;
+        if (logged < 20 || now - last_page_log >= 10000) {
+            last_page_log = now;
             ESP_LOGI(TAG, "%s page %02x: %02x %02x %02x %02x %02x %02x %02x", ant_dev_name(cmd),
                      p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]);
         }

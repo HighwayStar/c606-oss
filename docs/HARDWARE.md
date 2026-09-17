@@ -162,6 +162,20 @@ the ESP32's own Bluedroid stack (`kaka:` log lines), not by the nRF.
 Sending `SendPowerOnCmd` repeatedly is harmful: the nRF re-runs its power-on
 sequence and drops the ANT channels each time. Send it once.
 
+Pitfalls found on hardware:
+* The nRF keeps ANT channels (and their 5 s status broadcast) across ESP32
+  resets; it also reopens stored devices after the power-on command.
+* After sending the close command (`17 <type> 00 00 00 01`) at boot, every
+  later open was answered with an immediate status 4 and no search, even with
+  the sensors in range (scan still found them). Only a power cycle of the nRF
+  (hold key 0 -> power off -> key 0) restored it. The vendor closes channels
+  only in its re-pairing flow (close -> scan -> stop scan -> open).
+* Scan: results `F3 03 xx <type> <num> <trans> <rssi> <flag>` appear within
+  1-3 s (measured RSSI -37..-61 dBm); a `17 00 .. 05` then `17 00 .. 04` event
+  marks the scan's end; `flag`=0 is the ScanEnd marker.
+* Decoded live: HR page 4 (72-85 bpm), cadence 122 (26 rpm from slow crank
+  turns via event-time/rev deltas); speed 123 uses the same math.
+
 ### cmd 0x10 payloads (nRF -> ESP32)
 
 | payload[0] | meaning |

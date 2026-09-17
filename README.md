@@ -107,6 +107,9 @@ works. If colours are swapped (red <-> blue) build with
   reset to recover.
 * The eMMC holds the vendor's data (maps, fonts, ride files, AGNSS). Nothing
   outside `/sdcard/c606oss/` is touched, but treat it with care.
+* If ANT+ sensors stop connecting (immediate "not connected", scan still
+  finds them), the nRF's ANT stack is wedged: hold key 0 to power off, press
+  key 0 to power on. Don't send channel-close commands at boot.
 * **Long press on key 0** makes the vendor firmware shut down; the nRF may do a
   hard power-off on its own regardless of what the ESP32 does.
 * Sensor stream (IMU, barometer) decoding in docs/HARDWARE.md is unverified guesswork.

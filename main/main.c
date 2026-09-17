@@ -118,9 +118,16 @@ static void on_key(const nrf_key_event_t *ev)
 
 static void on_ant(const ant_sensors_t *v, void *ctx)
 {
+    static uint32_t last_log;
     size_t n;
     const ant_channel_t *ch = ant_channels(&n);
     ui_set_sensors(v, ch, n);
+    uint32_t now = esp_timer_get_time() / 1000;
+    if (now - last_log >= 1000) {
+        last_log = now;
+        ESP_LOGI(TAG, "SENSORS hr=%u cad=%.1f spd=%.2f km/h revs=%lu pwr=%u",
+                 v->hr_bpm, v->cadence_rpm, v->speed_kmh, (unsigned long)v->wheel_revs, v->power_w);
+    }
 }
 
 static void connect_paired_sensors(void)
