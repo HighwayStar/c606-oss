@@ -3,7 +3,8 @@
 bootloader, partition table or NVS.
 
   1. reads the partition table from the device (0x8000, or scans for it)
-  2. (unless --no-backup) dumps the whole flash to backup-<timestamp>.bin
+  2. (unless --no-backup) dumps the regions it is about to modify (ota_0 and
+     otadata) to backup-<timestamp>-<name>.bin; --full-backup dumps all flash
   3. writes build/c606_oss.bin at the ota_0 offset
   4. erases otadata so the bootloader falls back to ota_0
 
@@ -41,7 +42,8 @@ def main():
     ap.add_argument("-p", "--port", required=True)
     ap.add_argument("--app", default="build/c606_oss.bin")
     ap.add_argument("--no-backup", action="store_true")
-    ap.add_argument("--flash-size", default="16MB", help="for the full backup")
+    ap.add_argument("--full-backup", action="store_true", help="dump the whole flash instead of just ota_0/otadata")
+    ap.add_argument("--flash-size", default="16MB", help="for --full-backup")
     ap.add_argument("--restore", metavar="VENDOR_OTA0_BIN", help="write this image to ota_0 instead of the PoC")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
@@ -74,9 +76,16 @@ def main():
         return
 
     if not a.no_backup:
-        out = time.strftime("backup-%Y%m%d-%H%M%S.bin")
-        print(f"\nfull flash backup -> {out} (this takes a few minutes)")
-        esptool(a.port, "read_flash", "0", a.flash_size, out)
+        stamp = time.strftime("backup-%Y%m%d-%H%M%S")
+        if a.full_backup:
+            print(f"\nfull flash backup -> {stamp}.bin (slow)")
+            esptool(a.port, "read_flash", "0", a.flash_size, f"{stamp}.bin")
+        else:
+            regions = [("ota_0", app_slot)] + ([("otadata", otadata)] if otadata else [])
+            for name, e in regions:
+                out = f"{stamp}-{name}.bin"
+                print(f"\nbackup {name} -> {out}")
+                esptool(a.port, "read_flash", hex(e["off"]), hex(e["size"]), out)
 
     esptool(a.port, "write_flash", hex(app_slot["off"]), img)
     if otadata:

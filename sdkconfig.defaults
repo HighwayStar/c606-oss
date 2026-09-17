@@ -13,7 +13,7 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 # wrong guess cannot abort boot. Framebuffer lives in internal RAM.
 # CONFIG_SPIRAM is not set
 
-# Logs over the S3's built-in USB-Serial-JTAG (USB-C on the device).
+# Logs over the S3's built-in USB-Serial-JTAG (USB-C on the device, /dev/ttyACM0).
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 
 # Reduce boot-time verbosity a bit, keep info logs

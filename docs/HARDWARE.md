@@ -12,8 +12,8 @@ strings (`__func__` arguments to the logger), not from symbols.
 | Framework | ESP-IDF 5.3+ (`esp_driver_gpio`, `esp_driver_ledc`, `esp_driver_uart`, `esp_driver_sdmmc`, `esp_driver_i2c`), FreeRTOS |
 | UI | LVGL 8.x (`lv_disp_drv_t` with `flush_cb` at +0x14, `user_data` at +0x3c) |
 | Flash | 16 MB, DIO, 80 MHz (vendor app image header byte 3 = `0x4f`) |
-| PSRAM | present (`esp_psram.c`, `ArmPsramMalloc`), type/mode not determined |
-| App partition | `ota_0` / `ota_1`, each 7,577,600 bytes (0x73A000) |
+| PSRAM | **embedded 2 MB Quad (esptool: "Embedded PSRAM 2MB (AP_3v3)")**, chip rev v0.2, QFN56 |
+| Partitions (read from device) | `nvs` 0x9000/0x4000, `otadata` 0xd000/0x2000, `phy_init` 0xf000, `coredump` 0x10000/0x10000, **`ota_0` 0x20000**, `ota_1` 0x760000, each 0x73A000 |
 | Co-processor | Nordic nRF ("Minor MCU", `mSysTimeStampFromNrf`) on UART2. Handles buttons, power, charging, sensors, RTC. Upgradable from the ESP32 ("Upgrade Slave MCU"). |
 | USB | TinyUSB CDC (+ SD as MSC), so the USB-C goes to the S3 native USB pins (19/20). USB-Serial-JTAG console works on the same pins. |
 
@@ -101,9 +101,10 @@ the receive task (`0x42051330`) frames them.
 * `N = len + 4`; total frame = `N + 4`; vendor rejects `N >= 0x85`.
 * `DIR`: ESP32 sends `F1`; the value in nRF frames is not checked.
 * `TYPE`: must be 1..5. ESP32 uses 1 = query (`SendCheckPowerOnReasonCmd`) and 2 = set.
-* `CRC16`: `FUN_4222c01c` — poly 0x1021, init 0, augmented bit-serial, but
-  only **2** trailing zero bits (not 16) — non-standard, see `nrf_link_crc16()`.
-  Computed over bytes `[0 .. N+1]`, stored little-endian.
+* `CRC16`: `FUN_4222c01c` = **CRC-16/XMODEM** (poly 0x1021, init 0, no reflection,
+  check `0x31C3`). Computed over bytes `[0 .. N+1]`, stored little-endian.
+  Note: Ghidra's decompiler drops the two `loop a10,8` tail blocks and shows
+  only 2 augmenting shifts — read the disassembly, not the C.
 * TX builder: `FUN_42051260(type, cmd, payload, len)`.
 
 ### CMD dispatch (`0x420521c4`, `cmd = frame[5]`)
@@ -127,11 +128,27 @@ the receive task (`0x42051330`) frames them.
 
 Key event values seen in `KeyQueueReceive` (`0x42056ad0`):
 `4` = "Long Press Start" (vendor then synthesizes value `6` every 300 ms while
-held, and reports "Hold Up" when the next non-4 event arrives), other values
-1..3/5 are press/release variants. In the main state machine key 0 with
-value 1 is logged as "A button pressed!" and key 0 with value 4 triggers
-shutdown. Exact mapping of values 1/2/3/5 still needs to be confirmed on
-hardware — the PoC prints them.
+held, and reports "Hold Up" when the next non-4 event arrives). In the main
+state machine key 0 with value 1 is logged as "A button pressed!" and key 0
+with value 4 triggers shutdown.
+
+**Observed on hardware (PoC, 2026-09-17):** a short press yields exactly one
+frame `49 <idx> 00 00 00 00 01 80` (event 1, aux 0, payload[7] = 0x80); the
+three physical keys are idx 0, 1, 2. Long-press values not captured yet.
+
+### Observed unsolicited / reply traffic (PoC log)
+
+Every 300 ms:
+* `A5 0C 6F F1 04 00 52 FF FF FF F7 10 64 FF` — cmd 0 `'R'`: battery, `u16 @4` = mV (0x10F7 = 4343), `@6` = percent (0x64)
+* `A5 0C 6F F1 04 10 F0 02 00 00 00 00 00 00` — status byte `@2` (0 while on battery; probably charger state)
+
+In reply to `SendPowerOnCmd`:
+* `A5 0C 6F F1 05 10 E2 02 01 00 00 00 00 00` — ack (type 5)
+* `A5 0C 6F F1 04 10 E2 02 00 00 FF 04 00 FF` — power-on reason `@5` = 4 (manual)
+* `A5 0E 6F F1 04 01 01 01 00 00 00 00 00 00 02 13` — nRF firmware version, vendor parses `@7,@8,@9` -> 0 / 2 / 19
+
+The nRF keeps sending without any ESP32 traffic and does not power the ESP32
+down on its own (tested for several minutes with only `SendPowerOnCmd` every 5 s).
 
 ### cmd 0x10 payloads (ESP32 -> nRF), all 8 bytes, `E2 grp id 00 00 val 00 00`
 
@@ -148,8 +165,8 @@ hardware — the PoC prints them.
 Boot state machine (`ArmStateProcess` @ `0x420570dc`):
 `INIT_QUERY (1)` -> `USER_INIT (3)` -> `FILE_CHECK (4)` -> `USER (9)`;
 in `USER` every 10 s it goes through state `0xb` which polls the nRF.
-Whether the nRF has a watchdog on ESP32 traffic is unknown; the PoC re-sends
-`SendPowerOnCmd` every 5 s to be safe.
+No watchdog behaviour observed so far; the PoC re-sends `SendPowerOnCmd`
+every 5 s anyway.
 
 ## Other peripherals
 

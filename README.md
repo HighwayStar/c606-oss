@@ -40,7 +40,7 @@ is overwritten and `otadata` is erased so the bootloader boots `ota_0`.
 
 ```sh
 # put the device into download mode (GPIO0 low at reset), then:
-tools/flash_poc.py -p /dev/ttyACM0            # makes a full 16 MB backup first
+tools/flash_poc.py -p /dev/ttyACM0            # backs up ota_0 + otadata first (--full-backup for all 16 MB)
 tools/flash_poc.py -p /dev/ttyACM0 --dry-run  # just show the partition table
 ```
 
@@ -53,13 +53,17 @@ tools/flash_poc.py -p /dev/ttyACM0 --restore path/to/vendor_ota_0.bin
 (`vendor_ota_0.bin` = the `ota_0` partition dumped from your device, e.g.
 with `esp32_image_parser.py dump_partition`.)
 
-## What to expect on first boot
+## What to expect on boot (verified on hardware)
 
 1. Red/green/blue bars with "C606 open FW" for ~1 s (LCD + backlight work).
-2. Status screen: uptime, frame counter, `nRF: no reply yet` -> `handshake OK`
-   once the nRF answers `E2 02 ...`.
-3. Pressing buttons adds rows `time key evt aux` and lights the key box.
-   Long press (event 4) shows red.
+2. Status screen: uptime, frame counter, `nRF ok r4 fw0.2.19` (power-on
+   reason, nRF firmware), `bat 100% 4343mV st0`.
+3. Pressing a button adds a row `time key evt aux` and lights the key box
+   (keys are idx 0/1/2, short press = event 1). Long press (event 4) shows red.
+
+Console: `tools/serial_log.py /dev/ttyACM0 20 --reset` (inside the IDF
+container, or anywhere with pyserial) prints the boot log and every non-periodic
+nRF frame.
 
 If the screen stays dark: check the backlight (GPIO45) first — the bars are
 drawn before it is enabled, so a dark-but-flickering panel means the i80 bus
@@ -68,16 +72,11 @@ works. If colours are swapped (red <-> blue) build with
 
 ## Known unknowns / risks
 
-* **nRF watchdog**: the vendor sends `SendPowerOnCmd` until the nRF replies,
-  then polls it every 10 s. If the nRF powers the ESP32 down after a while,
-  look at the `E2 01 xx` messages first.
 * **Long press on key 0** makes the vendor firmware shut down; the nRF may do a
   hard power-off on its own regardless of what the ESP32 does.
-* **PSRAM** is disabled (module type unknown). Enable once the Octal/Quad
-  mode is confirmed from the vendor `sdkconfig`/bootloader.
-* Secure boot: not expected (the flash was dumpable and parsed as plain
-  images); if the bootloader rejects the unsigned app it will log it on the
-  console.
+* **PSRAM** is disabled in the PoC. The chip reports embedded 2 MB Quad PSRAM,
+  so `CONFIG_SPIRAM=y` + `CONFIG_SPIRAM_MODE_QUAD=y` should be safe to enable.
+* Long-press / release event values are not mapped yet (only event 1 seen).
 
 ## Layout
 

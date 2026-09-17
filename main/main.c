@@ -21,7 +21,7 @@
 
 static const char *TAG = "main";
 
-#define KEY_LOG_LEN 6
+#define KEY_LOG_LEN 5
 #define KEY_MAX     5
 
 typedef struct {
@@ -34,6 +34,11 @@ static struct {
     uint32_t rx_frames;
     uint32_t rx_keys;
     bool nrf_alive;            /* saw any reply to our power-on command */
+    uint8_t bat_pct;           /* cmd 0 'R': payload[6] */
+    uint16_t bat_mv;           /* cmd 0 'R': payload[4..5] */
+    uint8_t status;            /* cmd 0x10 F0 02: payload[2] */
+    uint8_t pwr_reason;        /* cmd 0x10 E2 02 00: payload[5] */
+    uint8_t fw[3];             /* cmd 1 sub 1: payload[7..9] */
     uint8_t last_frame[NRF_MAX_FRAME];
     size_t last_frame_len;
     key_log_entry_t keys[KEY_LOG_LEN];
@@ -46,12 +51,27 @@ static void on_frame(const uint8_t *f, size_t len, void *ctx)
     nrf_key_event_t ev;
     xSemaphoreTake(s.lock, portMAX_DELAY);
     s.rx_frames++;
+    /* periodic battery/status frames are noisy; log the rest */
+    if (!(f[5] == 0x00 && f[6] == 0x52) && !(f[5] == NRF_CMD_SYS && f[6] == 0xF0)) {
+        ESP_LOG_BUFFER_HEX_LEVEL(TAG, f, len, ESP_LOG_INFO);
+    }
     s.last_frame_len = len < sizeof s.last_frame ? len : sizeof s.last_frame;
     memcpy(s.last_frame, f, s.last_frame_len);
 
     /* Any E2-02 reply means the nRF acknowledged our power-on request. */
-    if (f[5] == NRF_CMD_SYS && f[6] == NRF_SYS_CTRL && f[7] == 0x02) {
+    const uint8_t *p = f + 6;
+    if (f[5] == NRF_CMD_SYS && p[0] == NRF_SYS_CTRL && p[1] == 0x02) {
         s.nrf_alive = true;
+        if (p[2] == 0x00) {
+            s.pwr_reason = p[5];
+        }
+    } else if (f[5] == NRF_CMD_SYS && p[0] == 0xF0 && p[1] == 0x02) {
+        s.status = p[2];
+    } else if (f[5] == 0x00 && p[0] == 0x52) {
+        s.bat_mv = p[4] | (p[5] << 8);
+        s.bat_pct = p[6];
+    } else if (f[5] == 0x01 && p[0] == 0x01 && len >= 18) {
+        s.fw[0] = p[7]; s.fw[1] = p[8]; s.fw[2] = p[9];
     }
     if (nrf_link_decode_key(f, len, &ev)) {
         s.rx_keys++;
@@ -82,13 +102,19 @@ static void draw_screen(void)
     snprintf(line, sizeof line, "up %lus  rx %lu fr", (unsigned long)up_s, (unsigned long)s.rx_frames);
     lcd_text_rc(0, 1, line, C_WHITE, C_BLACK);
 
-    snprintf(line, sizeof line, "nRF: %s", s.nrf_alive ? "handshake OK" : "no reply yet");
+    if (s.nrf_alive) {
+        snprintf(line, sizeof line, "nRF ok r%u fw%u.%u.%u", s.pwr_reason, s.fw[0], s.fw[1], s.fw[2]);
+    } else {
+        snprintf(line, sizeof line, "nRF: no reply yet");
+    }
     lcd_text_rc(0, 2, line, s.nrf_alive ? C_GREEN : C_ORANGE, C_BLACK);
+    snprintf(line, sizeof line, "bat %u%% %umV st%u", s.bat_pct, s.bat_mv, s.status);
+    lcd_text_rc(0, 3, line, C_WHITE, C_BLACK);
 
     /* key state boxes: one per key index, lit while the last event != 0 */
-    lcd_text_rc(0, 3, "keys:", C_GREY, C_BLACK);
+    lcd_text_rc(0, 4, "keys:", C_GREY, C_BLACK);
     for (int k = 0; k < KEY_MAX; k++) {
-        int x = 66 + k * 34, y = 3 * 20;
+        int x = 66 + k * 34, y = 4 * 20;
         uint8_t st = s.key_state[k];
         uint16_t c = st == 0 ? C_DGREY : (st == KEY_EVT_LONG_START || st == KEY_EVT_HOLD_REPEAT) ? C_RED : C_GREEN;
         lcd_fill_rect(x, y, 30, 20, c);
@@ -97,7 +123,7 @@ static void draw_screen(void)
     }
 
     /* recent key events */
-    lcd_text_rc(0, 4, "time    key evt aux", C_YELLOW, C_BLACK);
+    lcd_text_rc(0, 5, "time    key evt aux", C_YELLOW, C_BLACK);
     for (int i = 0; i < KEY_LOG_LEN; i++) {
         const key_log_entry_t *e = &s.keys[i];
         if (e->t_ms == 0) {
@@ -106,7 +132,7 @@ static void draw_screen(void)
         snprintf(line, sizeof line, "%6lu.%lu  %u   %u   %u",
                  (unsigned long)(e->t_ms / 1000), (unsigned long)((e->t_ms / 100) % 10),
                  e->ev.key, e->ev.event, e->ev.aux);
-        lcd_text_rc(0, 5 + i, line, i == 0 ? C_WHITE : C_GREY, C_BLACK);
+        lcd_text_rc(0, 6 + i, line, i == 0 ? C_WHITE : C_GREY, C_BLACK);
     }
 
     /* last raw frame as hex, 6 bytes per row */

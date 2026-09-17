@@ -6,7 +6,7 @@
  *   - UartDataSaveToRingBuffer()      -> 10 ms timer copying UART into a ring
  *   - ComRecvTask (FUN_42051330)      -> frame sync / CRC / dispatch
  *   - FUN_42051260                    -> TX frame builder
- *   - FUN_4222c01c                    -> CRC16 (poly 0x1021, augmented, 2 tail shifts)
+ *   - FUN_4222c01c                    -> CRC-16/XMODEM
  */
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -25,28 +25,19 @@ static nrf_frame_cb_t s_cb;
 static void *s_cb_ctx;
 static SemaphoreHandle_t s_tx_lock;
 
-/* Verbatim port of the vendor CRC (FUN_4222c01c). It is CRC-16/XMODEM-like:
- * poly 0x1021, init 0, bits shifted in through an augmenting register, but
- * only two zero bits are appended at the end instead of sixteen, so it does
- * not match any standard CRC table. Verified against the decompiled code. */
+/* Vendor CRC (FUN_4222c01c) is a bit-serial augmented CRC with 16 trailing
+ * zero bits (two Xtensa `loop 8` blocks the decompiler hides), i.e. plain
+ * CRC-16/XMODEM: poly 0x1021, init 0, no reflection, check("123456789") = 0x31C3. */
 uint16_t nrf_link_crc16(const uint8_t *p, size_t n)
 {
-    uint32_t crc = 0;
+    uint16_t crc = 0;
     for (size_t i = 0; i < n; i++) {
-        uint32_t v = p[i] | 0x100u;
-        do {
-            v <<= 1;
-            crc = (crc << 1) | ((v & 0x100u) ? 1u : 0u);
-            if (crc & 0x10000u) {
-                crc ^= 0x1021u;
-            }
-        } while (!(v & 0x10000u));
-        crc &= 0xFFFFu;
+        crc ^= (uint16_t)p[i] << 8;
+        for (int b = 0; b < 8; b++) {
+            crc = (crc & 0x8000) ? (uint16_t)((crc << 1) ^ 0x1021) : (uint16_t)(crc << 1);
+        }
     }
-    uint32_t t = (crc << 1) ^ ((crc & 0x8000u) ? 0x1021u : 0);
-    t &= 0xFFFFu;
-    crc = (t << 1) ^ ((t & 0x8000u) ? 0x1021u : 0);
-    return (uint16_t)(crc & 0xFFFFu);
+    return crc;
 }
 
 esp_err_t nrf_link_send(uint8_t type, uint8_t cmd, const void *payload, uint8_t len)
