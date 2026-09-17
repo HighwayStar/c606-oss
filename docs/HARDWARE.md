@@ -184,6 +184,12 @@ down on its own (tested for several minutes with only `SendPowerOnCmd` every 5 s
 | `E2 02 08 00 00 01 00 00` | factory init |
 | `E2 01 XX 00 00 00 00 00` | LED/misc, XX < 0x1c (0x17, 0x13, 0x18/0x19 seen) |
 
+Power-off (vendor): long press on key 0 -> `_KeyFunc_PowerOffPopUp` -> after
+confirmation `SYS_EVENT_POWER_OFF` -> `SendPowerOffCmd` (`E2 02 00 00 00 00 00 00`)
+-> the nRF cuts the ESP32's power. The nRF never powers off from the key alone.
+**Hardware reset: holding all three buttons makes the nRF reset/power-cycle the
+ESP32** (found empirically; a real power-on reset, clears RTC registers).
+
 Boot state machine (`ArmStateProcess` @ `0x420570dc`):
 `INIT_QUERY (1)` -> `USER_INIT (3)` -> `FILE_CHECK (4)` -> `USER (9)`;
 in `USER` every 10 s it goes through state `0xb` which polls the nRF.
@@ -236,6 +242,10 @@ other hardware revisions.
   `MAP/` and `FONT/` lives in `~/devel/magene/emmc/` (outside this repo).
 
   USB: with `esp_tinyusb` MSC over the same SDMMC card the host sees a 7,733,248-sector
-  (3.96 GB) removable disk; ~ the vendor does the same with TinyUSB CDC+MSC.
+  (3.96 GB) removable disk; the vendor does the same with TinyUSB CDC+MSC.
+  Caveat: the S3 internal-PHY mux `RTCCNTL.usb_conf.sw_usb_phy_sel` is an RTC register;
+  after TinyUSB used the OTG controller it must be set back to USB-Serial-JTAG
+  (`usb_serial_jtag_ll_phy_enable_external(false)`) before a software reset, otherwise
+  console and esptool stay dead until a power-on reset.
 * **NVS**: standard `nvs` partition; vendor config blob `Res1Page11` (byte 3 = HW variant).
 * GPIO43/44 (default UART0 pins) are driven high as outputs on HW variant 2 before LCD init.

@@ -14,7 +14,7 @@ This PoC replaces only the ESP32 application. It:
 * mounts the on-board 4 GB eMMC (FAT, `/sdcard`) and records CSV tracks to `/sdcard/c606oss/`,
 * exposes the eMMC over USB as a mass-storage disk on demand,
 * keys: 0 = switch page, 1/2 = backlight down/up, hold 2 = start/stop recording,
-  hold 1 = USB storage mode (hold 1 again to reboot out of it).
+  hold 1 = USB storage mode (hold 1 again to reboot out of it), hold 0 = power off.
 
 Everything hardware-specific lives in `main/board.h`; the analysis behind it
 is in [`docs/HARDWARE.md`](docs/HARDWARE.md).
@@ -80,6 +80,12 @@ with `esp32_image_parser.py dump_partition`.)
    (`303a:4002 c606-oss C606 eMMC`, auto-mounted by most desktops). The S3
    has a single USB PHY, so the console and esptool auto-reset are gone
    while in this mode — eject the disk and hold key 1 again to reboot.
+4. Hold key 0: power off (the nRF cuts the ESP32's power, like the vendor
+   firmware after its confirmation popup). Press key 0 to power on again.
+
+**If the ESP32 is ever unreachable** (no USB device, screen frozen): hold all
+three buttons for a few seconds — the nRF performs a hardware reset / power
+cycle of the ESP32 regardless of what the firmware is doing.
 
 Console: `tools/serial_log.py /dev/ttyACM0 20 --reset` (inside the IDF
 container, or anywhere with pyserial) prints the boot log and every non-periodic
@@ -92,6 +98,10 @@ works. If colours are swapped (red <-> blue) build with
 
 ## Known unknowns / risks
 
+* The USB PHY mux (`RTCCNTL.usb_conf.sw_usb_phy_sel`) survives software
+  resets. The firmware puts it back to USB-Serial-JTAG at boot and before
+  leaving USB mode; an older build that did not do this needed the 3-button
+  reset to recover.
 * The eMMC holds the vendor's data (maps, fonts, ride files, AGNSS). Nothing
   outside `/sdcard/c606oss/` is touched, but treat it with care.
 * **Long press on key 0** makes the vendor firmware shut down; the nRF may do a

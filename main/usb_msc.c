@@ -1,5 +1,7 @@
 #include "esp_log.h"
 #include "esp_check.h"
+#include "esp_system.h"
+#include "hal/usb_serial_jtag_ll.h"
 #include "sdmmc_cmd.h"
 #include "tinyusb.h"
 #include "tusb_msc_storage.h"
@@ -54,4 +56,22 @@ esp_err_t usb_msc_enter(void)
 bool usb_msc_active(void)
 {
     return s_active;
+}
+
+/* The internal FSLS PHY mux (RTCCNTL.usb_conf.sw_usb_phy_sel) is an RTC
+ * register: it survives a software reset, and usb_del_phy() does not touch
+ * it. Without this, USB-Serial-JTAG (console + esptool) stays dead after
+ * leaving MSC mode until a power-on reset. */
+void usb_phy_route_to_serial_jtag(void)
+{
+    usb_serial_jtag_ll_phy_enable_external(false);
+}
+
+void usb_msc_leave_and_restart(void)
+{
+    if (s_active) {
+        tinyusb_driver_uninstall();
+    }
+    usb_phy_route_to_serial_jtag();
+    esp_restart();
 }

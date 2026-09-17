@@ -76,6 +76,11 @@ esp_err_t nrf_link_send_power_on(void)
     return nrf_link_send_ctrl(NRF_TYPE_SET, 0x02, 0x00, 0x01);
 }
 
+esp_err_t nrf_link_send_power_off(void)
+{
+    return nrf_link_send_ctrl(NRF_TYPE_SET, 0x02, 0x00, 0x00);
+}
+
 esp_err_t nrf_link_send_gps_power(uint8_t val)
 {
     return nrf_link_send_ctrl(NRF_TYPE_SET, 0x02, 0x07, val);

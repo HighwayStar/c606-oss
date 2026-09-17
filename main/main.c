@@ -5,7 +5,8 @@
  * RAM and objects in PSRAM, the backlight, and the UART link to the nRF
  * co-processor, and the GNSS receiver on UART0.
  * Keys: 0 = switch page, 1/2 = backlight down/up, hold 2 = start/stop
- * recording a CSV track, hold 1 = USB mass storage mode (hold again: reboot).
+ * recording a CSV track, hold 1 = USB mass storage mode (hold again: reboot),
+ * hold 0 = power off (nRF cuts power; next power-on is a full POR).
  */
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -25,6 +26,7 @@
 #include "tracklog.h"
 #include "usb_msc.h"
 #include "esp_system.h"
+#include "tinyusb.h"
 
 static const char *TAG = "main";
 
@@ -50,8 +52,7 @@ static void on_key(const nrf_key_event_t *ev)
     ui_key_event(ev->key, ev->event);
     if (ev->key == 1 && ev->event == KEY_EVT_LONG_RELEASE) {
         if (usb_msc_active()) {
-            ESP_LOGI(TAG, "leaving USB mode: reboot");
-            esp_restart();
+            usb_msc_leave_and_restart();   /* restores USB-Serial-JTAG, then reboots */
         }
         if (usb_msc_enter() == ESP_OK) {
             ui_show_usb_mode();
@@ -60,8 +61,20 @@ static void on_key(const nrf_key_event_t *ev)
         }
         return;
     }
+    if (ev->key == 0 && ev->event == KEY_EVT_LONG_RELEASE) {
+        /* vendor behaviour: long press on the power key -> ask the nRF to cut
+         * power. Coming back is a true power-on reset. */
+        ESP_LOGI(TAG, "power off requested");
+        tracklog_stop();
+        if (usb_msc_active()) {
+            tinyusb_driver_uninstall();
+        }
+        usb_phy_route_to_serial_jtag();
+        nrf_link_send_power_off();
+        return;
+    }
     if (usb_msc_active()) {
-        return;   /* only "hold key 1" is meaningful in USB mode */
+        return;   /* only the holds above are meaningful in USB mode */
     }
     if (ev->key == 2 && ev->event == KEY_EVT_LONG_RELEASE) {
         if (tracklog_active()) {
@@ -136,6 +149,10 @@ void app_main(void)
     ESP_LOGI(TAG, "heap: internal %u KB, psram %u KB",
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+
+    /* if the previous run ended in USB-MSC mode the PHY mux still points at
+     * the OTG controller (RTC register): put it back so the console works */
+    usb_phy_route_to_serial_jtag();
 
     ESP_ERROR_CHECK(backlight_init());
     ESP_ERROR_CHECK(lcd_init());

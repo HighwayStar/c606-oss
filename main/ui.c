@@ -162,8 +162,9 @@ static void build_ride(lv_obj_t *scr)
     lv_obj_align(s_ride_rec, LV_ALIGN_TOP_MID, 0, 268);
 
     lv_obj_t *hint = label(s_page_ride, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_GREY));
-    lv_label_set_text(hint, "0:page 1/2:light hold1:usb hold2:rec");
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_label_set_text(hint, "0:page 1/2:light\nhold 0:off 1:usb 2:rec");
+    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -6);
 }
 
 void ui_create(void)
