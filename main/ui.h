@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "gps.h"
+#include "ant.h"
 
 /* All functions take the LVGL lock themselves; safe to call from any task. */
 void ui_create(void);
@@ -11,6 +12,7 @@ void ui_set_env(int16_t temp_c100, uint32_t pressure_pa100);
 void ui_set_nrf(bool alive, uint8_t reason, const uint8_t fw[3]);
 void ui_set_backlight(uint8_t pct);
 void ui_set_gps(const gps_fix_t *fix);
+void ui_set_sensors(const ant_sensors_t *s, const ant_channel_t *ch, size_t nch);
 void ui_set_sd(bool mounted, const char *name, uint32_t size_mb);
 void ui_set_rec(bool active, uint32_t points);
 void ui_key_event(uint8_t key, uint8_t evt);

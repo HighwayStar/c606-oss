@@ -128,6 +128,40 @@ the receive task (`0x42051330`) frames them.
 | 0x10 | `0x42051e34` | **system**: see below |
 | 0x0B,0x11,0x22,0x23,0x28, 0x78..0x7B, 0x80 | generic | 8-byte payload queued as type 5 |
 
+### ANT+ sensors (verified on hardware)
+
+The nRF is the ANT radio only; the ESP32 opens channels and decodes the
+raw ANT+ data pages itself (`AntPageEventHandler` @ `0x421b8bd4`,
+`AntSendCmd` @ `0x420595c4`, `StartAntScanDrive` @ `0x421b8fc8`,
+`StartAntDisConnectDrive` @ `0x421b91ec`). Device types are the ANT+ ones:
+11 power, 17 fitness equipment, 34 shifting, 35 light, 40 radar, 120 HR,
+121 speed+cadence, 122 cadence, 123 speed, 128 (Di2, treated as shifting).
+
+| dir | type/cmd | payload | meaning |
+|---|---|---|---|
+| ESP->nRF | 2 / `0x01` | `17 <devtype> <num lo> <num hi> <trans> 00 19 00` | open channel (search timeout 0x19 = 25 s) — vendor log `AntSnd:2,1,P=…` |
+| ESP->nRF | 2 / `0x01` | `17 <devtype> 00 00 00 01 00 00` | close channel |
+| nRF->ESP | 5 / `0x01` | `00 00 …` | command ack |
+| nRF->ESP | 4 / `0x01` | `17 <devtype> <num lo> 00 <trans> <st> 00 00` | channel status: 3 connected, 5 search timeout, 4 not connected — **also broadcast for every known channel every 5 s as a status report**, so 4 alone must not trigger a reconnect (doing so drops the live channel) |
+| ESP->nRF | 2 / `0x10` | `E1 02 00 <T lo> <T hi> FF 00 00` | ANT scan for T seconds (T = 0 stops) |
+| nRF->ESP | 4 / `0x10` | `F3 03 xx <devtype> <num LE16> <trans> <rssi> <flag>` | scan result; `flag` 0 = scan end |
+| nRF->ESP | 4 / `<devtype>` | 8-byte ANT+ data page | sensor data, one frame per received page (~4 Hz) |
+
+Observed pages: HR page 4 `00 <prev beat time> <beat time> <count> <bpm>`
+(bit 7 of byte 0 is the ANT toggle bit); speed 123 / cadence 122
+`ff ff ff <event time 1/1024 s LE> <revs LE>` with `ff` in the reserved bytes;
+page 1 with zeros while idle. The nRF keeps the previously connected device
+list across ESP32 resets and reports them in its 5 s status broadcast.
+
+Paired sensors live in `/sdcard/CONFIG/sensor_list.json`
+(`ConnType` 0 = ANT+, 1 = BLE; `DevType` = vendor index 0 HR, 1 cadence,
+2 speed, 3 spd+cad, 4 power, 5 trainer, 6 radar, 7 shifting, 8 light;
+`DevID` = `<device number>-<transmission type>`). BLE sensors are handled by
+the ESP32's own Bluedroid stack (`kaka:` log lines), not by the nRF.
+
+Sending `SendPowerOnCmd` repeatedly is harmful: the nRF re-runs its power-on
+sequence and drops the ANT channels each time. Send it once.
+
 ### cmd 0x10 payloads (nRF -> ESP32)
 
 | payload[0] | meaning |

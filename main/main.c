@@ -26,6 +26,8 @@
 #include "tracklog.h"
 #include "usb_msc.h"
 #include "touch.h"
+#include "ant.h"
+#include "sensor_list.h"
 #include "esp_system.h"
 #include "tinyusb.h"
 
@@ -114,6 +116,28 @@ static void on_key(const nrf_key_event_t *ev)
     }
 }
 
+static void on_ant(const ant_sensors_t *v, void *ctx)
+{
+    size_t n;
+    const ant_channel_t *ch = ant_channels(&n);
+    ui_set_sensors(v, ch, n);
+}
+
+static void connect_paired_sensors(void)
+{
+    static sensor_entry_t list[8];
+    size_t n = sensor_list_load(list, 8);
+    for (size_t i = 0; i < n; i++) {
+        ant_connect(list[i].ant_dev_type, list[i].dev_num, list[i].trans_type);
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    size_t nch;
+    const ant_channel_t *ch = ant_channels(&nch);
+    ant_sensors_t v;
+    ant_get(&v);
+    ui_set_sensors(&v, ch, nch);
+}
+
 /* Runs in the nRF link task. */
 static void on_frame(const uint8_t *f, size_t len, void *ctx)
 {
@@ -121,6 +145,9 @@ static void on_frame(const uint8_t *f, size_t len, void *ctx)
     uint8_t cmd = f[5];
     nrf_key_event_t ev;
 
+    if (ant_handle_frame(f, len)) {
+        return;
+    }
     if (nrf_link_decode_key(f, len, &ev)) {
         on_key(&ev);
     } else if (cmd == NRF_CMD_SYS && p[0] == NRF_SYS_CTRL && p[1] == 0x02) {
@@ -178,6 +205,7 @@ void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(100));      /* let the first frame render */
     set_backlight(s_bl_pct);
 
+    ant_init(on_ant, NULL);
     ESP_ERROR_CHECK(nrf_link_init(on_frame, NULL));
     ESP_ERROR_CHECK(gps_init(on_gps, NULL));
 
@@ -188,7 +216,12 @@ void app_main(void)
 
     uint32_t last_pwr_ms = 0;
     bool first = true;
+    bool sensors_started = false;
     for (;;) {
+        if (s_nrf_alive && !sensors_started && sdcard_info()->mounted) {
+            sensors_started = true;
+            connect_paired_sensors();   /* vendor: ConnANT right after INIT_QUERY */
+        }
         uint32_t now = esp_timer_get_time() / 1000;
         /* vendor INIT_QUERY: SendPowerOnCmd every 1 s until acked, then keep-alive */
         uint32_t period = s_nrf_alive ? 5000 : 1000;

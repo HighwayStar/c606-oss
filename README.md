@@ -14,6 +14,8 @@ This PoC replaces only the ESP32 application. It:
 * mounts the on-board 4 GB eMMC (FAT, `/sdcard`) and records CSV tracks to `/sdcard/c606oss/`,
 * exposes the eMMC over USB as a mass-storage disk on demand,
 * touchscreen (FT6336 over I2C) as an LVGL pointer: on-screen REC / USB buttons,
+* ANT+ sensors through the nRF: auto-connects to the sensors paired in the vendor's
+  `CONFIG/sensor_list.json` (HR, speed, cadence, power decoded; shows on the ride page),
 * keys: 0 = switch page, 1/2 = backlight down/up, hold 2 = start/stop recording,
   hold 1 = USB storage mode (hold 1 again to reboot out of it), hold 0 = power off.
 
@@ -123,6 +125,8 @@ main/sdcard.c      eMMC mount (SDMMC 4-bit)
 main/tracklog.c    CSV track recorder
 main/usb_msc.c     TinyUSB mass storage over the eMMC (esp_tinyusb)
 main/touch.c       FT6336 / CST328 touch controller over I2C
+main/ant.c         ANT+ channel control + HR/speed/cadence/power page decoding
+main/sensor_list.c reads the vendor's paired-sensor JSON
 main/main.c        glue: frame decoding -> UI, key actions, handshake
 tools/flash_poc.py flash/restore helper
 docs/HARDWARE.md   reverse-engineering notes with addresses

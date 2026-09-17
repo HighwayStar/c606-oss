@@ -1,0 +1,67 @@
+#pragma once
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include "esp_err.h"
+
+/* ANT+ device types (as used by the nRF link: frame cmd byte) */
+#define ANT_DEV_POWER      11
+#define ANT_DEV_FE         17
+#define ANT_DEV_SHIFTING   34
+#define ANT_DEV_LIGHT      35
+#define ANT_DEV_RADAR      40
+#define ANT_DEV_HR         120
+#define ANT_DEV_SPD_CAD    121
+#define ANT_DEV_CADENCE    122
+#define ANT_DEV_SPEED      123
+#define ANT_DEV_DI2        128   /* vendor: treated as shifting */
+
+typedef enum { ANT_ST_IDLE, ANT_ST_SEARCHING, ANT_ST_CONNECTED, ANT_ST_TIMEOUT } ant_state_t;
+
+typedef struct {
+    uint8_t dev_type;
+    uint16_t dev_num;
+    uint8_t trans_type;
+    ant_state_t state;
+    uint32_t pages;        /* data pages received */
+    uint32_t last_rx_ms;
+} ant_channel_t;
+
+typedef struct {
+    /* heart rate */
+    uint8_t hr_bpm;
+    /* cadence / speed from 121/122/123 */
+    float cadence_rpm;
+    float speed_kmh;       /* uses ANT_WHEEL_CIRC_M */
+    uint32_t wheel_revs;
+    /* power meter page 0x10 */
+    uint16_t power_w;
+    uint8_t power_cadence;
+} ant_sensors_t;
+
+#define ANT_WHEEL_CIRC_M 2.105f
+
+typedef struct {
+    uint8_t dev_type;
+    uint16_t dev_num;
+    uint8_t trans_type;
+    int8_t rssi;
+} ant_scan_result_t;
+
+typedef void (*ant_update_cb_t)(const ant_sensors_t *s, void *ctx);
+typedef void (*ant_scan_cb_t)(const ant_scan_result_t *r, bool scan_end, void *ctx);
+
+void ant_init(ant_update_cb_t cb, void *ctx);
+void ant_set_scan_cb(ant_scan_cb_t cb, void *ctx);
+
+/* Returns true if the frame was an ANT frame (consumed). Call from the nRF
+ * link callback. */
+bool ant_handle_frame(const uint8_t *frame, size_t len);
+
+esp_err_t ant_connect(uint8_t dev_type, uint16_t dev_num, uint8_t trans_type);
+esp_err_t ant_disconnect(uint8_t dev_type);
+esp_err_t ant_scan(uint16_t seconds);   /* 0 = stop */
+
+const ant_channel_t *ant_channels(size_t *count);
+void ant_get(ant_sensors_t *out);
+const char *ant_dev_name(uint8_t dev_type);

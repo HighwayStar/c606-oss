@@ -16,7 +16,7 @@ static lv_obj_t *s_page_status, *s_page_ride;
 static lv_obj_t *s_hdr_bat, *s_hdr_rec, *s_arc, *s_arc_lbl, *s_env, *s_nrf, *s_gps, *s_sd, *s_log, *s_foot;
 static lv_obj_t *s_key[3];
 static lv_obj_t *s_big, *s_big_caption, *s_ride_env, *s_ride_gps, *s_ride_pos, *s_ride_time, *s_ride_rec;
-static lv_obj_t *s_cursor, *s_touch_lbl, *s_btn_rec, *s_btn_usb;
+static lv_obj_t *s_cursor, *s_touch_lbl, *s_btn_rec, *s_btn_usb, *s_ride_sens, *s_ant;
 static ui_action_cb_t s_on_rec, s_on_usb;
 
 static char s_log_buf[LOG_LINES][32];
@@ -127,6 +127,10 @@ static void build_status(lv_obj_t *scr)
     lv_obj_align(s_touch_lbl, LV_ALIGN_TOP_LEFT, 8, 290);
     lv_label_set_text(s_touch_lbl, "touch: none");
 
+    s_ant = label(s_page_status, &lv_font_unscii_8, lv_palette_main(LV_PALETTE_PINK));
+    lv_obj_align(s_ant, LV_ALIGN_TOP_LEFT, 120, 290);
+    lv_label_set_text(s_ant, "ant: -");
+
     /* footer */
     s_foot = label(s_page_status, &lv_font_unscii_8, lv_palette_main(LV_PALETTE_GREY));
     lv_obj_align(s_foot, LV_ALIGN_BOTTOM_LEFT, 8, -4);
@@ -170,9 +174,13 @@ static void build_ride(lv_obj_t *scr)
     lv_label_set_text(s_ride_pos, "");
     lv_obj_align(s_ride_pos, LV_ALIGN_TOP_MID, 0, 172);
 
-    s_ride_env = label(s_page_ride, &lv_font_montserrat_28, lv_palette_main(LV_PALETTE_CYAN));
+    s_ride_sens = label(s_page_ride, &lv_font_montserrat_20, lv_palette_main(LV_PALETTE_PINK));
+    lv_label_set_text(s_ride_sens, "");
+    lv_obj_align(s_ride_sens, LV_ALIGN_TOP_MID, 0, 206);
+
+    s_ride_env = label(s_page_ride, &lv_font_montserrat_20, lv_palette_main(LV_PALETTE_CYAN));
     lv_label_set_text(s_ride_env, "--.- C");
-    lv_obj_align(s_ride_env, LV_ALIGN_TOP_MID, 0, 230);
+    lv_obj_align(s_ride_env, LV_ALIGN_TOP_MID, 0, 234);
 
     s_ride_rec = label(s_page_ride, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_RED));
     lv_label_set_text(s_ride_rec, "");
@@ -353,6 +361,28 @@ void ui_set_gps(const gps_fix_t *g)
             lv_label_set_text_fmt(s_ride_time, "%02u:%02u:%02u UTC", g->hh, g->mm, g->ss);
         }
     }
+    ui_unlock();
+}
+
+void ui_set_sensors(const ant_sensors_t *v, const ant_channel_t *ch, size_t nch)
+{
+    char line[96];
+    int n = 0;
+    ui_lock();
+    if (v->hr_bpm) n += snprintf(line + n, sizeof line - n, LV_SYMBOL_CHARGE "%u ", v->hr_bpm);
+    if (v->cadence_rpm > 0 || v->power_cadence) {
+        n += snprintf(line + n, sizeof line - n, LV_SYMBOL_REFRESH "%.0f ", v->cadence_rpm > 0 ? v->cadence_rpm : v->power_cadence);
+    }
+    if (v->power_w) n += snprintf(line + n, sizeof line - n, "%uW ", v->power_w);
+    if (v->speed_kmh > 0) n += snprintf(line + n, sizeof line - n, "%.1fkm/h", v->speed_kmh);
+    lv_label_set_text(s_ride_sens, line);
+
+    n = snprintf(line, sizeof line, "ant:");
+    for (size_t i = 0; i < nch && n < (int)sizeof line - 8; i++) {
+        const char *st = ch[i].state == ANT_ST_CONNECTED ? "+" : ch[i].state == ANT_ST_SEARCHING ? "?" : "-";
+        n += snprintf(line + n, sizeof line - n, " %.3s%s", ant_dev_name(ch[i].dev_type), st);
+    }
+    lv_label_set_text(s_ant, line);
     ui_unlock();
 }
 
