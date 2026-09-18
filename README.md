@@ -25,8 +25,12 @@ This PoC replaces only the ESP32 application. It:
   device in the settings menu (gear icon), saved in NVS,
 * developer console on the USB port: inject key/touch events and take
   screenshots from the host (`tools/devcon.py`),
-* keys: 0 = next page, 1/2 = backlight down/up, hold 2 = start/stop recording,
-  hold 1 = USB storage mode (hold 1 again to reboot out of it), hold 0 = power-off popup.
+* idle / riding / paused modes: the idle screen (clock, GPS and sensor state,
+  START button) is shown until a ride is started; the data pages, the track
+  recording and the statistics only run during a ride,
+* keys: 0 = next page, 1 = backlight level, 2 = start ride / pause / resume,
+  hold 2 = "End ride?" dialog, hold 1 = USB storage mode (hold 1 again to reboot
+  out of it), hold 0 = power-off popup.
 
 Everything hardware-specific lives in `main/board.h`; the analysis behind it
 is in [`docs/HARDWARE.md`](docs/HARDWARE.md).
@@ -75,27 +79,25 @@ with `esp32_image_parser.py dump_partition`.)
 
 ## What to expect on boot (verified on hardware)
 
-1. Status page: header with battery %, battery arc with mV, temperature and
-   pressure (once the nRF starts its sensor stream), `nRF ok reason 4 fw 0.2.19`,
-   three key boxes, an event log and a footer with free internal/PSRAM heap.
-   The `GPS` line shows fix state, satellites used/in view and HDOP; the
-   `SD` line shows the eMMC name and size.
-2. Key 0 click switches to the "ride" page: UTC time, big speed digits,
-   position/altitude/course once there is a fix, temperature.
-   Key 1 / key 2 step the backlight by 10 %. Long-press key 2 to start a
-   recording (`REC` + point count in the header); files land in
-   `/sdcard/c606oss/<utc date-time>.csv`, one line per second with a fix
-   (position, altitude, speed, course, sats, HDOP, temperature, pressure). A key box flashes green on a
-   click and stays red while long-pressed (event 4), clears on release (5).
-
-3. Key 0 again: the data pages ("Page 1" … "Page 5", only the enabled ones).
-   Each cell shows a field's name and value (font sized to the cell; grey `--`
-   when no fresh reading arrived within a few seconds). Fields are the
-   current / min / max / avg of every measured parameter plus time of day,
+1. Idle screen: clock (nRF RTC + time zone), GPS fix / satellites, paired
+   sensor values, a *START RIDE* button and a *USB* button. Key 0 switches to the
+   status page (battery arc with mV, temperature and pressure, `nRF ok reason 4
+   fw 0.2.19`, GPS and eMMC state, three key boxes, event log, heap footer) and
+   back. A key box flashes green on a click and stays red while long-pressed.
+2. Key 2 (or *START RIDE*) starts a ride: statistics are reset, a CSV track is
+   opened in `/sdcard/c606oss/<utc date-time>.csv` (one line per second with a
+   fix: position, altitude, speed, course, sats, HDOP, temperature, pressure)
+   and the data pages appear ("Page 1" … "Page 5", only the enabled ones; key 0
+   cycles). The header shows `▶ h:mm:ss` (session time). Key 2 pauses (`‖`,
+   recording and statistics stand still, the time excludes pauses) and resumes.
+   Hold key 2 for the *End ride?* dialog: key 2 / *End* closes the track file
+   and returns to the idle screen, anything else cancels.
+3. Data page cells show a field's name and value (font sized to the cell;
+   grey `--` when no fresh reading arrived within a few seconds). Fields are
+   the current / min / max / avg of every measured parameter plus time of day,
    session time, battery % and satellites. The average is time-weighted, so it
    does not depend on how often a sensor reports; cadence and HR ignore zero
-   samples. The session starts at boot, restarts when a recording is started
-   or with *Reset statistics* in the menu.
+   samples. *Reset statistics* in the menu restarts the session by hand.
 
    **Settings menu** — tap the gear icon in a page header. Touch or keys work
    (key 2 = up, key 1 = down, key 0 = select; selecting the back arrow goes
@@ -181,6 +183,7 @@ main/nrf_link.c    UART framing, CRC16, TX helpers, key decoding
 main/gps.c         UART0 NMEA reader with baud probing
 main/sdcard.c      eMMC mount (SDMMC 4-bit)
 main/tracklog.c    CSV track recorder
+main/ride.c        idle / riding / paused state machine
 main/usb_msc.c     TinyUSB mass storage over the eMMC (esp_tinyusb)
 main/touch.c       FT6336 / CST328 touch controller over I2C
 main/ant.c         ANT+ channel control + HR/speed/cadence/power page decoding

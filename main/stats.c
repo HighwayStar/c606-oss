@@ -38,6 +38,8 @@ typedef struct {
 
 static stat_t s_st[STAT_COUNT];
 static uint32_t s_reset_ms;
+static bool s_paused;
+static uint32_t s_paused_since, s_paused_total;
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 
 static uint32_t now_ms(void) { return esp_timer_get_time() / 1000; }
@@ -52,12 +54,32 @@ void stats_reset(void)
     portENTER_CRITICAL(&s_mux);
     memset(s_st, 0, sizeof s_st);
     s_reset_ms = now_ms();
+    s_paused_total = 0;
+    s_paused_since = s_reset_ms;
     portEXIT_CRITICAL(&s_mux);
 }
 
+void stats_set_paused(bool paused)
+{
+    uint32_t now = now_ms();
+    portENTER_CRITICAL(&s_mux);
+    if (paused && !s_paused) {
+        s_paused_since = now;
+    } else if (!paused && s_paused) {
+        s_paused_total += now - s_paused_since;
+        /* the pause must not count as an interval for the averages */
+        for (int i = 0; i < STAT_COUNT; i++) s_st[i].last_ms = now;
+    }
+    s_paused = paused;
+    portEXIT_CRITICAL(&s_mux);
+}
+
+bool stats_paused(void) { return s_paused; }
+
 uint32_t stats_session_ms(void)
 {
-    return now_ms() - s_reset_ms;
+    uint32_t now = now_ms();
+    return now - s_reset_ms - s_paused_total - (s_paused ? now - s_paused_since : 0);
 }
 
 const stat_info_t *stats_info(stat_id_t id)
@@ -71,6 +93,14 @@ void stats_update(stat_id_t id, float v)
     stat_t *s = &s_st[id];
     uint32_t now = now_ms();
     portENTER_CRITICAL(&s_mux);
+    if (s_paused) {
+        /* keep the display live, freeze the statistics */
+        s->cur = v;
+        s->last_ms = now;
+        if (!s->valid) { s->min = s->max = v; s->valid = true; }
+        portEXIT_CRITICAL(&s_mux);
+        return;
+    }
     if (!s->valid) {
         s->min = s->max = v;
         s->valid = true;

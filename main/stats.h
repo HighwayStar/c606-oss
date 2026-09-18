@@ -40,7 +40,11 @@ void stats_init(void);
 void stats_update(stat_id_t id, float value);
 void stats_get(stat_id_t id, stat_values_t *out);
 void stats_reset(void);
-uint32_t stats_session_ms(void);      /* time since the last reset */
+/* While paused, samples only update the current value; min/max/avg and the
+ * session time stand still. */
+void stats_set_paused(bool paused);
+bool stats_paused(void);
+uint32_t stats_session_ms(void);      /* time since the last reset, minus pauses */
 const stat_info_t *stats_info(stat_id_t id);
 /* "%.<decimals>f" of v; "--" when !valid. */
 void stats_format(stat_id_t id, float v, bool valid, char *buf, size_t n);

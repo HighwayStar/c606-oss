@@ -1,7 +1,8 @@
-/* UI: a status page (battery arc, environment, key indicators, event log,
- * heap stats), a "ride" page with big digits and the user-configurable data
- * pages (config.c: layout + field per cell, edited in the settings menu).
- * Key 0 cycles through the pages; the gear icon opens the menu. */
+/* UI: an idle page (clock, GPS / sensor state, START), a status page
+ * (battery arc, environment, key indicators, event log, heap stats) and the
+ * user-configurable data pages (config.c: layout + field per cell, edited
+ * in the settings menu). Idle mode cycles idle <-> status with key 0; a
+ * ride (ride.c) cycles the enabled data pages. The gear icon opens the menu. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,28 +14,34 @@
 #include "ui_port.h"
 #include "ui.h"
 #include "stats.h"
+#include "fields.h"
 #include "config.h"
 #include "datapage.h"
 #include "menu.h"
 #include "theme.h"
 
 #define LOG_LINES 2
-#define MAX_PAGES (2 + CFG_PAGES)
+#define MAX_PAGES (2 + CFG_PAGES)   /* idle, status, data pages */
 #define HDR_H 28
+#define PAGE_IDLE 0
+#define PAGE_STATUS 1
 
-static lv_obj_t *s_page_status, *s_page_ride;
+static lv_obj_t *s_page_idle, *s_page_status;
 static lv_obj_t *s_pages[MAX_PAGES];
 static int s_npages, s_page_idx;
+static int s_ring[MAX_PAGES], s_ring_n;  /* pages reachable with key 0 in the current mode */
+static ride_mode_t s_mode = RIDE_IDLE;
 static datapage_t s_dp[CFG_PAGES];          /* one per configured page */
 static int s_dp_of_page[MAX_PAGES];         /* page index -> config page */
-static lv_obj_t *s_data_bat[MAX_PAGES];
+static lv_obj_t *s_data_bat[MAX_PAGES], *s_mode_lbl[MAX_PAGES];
 static uint8_t s_bat_pct;
-static lv_obj_t *s_hdr_bat, *s_hdr_rec, *s_arc, *s_arc_lbl, *s_env, *s_nrf, *s_gps, *s_sd, *s_log, *s_foot;
+static lv_obj_t *s_hdr_bat, *s_arc, *s_arc_lbl, *s_env, *s_nrf, *s_gps, *s_sd, *s_log, *s_foot;
 static lv_obj_t *s_key[3];
-static lv_obj_t *s_big, *s_big_caption, *s_ride_env, *s_ride_gps, *s_ride_pos, *s_ride_time, *s_ride_rec;
-static lv_obj_t *s_cursor, *s_touch_lbl, *s_btn_rec, *s_btn_usb, *s_ride_sens, *s_ant;
-static ui_action_cb_t s_on_rec, s_on_usb, s_on_power_off;
+static lv_obj_t *s_idle_clock, *s_idle_gps, *s_idle_sens, *s_idle_hint;
+static lv_obj_t *s_cursor, *s_touch_lbl, *s_btn_start, *s_btn_usb, *s_ant;
+static ui_action_cb_t s_on_start, s_on_usb, s_on_power_off, s_on_end_ride;
 static lv_obj_t *s_popup;
+static ui_popup_t s_popup_kind;
 static lv_timer_t *s_popup_timer;
 
 static char s_log_buf[LOG_LINES][32];
@@ -92,9 +99,6 @@ static void build_status(lv_obj_t *scr)
     s_hdr_bat = label(hdr, &lv_font_montserrat_14, lv_color_white());
     lv_label_set_text(s_hdr_bat, "--%");
     lv_obj_align(s_hdr_bat, LV_ALIGN_RIGHT_MID, -6, 0);
-    s_hdr_rec = label(hdr, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_RED));
-    lv_label_set_text(s_hdr_rec, "");
-    lv_obj_align(s_hdr_rec, LV_ALIGN_CENTER, 0, 0);
     gear_button(hdr);
 
     /* battery arc */
@@ -166,60 +170,60 @@ static void build_status(lv_obj_t *scr)
     lv_label_set_text(s_foot, "");
 }
 
-static lv_obj_t *button(lv_obj_t *parent, const char *txt, lv_color_t color, void *unused)
+static lv_obj_t *button(lv_obj_t *parent, const char *txt, lv_color_t color, int w, int h)
 {
     lv_obj_t *b = lv_button_create(parent);
-    lv_obj_set_size(b, 96, 36);
+    lv_obj_set_size(b, w, h);
     lv_obj_set_style_bg_color(b, color, 0);
-    lv_obj_t *l = label(b, &lv_font_montserrat_14, lv_color_white());
+    lv_obj_t *l = label(b, &lv_font_montserrat_20, lv_color_white());
     lv_label_set_text(l, txt);
     lv_obj_center(l);
     return b;
 }
 
-static void build_ride(lv_obj_t *scr)
+static void start_btn_cb(lv_event_t *e) { if (s_on_start) s_on_start(); }
+static void usb_btn_cb(lv_event_t *e) { if (s_on_usb) s_on_usb(); }
+
+static void build_idle(lv_obj_t *scr)
 {
-    s_page_ride = page(scr);
-    lv_obj_set_hidden(s_page_ride, true);
+    s_page_idle = page(scr);
 
-    s_ride_time = tlabel(s_page_ride, &lv_font_montserrat_20, &theme_st_muted);
-    lv_label_set_text(s_ride_time, "--:--:-- UTC");
-    lv_obj_align(s_ride_time, LV_ALIGN_TOP_MID, 0, 12);
+    lv_obj_t *hdr = lv_obj_create(s_page_idle);
+    lv_obj_remove_style_all(hdr);
+    lv_obj_set_size(hdr, LCD_H_RES, HDR_H);
+    lv_obj_set_style_bg_color(hdr, C_HDR, 0);
+    lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
+    lv_obj_t *t = label(hdr, &lv_font_montserrat_14, lv_color_white());
+    lv_label_set_text(t, "C606");
+    lv_obj_align(t, LV_ALIGN_LEFT_MID, 6, 0);
+    s_data_bat[PAGE_IDLE] = label(hdr, &lv_font_montserrat_14, lv_color_white());
+    lv_label_set_text(s_data_bat[PAGE_IDLE], "--%");
+    lv_obj_align(s_data_bat[PAGE_IDLE], LV_ALIGN_RIGHT_MID, -6, 0);
+    gear_button(hdr);
 
-    s_big = tlabel(s_page_ride, &lv_font_montserrat_48, &theme_st_text);
-    lv_label_set_text(s_big, "0.0");
-    lv_obj_align(s_big, LV_ALIGN_TOP_MID, 0, 56);
+    s_idle_clock = tlabel(s_page_idle, &lv_font_montserrat_48, &theme_st_text);
+    lv_label_set_text(s_idle_clock, "--:--:--");
+    lv_obj_align(s_idle_clock, LV_ALIGN_TOP_MID, 0, 56);
 
-    s_big_caption = tlabel(s_page_ride, &lv_font_montserrat_20, &theme_st_muted);
-    lv_label_set_text(s_big_caption, "km/h");
-    lv_obj_align(s_big_caption, LV_ALIGN_TOP_MID, 0, 112);
+    s_idle_gps = label(s_page_idle, &lv_font_montserrat_14, theme_palette(LV_PALETTE_ORANGE));
+    lv_label_set_text(s_idle_gps, "GPS: no data");
+    lv_obj_align(s_idle_gps, LV_ALIGN_TOP_MID, 0, 128);
 
-    s_ride_gps = label(s_page_ride, &lv_font_montserrat_14, theme_palette(LV_PALETTE_ORANGE));
-    lv_label_set_text(s_ride_gps, "no GPS data");
-    lv_obj_align(s_ride_gps, LV_ALIGN_TOP_MID, 0, 150);
+    s_idle_sens = label(s_page_idle, &lv_font_montserrat_14, theme_palette(LV_PALETTE_PINK));
+    lv_label_set_text(s_idle_sens, "HR --  cad --  --.- km/h");
+    lv_obj_align(s_idle_sens, LV_ALIGN_TOP_MID, 0, 150);
 
-    s_ride_pos = tlabel(s_page_ride, &lv_font_montserrat_14, &theme_st_text);
-    lv_obj_set_style_text_align(s_ride_pos, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_text(s_ride_pos, "");
-    lv_obj_align(s_ride_pos, LV_ALIGN_TOP_MID, 0, 172);
+    s_btn_start = button(s_page_idle, LV_SYMBOL_PLAY "  START RIDE", lv_palette_main(LV_PALETTE_GREEN), 200, 52);
+    lv_obj_align(s_btn_start, LV_ALIGN_TOP_MID, 0, 186);
+    lv_obj_add_event_cb(s_btn_start, start_btn_cb, LV_EVENT_CLICKED, NULL);
 
-    s_ride_sens = label(s_page_ride, &lv_font_montserrat_14, theme_palette(LV_PALETTE_PINK));
-    lv_label_set_text(s_ride_sens, "HR --  cad --  --.- km/h");
-    lv_obj_align(s_ride_sens, LV_ALIGN_TOP_MID, 0, 206);
+    s_btn_usb = button(s_page_idle, LV_SYMBOL_USB "  USB", lv_palette_main(LV_PALETTE_BLUE), 120, 36);
+    lv_obj_align(s_btn_usb, LV_ALIGN_TOP_MID, 0, 250);
+    lv_obj_add_event_cb(s_btn_usb, usb_btn_cb, LV_EVENT_CLICKED, NULL);
 
-    s_ride_env = label(s_page_ride, &lv_font_montserrat_20, theme_palette(LV_PALETTE_CYAN));
-    lv_label_set_text(s_ride_env, "--.- C");
-    lv_obj_align(s_ride_env, LV_ALIGN_TOP_MID, 0, 234);
-
-    s_ride_rec = label(s_page_ride, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_RED));
-    lv_label_set_text(s_ride_rec, "");
-    lv_obj_align(s_ride_rec, LV_ALIGN_TOP_MID, 0, 262);
-
-    /* touch buttons (the user-data pointer is resolved at click time) */
-    s_btn_rec = button(s_page_ride, LV_SYMBOL_STOP " REC", lv_palette_main(LV_PALETTE_RED), NULL);
-    lv_obj_align(s_btn_rec, LV_ALIGN_BOTTOM_LEFT, 16, -8);
-    s_btn_usb = button(s_page_ride, LV_SYMBOL_USB " USB", lv_palette_main(LV_PALETTE_BLUE), NULL);
-    lv_obj_align(s_btn_usb, LV_ALIGN_BOTTOM_RIGHT, -16, -8);
+    s_idle_hint = tlabel(s_page_idle, &lv_font_montserrat_14, &theme_st_muted);
+    lv_label_set_text(s_idle_hint, "key 2: start   key 0: status");
+    lv_obj_align(s_idle_hint, LV_ALIGN_BOTTOM_MID, 0, -6);
 }
 
 /* ---- data pages -------------------------------------------------------- */
@@ -248,6 +252,7 @@ static void build_data_pages(lv_obj_t *scr)
         lv_obj_delete(s_pages[i]);
         s_pages[i] = NULL;
         s_data_bat[i] = NULL;
+        s_mode_lbl[i] = NULL;
     }
     s_npages = 2;
 
@@ -271,6 +276,9 @@ static void build_data_pages(lv_obj_t *scr)
         s_data_bat[idx] = label(hdr, &lv_font_montserrat_14, lv_color_white());
         lv_label_set_text_fmt(s_data_bat[idx], "%u%%", s_bat_pct);
         lv_obj_align(s_data_bat[idx], LV_ALIGN_RIGHT_MID, -6, 0);
+        s_mode_lbl[idx] = label(hdr, &lv_font_montserrat_14, lv_color_white());
+        lv_label_set_text(s_mode_lbl[idx], "");
+        lv_obj_align(s_mode_lbl[idx], LV_ALIGN_LEFT_MID, 70, 0);
         gear_button(hdr);
 
         datapage_build(&s_dp[p], pg, &cfg->page[p], 0, HDR_H, LCD_H_RES, LCD_V_RES - HDR_H);
@@ -279,11 +287,33 @@ static void build_data_pages(lv_obj_t *scr)
     if (s_cursor) lv_obj_move_foreground(s_cursor);
 }
 
-/* Refreshes the visible data page (LVGL task). */
+static void fmt_session(char *buf, size_t n)
+{
+    uint32_t t = stats_session_ms() / 1000;
+    snprintf(buf, n, "%lu:%02lu:%02lu", (unsigned long)(t / 3600), (unsigned long)(t / 60 % 60),
+             (unsigned long)(t % 60));
+}
+
+/* Refreshes the visible page's live content (LVGL task, 2 Hz). */
 static void data_refresh_cb(lv_timer_t *t)
 {
-    if (s_page_idx < 2 || s_page_idx >= s_npages || menu_active()) return;
-    datapage_refresh(&s_dp[s_dp_of_page[s_page_idx]]);
+    char buf[24];
+    if (menu_active() || s_page_idx < 0) return;
+    if (s_page_idx == PAGE_IDLE) {
+        field_value(FIELD_TIME_OF_DAY, buf, sizeof buf);
+        lv_label_set_text(s_idle_clock, buf);
+    } else if (s_page_idx >= 2 && s_page_idx < s_npages) {
+        datapage_refresh(&s_dp[s_dp_of_page[s_page_idx]]);
+        char ses[16];
+        fmt_session(ses, sizeof ses);
+        if (s_mode == RIDE_RIDING) {
+            lv_label_set_text_fmt(s_mode_lbl[s_page_idx], LV_SYMBOL_PLAY " %s", ses);
+            lv_obj_set_style_text_color(s_mode_lbl[s_page_idx], lv_palette_lighten(LV_PALETTE_RED, 3), 0);
+        } else {
+            lv_label_set_text_fmt(s_mode_lbl[s_page_idx], LV_SYMBOL_PAUSE " %s", ses);
+            lv_obj_set_style_text_color(s_mode_lbl[s_page_idx], lv_palette_lighten(LV_PALETTE_ORANGE, 2), 0);
+        }
+    }
 }
 
 static void show_page(int idx)
@@ -292,9 +322,26 @@ static void show_page(int idx)
         lv_obj_set_hidden(s_pages[i], i != idx);
     }
     s_page_idx = idx;
-    if (idx >= 2) {
-        data_refresh_cb(NULL);   /* don't wait for the timer */
+    data_refresh_cb(NULL);   /* don't wait for the timer */
+}
+
+/* Pages reachable with key 0: idle <-> status when idle, the data pages
+ * during a ride (status page as a fallback when none is enabled). */
+static void set_ring(bool keep_page)
+{
+    s_ring_n = 0;
+    if (s_mode == RIDE_IDLE) {
+        s_ring[s_ring_n++] = PAGE_IDLE;
+        s_ring[s_ring_n++] = PAGE_STATUS;
+    } else {
+        for (int i = 2; i < s_npages; i++) s_ring[s_ring_n++] = i;
+        if (!s_ring_n) s_ring[s_ring_n++] = PAGE_STATUS;
     }
+    int pos = 0;
+    if (keep_page) {
+        for (int i = 0; i < s_ring_n; i++) if (s_ring[i] == s_page_idx) pos = i;
+    }
+    show_page(s_ring[pos]);
 }
 
 /* Status colours are local styles set at creation: refresh them for the
@@ -302,9 +349,8 @@ static void show_page(int idx)
 static void apply_theme_colors(void)
 {
     lv_obj_set_style_text_color(s_touch_lbl, theme_palette(LV_PALETTE_CYAN), 0);
-    lv_obj_set_style_text_color(s_ride_env, theme_palette(LV_PALETTE_CYAN), 0);
     lv_obj_set_style_text_color(s_ant, theme_palette(LV_PALETTE_PINK), 0);
-    lv_obj_set_style_text_color(s_ride_sens, theme_palette(LV_PALETTE_PINK), 0);
+    lv_obj_set_style_text_color(s_idle_sens, theme_palette(LV_PALETTE_PINK), 0);
 }
 
 /* The configuration may have changed while the menu was open. */
@@ -312,37 +358,45 @@ static void on_menu_closed(void)
 {
     apply_theme_colors();
     build_data_pages(lv_screen_active());
-    if (s_page_idx >= s_npages) s_page_idx = 0;
-    show_page(s_page_idx);
+    set_ring(true);
 }
 
-static void rec_btn_cb(lv_event_t *e) { if (s_on_rec) s_on_rec(); }
-static void usb_btn_cb(lv_event_t *e) { if (s_on_usb) s_on_usb(); }
-
-void ui_set_actions(ui_action_cb_t on_rec, ui_action_cb_t on_usb)
+void ui_set_mode(ride_mode_t mode)
 {
-    s_on_rec = on_rec;
-    s_on_usb = on_usb;
     ui_lock();
-    lv_obj_add_event_cb(s_btn_rec, rec_btn_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(s_btn_usb, usb_btn_cb, LV_EVENT_CLICKED, NULL);
+    s_mode = mode;
+    set_ring(mode != RIDE_IDLE && s_page_idx >= 2);   /* stay on the page when pausing/resuming */
     ui_unlock();
 }
+
+void ui_set_actions(ui_action_cb_t on_start, ui_action_cb_t on_usb)
+{
+    s_on_start = on_start;
+    s_on_usb = on_usb;
+}
+
+/* ---- confirmation popups ------------------------------------------------ */
 
 static void popup_timeout_cb(lv_timer_t *t)
 {
     s_popup_timer = NULL;
-    ui_hide_power_popup();
+    ui_hide_popup();
 }
 
-static void popup_off_cb(lv_event_t *e) { if (s_on_power_off) s_on_power_off(); }
-static void popup_cancel_cb(lv_event_t *e) { ui_hide_power_popup(); }
+static void popup_ok_cb(lv_event_t *e)
+{
+    ui_action_cb_t cb = s_popup_kind == UI_POPUP_POWER ? s_on_power_off : s_on_end_ride;
+    ui_hide_popup();
+    if (cb) cb();
+}
+static void popup_cancel_cb(lv_event_t *e) { ui_hide_popup(); }
 
 void ui_set_power_off_cb(ui_action_cb_t cb) { s_on_power_off = cb; }
+void ui_set_end_ride_cb(ui_action_cb_t cb) { s_on_end_ride = cb; }
 
-bool ui_power_popup_active(void) { return s_popup != NULL; }
+ui_popup_t ui_popup_active(void) { return s_popup ? s_popup_kind : UI_POPUP_NONE; }
 
-void ui_hide_power_popup(void)
+void ui_hide_popup(void)
 {
     ui_lock();
     if (s_popup_timer) { lv_timer_delete(s_popup_timer); s_popup_timer = NULL; }
@@ -350,39 +404,49 @@ void ui_hide_power_popup(void)
     ui_unlock();
 }
 
-void ui_show_power_popup(void)
+static void show_popup(ui_popup_t kind, const char *title, const char *hint, const char *ok, lv_palette_t color)
 {
     ui_lock();
-    if (!s_popup) {
-        s_popup = lv_obj_create(lv_layer_top());
-        lv_obj_set_size(s_popup, 200, 130);
-        lv_obj_center(s_popup);
-        lv_obj_set_style_bg_color(s_popup, lv_color_hex(0x202020), 0);
-        lv_obj_set_style_border_color(s_popup, lv_palette_main(LV_PALETTE_RED), 0);
-        lv_obj_set_style_border_width(s_popup, 2, 0);
-        lv_obj_t *t = label(s_popup, &lv_font_montserrat_20, lv_color_white());
-        lv_label_set_text(t, "Power off?");
-        lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 4);
-        lv_obj_t *h = label(s_popup, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_GREY));
-        lv_label_set_text(h, "key0: off   other: cancel");
-        lv_obj_align(h, LV_ALIGN_TOP_MID, 0, 34);
-        lv_obj_t *b = lv_button_create(s_popup);
-        lv_obj_set_size(b, 80, 34);
-        lv_obj_set_style_bg_color(b, lv_palette_main(LV_PALETTE_RED), 0);
-        lv_obj_align(b, LV_ALIGN_BOTTOM_LEFT, 0, 0);
-        lv_obj_t *l = label(b, &lv_font_montserrat_14, lv_color_white());
-        lv_label_set_text(l, "Off"); lv_obj_center(l);
-        lv_obj_add_event_cb(b, popup_off_cb, LV_EVENT_CLICKED, NULL);
-        b = lv_button_create(s_popup);
-        lv_obj_set_size(b, 80, 34);
-        lv_obj_align(b, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
-        l = label(b, &lv_font_montserrat_14, lv_color_white());
-        lv_label_set_text(l, "Cancel"); lv_obj_center(l);
-        lv_obj_add_event_cb(b, popup_cancel_cb, LV_EVENT_CLICKED, NULL);
-        s_popup_timer = lv_timer_create(popup_timeout_cb, 8000, NULL);
-        lv_timer_set_repeat_count(s_popup_timer, 1);
-    }
+    if (s_popup) ui_hide_popup();
+    s_popup_kind = kind;
+    s_popup = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(s_popup, 200, 130);
+    lv_obj_center(s_popup);
+    lv_obj_set_style_bg_color(s_popup, lv_color_hex(0x202020), 0);
+    lv_obj_set_style_border_color(s_popup, lv_palette_main(color), 0);
+    lv_obj_set_style_border_width(s_popup, 2, 0);
+    lv_obj_t *t = label(s_popup, &lv_font_montserrat_20, lv_color_white());
+    lv_label_set_text(t, title);
+    lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 4);
+    lv_obj_t *h = label(s_popup, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_GREY));
+    lv_label_set_text(h, hint);
+    lv_obj_align(h, LV_ALIGN_TOP_MID, 0, 34);
+    lv_obj_t *b = lv_button_create(s_popup);
+    lv_obj_set_size(b, 80, 34);
+    lv_obj_set_style_bg_color(b, lv_palette_main(color), 0);
+    lv_obj_align(b, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_t *l = label(b, &lv_font_montserrat_14, lv_color_white());
+    lv_label_set_text(l, ok); lv_obj_center(l);
+    lv_obj_add_event_cb(b, popup_ok_cb, LV_EVENT_CLICKED, NULL);
+    b = lv_button_create(s_popup);
+    lv_obj_set_size(b, 80, 34);
+    lv_obj_align(b, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    l = label(b, &lv_font_montserrat_14, lv_color_white());
+    lv_label_set_text(l, "Cancel"); lv_obj_center(l);
+    lv_obj_add_event_cb(b, popup_cancel_cb, LV_EVENT_CLICKED, NULL);
+    s_popup_timer = lv_timer_create(popup_timeout_cb, 8000, NULL);
+    lv_timer_set_repeat_count(s_popup_timer, 1);
     ui_unlock();
+}
+
+void ui_show_power_popup(void)
+{
+    show_popup(UI_POPUP_POWER, "Power off?", "key0: off   other: cancel", "Off", LV_PALETTE_RED);
+}
+
+void ui_show_end_ride_popup(void)
+{
+    show_popup(UI_POPUP_END_RIDE, "End ride?", "key2: end   other: cancel", "End", LV_PALETTE_ORANGE);
 }
 
 void ui_set_touch(const char *chip_name)
@@ -412,11 +476,12 @@ void ui_create(void)
     lv_obj_t *scr = lv_screen_active();
     theme_init(config_get()->theme);
     lv_obj_add_style(scr, &theme_st_bg, 0);
+    build_idle(scr);
     build_status(scr);
-    build_ride(scr);
-    s_pages[0] = s_page_status;
-    s_pages[1] = s_page_ride;
+    s_pages[PAGE_IDLE] = s_page_idle;
+    s_pages[PAGE_STATUS] = s_page_status;
     s_npages = 2;
+    lv_obj_set_hidden(s_page_status, true);
 
     s_cursor = lv_obj_create(scr);
     lv_obj_remove_style_all(s_cursor);
@@ -430,6 +495,7 @@ void ui_create(void)
 
     build_data_pages(scr);
     menu_set_close_cb(on_menu_closed);
+    set_ring(false);
     lv_timer_create(data_refresh_cb, 500, NULL);
     ui_unlock();
 }
@@ -441,7 +507,7 @@ void ui_set_battery(uint8_t pct, uint16_t mv)
     lv_label_set_text_fmt(s_arc_lbl, "%u%%\n%u mV", pct, mv);
     lv_label_set_text_fmt(s_hdr_bat, "%u%%", pct);
     s_bat_pct = pct;
-    for (int i = 2; i < s_npages; i++) {
+    for (int i = 0; i < s_npages; i++) {
         if (s_data_bat[i]) lv_label_set_text_fmt(s_data_bat[i], "%u%%", pct);
     }
     ui_unlock();
@@ -454,7 +520,6 @@ void ui_set_env(int16_t temp_c100, uint32_t pressure_pa100)
                           temp_c100 / 100, abs(temp_c100 % 100),
                           (unsigned long)(pressure_pa100 / 10000),
                           (unsigned long)((pressure_pa100 / 1000) % 10));
-    lv_label_set_text_fmt(s_ride_env, "%d.%d C", temp_c100 / 100, abs(temp_c100 / 10 % 10));
     ui_unlock();
 }
 
@@ -531,24 +596,16 @@ void ui_set_gps(const gps_fix_t *g)
     ui_lock();
     if (g->baud == 0) {
         lv_label_set_text(s_gps, "GPS: probing baud");
-        lv_label_set_text(s_ride_gps, "no GPS data");
+        lv_label_set_text(s_idle_gps, "GPS: no data");
     } else {
         const char *fix = g->valid ? (g->fix_quality == 2 ? "DGPS" : "fix") : "no fix";
+        lv_color_t c = theme_palette(g->valid ? LV_PALETTE_GREEN : LV_PALETTE_ORANGE);
         snprintf(buf, sizeof buf, "GPS %s  %u/%u sats  hdop %.1f", fix, g->sats_used, g->sats_in_view, g->hdop);
         lv_label_set_text(s_gps, buf);
-        lv_obj_set_style_text_color(s_gps, theme_palette(g->valid ? LV_PALETTE_GREEN : LV_PALETTE_ORANGE), 0);
-        snprintf(buf, sizeof buf, "%s  %u/%u sats  %lu sent", fix, g->sats_used, g->sats_in_view,
-                 (unsigned long)g->sentences);
-        lv_label_set_text(s_ride_gps, buf);
-        lv_obj_set_style_text_color(s_ride_gps, theme_palette(g->valid ? LV_PALETTE_GREEN : LV_PALETTE_ORANGE), 0);
-        if (g->valid) {
-            lv_label_set_text_fmt(s_big, "%.1f", g->speed_kmh);
-            snprintf(buf, sizeof buf, "%.5f  %.5f\nalt %.0f m  crs %.0f", g->lat, g->lon, g->alt_m, g->course_deg);
-            lv_label_set_text(s_ride_pos, buf);
-        }
-        if (g->hh || g->mm || g->ss) {
-            lv_label_set_text_fmt(s_ride_time, "%02u:%02u:%02u UTC", g->hh, g->mm, g->ss);
-        }
+        lv_obj_set_style_text_color(s_gps, c, 0);
+        snprintf(buf, sizeof buf, "GPS %s  %u/%u sats", fix, g->sats_used, g->sats_in_view);
+        lv_label_set_text(s_idle_gps, buf);
+        lv_obj_set_style_text_color(s_idle_gps, c, 0);
     }
     ui_unlock();
 }
@@ -573,7 +630,7 @@ void ui_set_sensors(const ant_sensors_t *v, const ant_channel_t *ch, size_t nch)
     }
 
     ui_lock();
-    lv_label_set_text(s_ride_sens, line);
+    lv_label_set_text(s_idle_sens, line);
 
     n = snprintf(line, sizeof line, "ANT");
     if (nch == 0) {
@@ -604,19 +661,6 @@ void ui_set_sd(bool mounted, const char *name, uint32_t size_mb)
     ui_unlock();
 }
 
-void ui_set_rec(bool active, uint32_t points)
-{
-    ui_lock();
-    if (active) {
-        lv_label_set_text_fmt(s_hdr_rec, LV_SYMBOL_STOP " %lu", (unsigned long)points);
-        lv_label_set_text_fmt(s_ride_rec, "REC " LV_SYMBOL_STOP " %lu points", (unsigned long)points);
-    } else {
-        lv_label_set_text(s_hdr_rec, "");
-        lv_label_set_text(s_ride_rec, points ? "stopped" : "");
-    }
-    ui_unlock();
-}
-
 void ui_show_usb_mode(void)
 {
     ui_lock();
@@ -638,7 +682,9 @@ void ui_show_usb_mode(void)
 void ui_next_page(void)
 {
     ui_lock();
-    show_page((s_page_idx + 1) % s_npages);
+    int pos = 0;
+    for (int i = 0; i < s_ring_n; i++) if (s_ring[i] == s_page_idx) pos = i;
+    show_page(s_ring[(pos + 1) % s_ring_n]);
     ui_unlock();
 }
 

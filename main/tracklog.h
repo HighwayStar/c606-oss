@@ -8,6 +8,7 @@
  * /sdcard/c606oss/ and are named from GPS UTC date/time. */
 esp_err_t tracklog_start(const gps_fix_t *fix);
 void tracklog_stop(void);
+void tracklog_flush(void);   /* push buffered points to the card */
 bool tracklog_active(void);
 uint32_t tracklog_points(void);
 const char *tracklog_filename(void);

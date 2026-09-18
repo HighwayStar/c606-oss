@@ -4,9 +4,9 @@
  * Brings up the ST7789 over the i80 bus, LVGL 9 with draw buffers in internal
  * RAM and objects in PSRAM, the backlight, and the UART link to the nRF
  * co-processor, and the GNSS receiver on UART0.
- * Keys: 0 = switch page, 1/2 = backlight down/up, hold 2 = start/stop
- * recording a CSV track, hold 1 = USB mass storage mode (hold again: reboot),
- * hold 0 = power off (nRF cuts power; next power-on is a full POR).
+ * Keys: 0 = next page, 1 = backlight level, 2 = start ride / pause / resume,
+ * hold 2 = end ride (dialog), hold 1 = USB mass storage mode (hold again:
+ * reboot), hold 0 = power off (nRF cuts power; next power-on is a full POR).
  */
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -32,6 +32,7 @@
 #include "fields.h"
 #include "config.h"
 #include "devcon.h"
+#include "ride.h"
 #include "esp_system.h"
 #include "tinyusb.h"
 
@@ -53,20 +54,18 @@ static void set_backlight(int pct)
     ui_set_backlight(pct);
 }
 
-static void toggle_recording(void)
+static void on_ride_mode(ride_mode_t mode)
 {
-    if (tracklog_active()) {
-        tracklog_stop();
-    } else {
-        gps_fix_t fix;
-        gps_get(&fix);
-        if (tracklog_start(&fix) != ESP_OK) {
-            ESP_LOGW(TAG, "cannot start recording (SD?)");
-        } else {
-            stats_reset();   /* min/max/avg follow the recording session */
-        }
-    }
-    ui_set_rec(tracklog_active(), tracklog_points());
+    ui_set_mode(mode);
+}
+
+/* key 1 click: step the backlight down, wrapping back to full */
+static void cycle_backlight(void)
+{
+    static const uint8_t levels[] = { 100, 70, 40, 15 };
+    size_t i = 0;
+    while (i < sizeof levels && levels[i] > s_bl_pct - 5) i++;   /* first level below the current */
+    set_backlight(levels[i % sizeof levels]);
 }
 
 static void enter_usb_mode(void)
@@ -84,7 +83,7 @@ static void enter_usb_mode(void)
 static void power_off(void)
 {
     ESP_LOGI(TAG, "power off");
-    tracklog_stop();
+    ride_end();
     if (usb_msc_active()) {
         tinyusb_driver_uninstall();
     }
@@ -111,13 +110,13 @@ static void on_key(const nrf_key_event_t *ev)
         ui_show_power_popup();
         return;
     }
-    if (ui_power_popup_active()) {
+    ui_popup_t popup = ui_popup_active();
+    if (popup != UI_POPUP_NONE) {
+        /* the key that opened the popup confirms, anything else cancels */
         if (ev->event == KEY_EVT_CLICK) {
-            if (ev->key == 0) {
-                power_off();
-            } else {
-                ui_hide_power_popup();
-            }
+            ui_hide_popup();
+            if (popup == UI_POPUP_POWER && ev->key == 0) power_off();
+            if (popup == UI_POPUP_END_RIDE && ev->key == 2) ride_end();
         }
         return;
     }
@@ -128,7 +127,7 @@ static void on_key(const nrf_key_event_t *ev)
         return;   /* settings menu: 2 = up, 1 = down, 0 = select */
     }
     if (ev->key == 2 && ev->event == KEY_EVT_LONG_RELEASE) {
-        toggle_recording();
+        if (ride_mode() != RIDE_IDLE) ui_show_end_ride_popup();
         return;
     }
     if (ev->event != KEY_EVT_CLICK) {
@@ -136,8 +135,8 @@ static void on_key(const nrf_key_event_t *ev)
     }
     switch (ev->key) {
     case 0: ui_next_page(); break;
-    case 1: set_backlight(s_bl_pct - 10); break;
-    case 2: set_backlight(s_bl_pct + 10); break;
+    case 1: cycle_backlight(); break;
+    case 2: ride_toggle(); break;   /* start / pause / resume */
     default: break;
     }
 }
@@ -231,9 +230,8 @@ static void on_gps(const gps_fix_t *fix, void *ctx)
         stats_update(STAT_SPEED, fix->speed_kmh);
         stats_update(STAT_ALTITUDE, fix->alt_m);
     }
-    if (tracklog_active()) {
+    if (ride_recording()) {
         tracklog_point(fix, s_temp_c100, s_press_pa100);
-        ui_set_rec(true, tracklog_points());
     }
     if (fix->last_rx_ms - last_log > 5000) {
         last_log = fix->last_rx_ms;
@@ -260,15 +258,17 @@ void app_main(void)
     stats_init();
     fields_init();
     config_load();                       /* NVS; defaults if nothing saved */
+    devcon_init(inject_key);             /* dev console on the USB port; mirrors the screen from the first frame */
     ESP_ERROR_CHECK(ui_port_init());
     ui_create();
     ui_set_touch(touch_chip_name());
-    ui_set_actions(toggle_recording, enter_usb_mode);
+    ui_set_actions(ride_start, enter_usb_mode);
     ui_set_power_off_cb(power_off);
+    ui_set_end_ride_cb(ride_end);
+    ride_init(on_ride_mode);
     vTaskDelay(pdMS_TO_TICKS(100));      /* let the first frame render */
     set_backlight(s_bl_pct);
 
-    devcon_init(inject_key);             /* dev console on the USB port */
     ant_init(on_ant, NULL);
     ESP_ERROR_CHECK(nrf_link_init(on_frame, NULL));
     ESP_ERROR_CHECK(gps_init(on_gps, NULL));

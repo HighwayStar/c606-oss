@@ -70,6 +70,18 @@ void tracklog_stop(void)
     xSemaphoreGive(s_lock);
 }
 
+void tracklog_flush(void)
+{
+    if (!s_lock) return;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (s_f) {
+        fflush(s_f);
+        fsync(fileno(s_f));
+        s_unsynced = 0;
+    }
+    xSemaphoreGive(s_lock);
+}
+
 bool tracklog_active(void) { return s_f != NULL; }
 uint32_t tracklog_points(void) { return s_points; }
 const char *tracklog_filename(void) { return s_name; }
