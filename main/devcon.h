@@ -7,6 +7,7 @@
  *   key <idx> <evt>   inject a button event (evt 1 click, 4 hold, 5 release)
  *   tap <x> <y>       inject a touch tap at screen coordinates
  *   shot              dump the screen as hex rows ("SHOT 240 320" .. "SHOT_END")
+ *   spd <kmh>         feed one speed sample to the auto-pause logic
  *   heap              print free heap
  * tools/devcon.py drives it from the host. */
 

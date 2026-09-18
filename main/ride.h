@@ -19,3 +19,10 @@ void ride_resume(void);
 void ride_toggle(void);     /* start / pause / resume, as key 2 does */
 void ride_end(void);        /* close the track file, back to IDLE */
 bool ride_recording(void);  /* RIDING: track points are written */
+
+/* Auto pause: feed the current speed about once a second (valid = a wheel
+ * sensor or a GPS fix is delivering). Standing still for a few seconds
+ * pauses the ride, moving again resumes it; a manual pause (key 2) is never
+ * auto-resumed. */
+void ride_speed(float kmh, bool valid);
+bool ride_auto_paused(void);

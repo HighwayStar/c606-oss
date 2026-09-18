@@ -29,8 +29,8 @@ This PoC replaces only the ESP32 application. It:
   START button) is shown until a ride is started; the data pages, the track
   recording and the statistics only run during a ride,
 * keys: 0 = next page, 1 = manual lap, 2 = start ride / pause / resume,
-  hold 2 = "End ride?" dialog, hold 1 = USB storage mode (hold 1 again to reboot
-  out of it), hold 0 = power-off popup.
+  hold 2 = "End ride?" dialog, hold 0 = power-off popup. USB storage mode is
+  in Settings → System (tap *Reboot* or hold key 1 to leave it).
 
 Everything hardware-specific lives in `main/board.h`; the analysis behind it
 is in [`docs/HARDWARE.md`](docs/HARDWARE.md).
@@ -91,7 +91,10 @@ with `esp32_image_parser.py dump_partition`.)
    cycles). The header shows `▶ h:mm:ss` (session time). Key 2 pauses (`‖`,
    recording and statistics stand still, the time excludes pauses) and resumes.
    Hold key 2 for the *End ride?* dialog: key 2 / *End* closes the track file
-   and returns to the idle screen, anything else cancels.
+   and returns to the idle screen, anything else cancels. With *Auto pause*
+   on, standing still (below 1.5 km/h for 3 s, wheel sensor or GPS) pauses the
+   ride by itself (`‖ … auto`) and moving again (> 3 km/h) resumes it; a manual
+   pause is never auto-resumed.
 3. Data page cells show a field's name and value (font sized to the cell;
    grey `--` when no fresh reading arrived within a few seconds). Fields are
    the current / min / max / avg of every measured parameter, distance and
@@ -113,21 +116,25 @@ with `esp32_image_parser.py dump_partition`.)
      category and a field).
    * *Lap length*: +/− screen, 0.5 km steps, 0 = off (touch the buttons or
      key 2 / key 1, key 0 goes back).
+   * *Auto pause* on/off.
    * *Backlight*: +/− screen, 10 % steps, applied live and remembered.
    * *Time zone*: same +/− screen in 30 min steps (UTC-12 … UTC+14) for the
      time of day, which comes from the nRF's RTC (UTC), GPS as fallback.
    * *Theme*: dark (default) or light, applied immediately (`main/theme.c`:
      shared LVGL styles; status colours are darkened on the light background).
    * *Reset statistics*.
-   * *System* → *USB storage* (same as holding key 1), *Power off*, *About*.
+   * *System* → *USB storage*, *Power off*, *About*.
    The configuration lives in the NVS partition, namespace `c606oss` (the
    vendor's entries are untouched); defaults are in `config_defaults()`.
+   New settings are appended to `app_cfg_t`; older blobs are upgraded in
+   place (`k_len_by_version` in `config.c` lists each version's blob size,
+   padding included — the static assert reminds you to extend it).
    Layouts are the table in `main/layouts.c`.
 
-4. Hold key 1: the eMMC appears on the host as a 3.7 GB USB disk
-   (`303a:4002 c606-oss C606 eMMC`, auto-mounted by most desktops). The S3
-   has a single USB PHY, so the console and esptool auto-reset are gone
-   while in this mode — eject the disk and hold key 1 again to reboot.
+4. Settings → System → USB storage: the eMMC appears on the host as a 3.7 GB
+   USB disk (`303a:4002 c606-oss C606 eMMC`, auto-mounted by most desktops).
+   The S3 has a single USB PHY, so the console and esptool auto-reset are gone
+   while in this mode — eject the disk, then tap *Reboot* or hold key 1.
 5. Hold key 0: "Power off?" popup — key 0 again (or tap Off) powers off via
    the nRF, any other key (or Cancel, or 8 s) dismisses it. Press key 0 to
    power on again.

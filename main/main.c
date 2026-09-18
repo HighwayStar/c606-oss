@@ -5,8 +5,8 @@
  * RAM and objects in PSRAM, the backlight, and the UART link to the nRF
  * co-processor, and the GNSS receiver on UART0.
  * Keys: 0 = next page, 1 = manual lap, 2 = start ride / pause / resume,
- * hold 2 = end ride (dialog), hold 1 = USB mass storage mode (hold again:
- * reboot), hold 0 = power off (nRF cuts power; next power-on is a full POR).
+ * hold 2 = end ride (dialog), hold 0 = power off (nRF cuts power; next
+ * power-on is a full POR). USB mass storage mode: Settings -> System.
  */
 #include <stdio.h>
 #include <string.h>
@@ -103,11 +103,8 @@ static void on_key(const nrf_key_event_t *ev)
 {
     ESP_LOGI(TAG, "KEY idx=%u event=%u aux=%u", ev->key, ev->event, ev->aux);
     ui_key_event(ev->key, ev->event);
-    if (ev->key == 1 && ev->event == KEY_EVT_LONG_RELEASE) {
-        if (usb_msc_active()) {
-            usb_msc_leave_and_restart();   /* restores USB-Serial-JTAG, then reboots */
-        }
-        enter_usb_mode();
+    if (ev->key == 1 && ev->event == KEY_EVT_LONG_RELEASE && usb_msc_active()) {
+        usb_msc_leave_and_restart();   /* restores USB-Serial-JTAG, then reboots */
         return;
     }
     if (ev->key == 0 && ev->event == KEY_EVT_LONG_RELEASE) {
@@ -273,6 +270,7 @@ void app_main(void)
     ui_create();
     ui_set_touch(touch_chip_name());
     ui_set_actions(ride_start, enter_usb_mode, apply_backlight);
+    ui_set_usb_reboot_cb(usb_msc_leave_and_restart);
     ui_set_power_off_cb(power_off);
     ui_set_end_ride_cb(ride_end);
     ride_init(on_ride_mode);
@@ -318,6 +316,19 @@ void app_main(void)
         }
 
         ui_tick(now / 1000);
+
+        /* auto pause: wheel sensor speed if live, else GPS ground speed */
+        {
+            ant_sensors_t v;
+            gps_fix_t fix;
+            ant_get(&v);
+            gps_get(&fix);
+            if (ant_live(ANT_DEV_SPEED, ANT_DEV_SPD_CAD)) {
+                ride_speed(v.speed_kmh, true);
+            } else {
+                ride_speed(fix.speed_kmh, fix.valid && now - fix.last_rx_ms < 3000);
+            }
+        }
         if (sensors_started) {
             size_t nch;
             const ant_channel_t *ch = ant_channels(&nch);

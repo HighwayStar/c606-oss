@@ -24,6 +24,7 @@ typedef struct {
     uint8_t theme;                      /* theme_id_t (added in version 2) */
     uint16_t lap_len_m;                 /* auto lap every N metres, 0 = off (version 3) */
     uint8_t backlight;                  /* percent, 10..100 (version 4) */
+    uint8_t auto_pause;                 /* 0 / 1 (version 5) */
 } app_cfg_t;
 
 #define CFG_LAP_STEP_M 500

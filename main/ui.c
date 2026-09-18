@@ -39,7 +39,7 @@ static lv_obj_t *s_hdr_bat, *s_arc, *s_arc_lbl, *s_env, *s_nrf, *s_gps, *s_sd, *
 static lv_obj_t *s_key[3];
 static lv_obj_t *s_idle_clock, *s_idle_gps, *s_idle_sens, *s_idle_hint;
 static lv_obj_t *s_cursor, *s_touch_lbl, *s_btn_start, *s_ant;
-static ui_action_cb_t s_on_start, s_on_usb, s_on_power_off, s_on_end_ride;
+static ui_action_cb_t s_on_start, s_on_usb, s_on_usb_reboot, s_on_power_off, s_on_end_ride;
 static lv_obj_t *s_popup;
 static ui_popup_t s_popup_kind;
 static lv_timer_t *s_popup_timer;
@@ -266,14 +266,14 @@ static void build_data_pages(lv_obj_t *scr)
         lv_obj_set_style_bg_color(hdr, C_HDR, 0);
         lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
         lv_obj_t *t = label(hdr, &lv_font_montserrat_14, lv_color_white());
-        lv_label_set_text_fmt(t, "Page %d", p + 1);
+        lv_label_set_text_fmt(t, "P%d", p + 1);
         lv_obj_align(t, LV_ALIGN_LEFT_MID, 6, 0);
         s_data_bat[idx] = label(hdr, &lv_font_montserrat_14, lv_color_white());
         lv_label_set_text_fmt(s_data_bat[idx], "%u%%", s_bat_pct);
         lv_obj_align(s_data_bat[idx], LV_ALIGN_RIGHT_MID, -6, 0);
         s_mode_lbl[idx] = label(hdr, &lv_font_montserrat_14, lv_color_white());
         lv_label_set_text(s_mode_lbl[idx], "");
-        lv_obj_align(s_mode_lbl[idx], LV_ALIGN_LEFT_MID, 70, 0);
+        lv_obj_align(s_mode_lbl[idx], LV_ALIGN_LEFT_MID, 36, 0);
         gear_button(hdr);
 
         datapage_build(&s_dp[p], pg, &cfg->page[p], 0, HDR_H, LCD_H_RES, LCD_V_RES - HDR_H);
@@ -305,7 +305,7 @@ static void data_refresh_cb(lv_timer_t *t)
             lv_label_set_text_fmt(s_mode_lbl[s_page_idx], LV_SYMBOL_PLAY " %s", ses);
             lv_obj_set_style_text_color(s_mode_lbl[s_page_idx], lv_palette_lighten(LV_PALETTE_RED, 3), 0);
         } else {
-            lv_label_set_text_fmt(s_mode_lbl[s_page_idx], LV_SYMBOL_PAUSE " %s", ses);
+            lv_label_set_text_fmt(s_mode_lbl[s_page_idx], LV_SYMBOL_PAUSE " %s%s", ses, ride_auto_paused() ? " auto" : "");
             lv_obj_set_style_text_color(s_mode_lbl[s_page_idx], lv_palette_lighten(LV_PALETTE_ORANGE, 2), 0);
         }
     }
@@ -693,6 +693,10 @@ void ui_set_sd(bool mounted, const char *name, uint32_t size_mb)
     ui_unlock();
 }
 
+static void usb_reboot_cb(lv_event_t *e) { if (s_on_usb_reboot) s_on_usb_reboot(); }
+
+void ui_set_usb_reboot_cb(ui_action_cb_t cb) { s_on_usb_reboot = cb; }
+
 void ui_show_usb_mode(void)
 {
     ui_lock();
@@ -706,8 +710,14 @@ void ui_show_usb_mode(void)
     lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 140);
     lv_obj_t *h = tlabel(p, &lv_font_montserrat_14, &theme_st_muted);
     lv_obj_set_style_text_align(h, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_text(h, "eMMC is exposed to the host.\nEject it, then hold key 1\nto reboot.");
+    lv_label_set_text(h, "eMMC is exposed to the host.\nEject it, then reboot.");
     lv_obj_align(h, LV_ALIGN_TOP_MID, 0, 180);
+    lv_obj_t *b = button(p, LV_SYMBOL_REFRESH "  Reboot", lv_palette_main(LV_PALETTE_BLUE), 160, 44);
+    lv_obj_align(b, LV_ALIGN_TOP_MID, 0, 236);
+    lv_obj_add_event_cb(b, usb_reboot_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *k = tlabel(p, &lv_font_montserrat_14, &theme_st_muted);
+    lv_label_set_text(k, "or hold key 1");
+    lv_obj_align(k, LV_ALIGN_TOP_MID, 0, 290);
     ui_unlock();
 }
 

@@ -8,6 +8,7 @@
  *         Fields       -> page preview, tap a cell (or move with keys) ->
  *           category   -> field list -> assigned, back to the preview
  *     Lap length       -> +/- screen (0.5 km steps, 0 = off)
+ *     Auto pause       (toggle: pause when standing still)
  *     Backlight        -> +/- screen (10 % steps)
  *     Time zone        -> +/- screen (30 min steps)
  *     Theme            (tap: dark / light)
@@ -638,7 +639,7 @@ static const value_def_t k_tz_value  = { tz_text, tz_step };
 static const value_def_t k_bl_value  = { bl_text, bl_step };
 
 
-enum { ROOT_PAGES, ROOT_LAP, ROOT_BACKLIGHT, ROOT_TZ, ROOT_THEME, ROOT_RESET, ROOT_SYSTEM };
+enum { ROOT_PAGES, ROOT_LAP, ROOT_AUTOPAUSE, ROOT_BACKLIGHT, ROOT_TZ, ROOT_THEME, ROOT_RESET, ROOT_SYSTEM };
 
 static void settings_select(screen_t *s, int idx)
 {
@@ -648,6 +649,11 @@ static void settings_select(screen_t *s, int idx)
         break;
     case ROOT_LAP:
         value_open("Lap length", &k_lap_value);
+        break;
+    case ROOT_AUTOPAUSE:
+        config_get()->auto_pause = !config_get()->auto_pause;
+        config_save();
+        set_toggle(s, idx, config_get()->auto_pause);
         break;
     case ROOT_BACKLIGHT:
         value_open("Backlight", &k_bl_value);
@@ -703,6 +709,7 @@ void menu_open(void)
     add_item(s, "Pages", ITEM_ARROW, NULL, false);
     lap_text(buf, sizeof buf);
     add_item(s, "Lap length", ITEM_ARROW, buf, false);
+    add_item(s, "Auto pause", ITEM_TOGGLE, NULL, config_get()->auto_pause);
     bl_text(buf, sizeof buf);
     add_item(s, "Backlight", ITEM_ARROW, buf, false);
     tz_text(buf, sizeof buf);

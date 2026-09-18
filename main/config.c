@@ -14,7 +14,9 @@
 
 static const char *TAG = "config";
 #define CFG_MAGIC   0xC606
-#define CFG_VERSION 4
+#define CFG_VERSION 5
+/* keep k_len_by_version in config_load() in sync when appending fields */
+_Static_assert(sizeof(app_cfg_t) == 82, "app_cfg_t layout changed: add its size to k_len_by_version");
 #define NVS_NS      "c606oss"
 #define NVS_KEY     "cfg"
 
@@ -39,6 +41,7 @@ void config_defaults(app_cfg_t *c)
     c->tz_min = 0;
     c->lap_len_m = 1000;
     c->backlight = 70;
+    c->auto_pause = 1;
 
     static const field_id_t p1[] = {
         FIELD_TIME_OF_DAY, FIELD_STAT(STAT_SPEED, AGG_CUR), FIELD_STAT(STAT_SPEED, AGG_AVG),
@@ -74,6 +77,7 @@ static bool valid(const app_cfg_t *c)
     if (c->theme > 1) return false;
     if (c->lap_len_m > CFG_LAP_MAX_M) return false;
     if (c->backlight < 10 || c->backlight > 100) return false;
+    if (c->auto_pause > 1) return false;
     for (int p = 0; p < CFG_PAGES; p++) {
         if (c->page[p].layout >= layout_count()) return false;
         for (int i = 0; i < LAYOUT_MAX_CELLS; i++) {
@@ -104,23 +108,20 @@ void config_load(void)
     size_t len = sizeof tmp;
     err = nvs_get_blob(h, NVS_KEY, &tmp, &len);
     nvs_close(h);
-    /* older blobs are prefixes of the current struct (fields are only ever
-     * appended); the struct was zeroed, so upgrade in place */
-    if (err == ESP_OK && tmp.magic == CFG_MAGIC) {
-        if (tmp.version == 1 && len == offsetof(app_cfg_t, theme)) {
-            tmp.version = 2;
-            len = offsetof(app_cfg_t, lap_len_m);
-        }
-        if (tmp.version == 2 && len == offsetof(app_cfg_t, lap_len_m)) {
-            tmp.version = 3;
-            tmp.lap_len_m = 1000;
-            len = offsetof(app_cfg_t, backlight);
-        }
-        if (tmp.version == 3 && len == offsetof(app_cfg_t, backlight)) {
-            tmp.version = 4;
-            tmp.backlight = 70;
-            len = sizeof tmp;
-        }
+    /* Older blobs are prefixes of the current struct (fields are only ever
+     * appended) but their length includes the tail padding of that version,
+     * so the sizes are listed explicitly. The struct was zeroed before the
+     * read; fill in the defaults of the fields the blob does not have. */
+    static const size_t k_len_by_version[] = { 0, 76, 78, 80, 82, 82 };
+    if (err == ESP_OK && tmp.magic == CFG_MAGIC && tmp.version >= 1 && tmp.version < CFG_VERSION
+        && len == k_len_by_version[tmp.version]) {
+        if (tmp.version < 2) tmp.theme = 0;
+        if (tmp.version < 3) tmp.lap_len_m = 1000;
+        if (tmp.version < 4) tmp.backlight = 70;
+        if (tmp.version < 5) tmp.auto_pause = 1;
+        ESP_LOGI(TAG, "config upgraded from version %u", tmp.version);
+        tmp.version = CFG_VERSION;
+        len = sizeof tmp;
     }
     if (err == ESP_OK && len == sizeof tmp && valid(&tmp)) {
         s_cfg = tmp;

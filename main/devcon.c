@@ -18,6 +18,7 @@
 #include "board.h"
 #include "devcon.h"
 #include "ui_port.h"
+#include "ride.h"
 
 static const char *TAG = "devcon";
 
@@ -77,6 +78,10 @@ static void handle(char *cmd)
     } else if (!strcmp(w, "tap")) {
         char *a = strtok_r(NULL, " ", &save), *b = strtok_r(NULL, " ", &save);
         if (a && b) ui_port_inject_touch(atoi(a), atoi(b), 120);
+        printf("ok\n");
+    } else if (!strcmp(w, "spd")) {   /* feed a speed sample to the auto pause logic */
+        char *a = strtok_r(NULL, " ", &save);
+        if (a) ride_speed(atof(a), true);
         printf("ok\n");
     } else if (!strcmp(w, "shot")) {
         cmd_shot();

@@ -5,6 +5,8 @@
 #include "ant.h"
 #include "ride.h"
 
+typedef void (*ui_action_cb_t)(void);
+
 /* All functions take the LVGL lock themselves; safe to call from any task. */
 void ui_create(void);
 
@@ -19,6 +21,7 @@ void ui_key_event(uint8_t key, uint8_t evt);
 void ui_next_page(void);   /* key 0: idle <-> status, or the enabled data pages during a ride */
 void ui_set_mode(ride_mode_t mode);
 void ui_show_usb_mode(void);
+void ui_set_usb_reboot_cb(ui_action_cb_t cb);   /* "Reboot" button of the USB page */
 /* Settings menu (opened with the gear icon): route key events to it while
  * it is open. */
 bool ui_menu_active(void);
@@ -27,7 +30,6 @@ bool ui_menu_key(uint8_t key, uint8_t evt);
 /* Touch: chip name for the status page; callbacks for the idle page's START
  * button and the menu's System -> USB storage entry. */
 void ui_set_touch(const char *chip_name);
-typedef void (*ui_action_cb_t)(void);
 /* on_backlight: apply config_get()->backlight (menu). */
 void ui_set_actions(ui_action_cb_t on_start, ui_action_cb_t on_usb, ui_action_cb_t on_backlight);
 
