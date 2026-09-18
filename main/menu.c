@@ -14,6 +14,7 @@
  *     Time zone        -> +/- screen (30 min steps)
  *     Theme            (tap: dark / light)
  *     Map layers       (toggle per road class / water / coastline)
+ *     Route            -> GPX file drawn on the map (c606oss/routes/, .gpx), or none
  *     Reset statistics
  *     System           -> USB storage, Power off, Reset settings (confirm), About
  *
@@ -35,6 +36,7 @@
 #include "stats.h"
 #include "theme.h"
 #include "mapview.h"
+#include "route.h"
 #include "ant.h"
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
@@ -891,7 +893,54 @@ static void system_open(void)
 
 /* ---- settings root ----------------------------------------------------- */
 enum { ROOT_PAGES, ROOT_SENSORS, ROOT_LAP, ROOT_AUTOPAUSE, ROOT_BACKLIGHT, ROOT_TZ, ROOT_THEME, ROOT_LAYERS,
-       ROOT_RESET, ROOT_SYSTEM };
+       ROOT_ROUTE, ROOT_RESET, ROOT_SYSTEM };
+
+/* ---- route: GPX files in /sdcard/c606oss/routes ------------------------ */
+
+static char s_routes[MAX_ITEMS - 1][ROUTE_NAME_MAX];
+static int s_nroutes;
+
+static void route_select(screen_t *s, int idx)
+{
+    app_cfg_t *c = config_get();
+    if (idx == 0) c->route[0] = 0;
+    else if (idx <= s_nroutes) strncpy(c->route, s_routes[idx - 1], sizeof c->route - 1);
+    else return;
+    config_save();
+    if (route_load(c->route) != ESP_OK) { c->route[0] = 0; config_save(); }
+    pop();
+}
+
+static void route_open(void)
+{
+    screen_t *s = push("Route");
+    if (!s) return;
+    s->select_cb = route_select;
+    make_list(s);
+    s_nroutes = route_list(s_routes, MAX_ITEMS - 1);
+    add_item(s, "None", ITEM_PLAIN, NULL, false);
+    s->sel = 0;
+    for (int i = 0; i < s_nroutes; i++) {
+        add_item(s, s_routes[i], ITEM_PLAIN, NULL, false);
+        if (!strcmp(s_routes[i], config_get()->route)) s->sel = i + 1;
+    }
+    if (!s_nroutes) {
+        lv_obj_t *h = label(s->root, &lv_font_montserrat_14, C_GREY,
+                            "Copy .gpx files to\nc606oss/routes on the\nUSB disk");
+        lv_obj_add_style(h, &theme_st_muted, 0);
+        lv_obj_set_style_text_align(h, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_align(h, LV_ALIGN_TOP_MID, 0, HDR_H + ROW_H + 16);
+    }
+    update_hl(s);
+}
+
+static const char *route_text(void)
+{
+    static char buf[24];
+    if (!route_loaded()) return "none";
+    snprintf(buf, sizeof buf, "%.1f km", route_length_m() / 1000);
+    return buf;
+}
 
 /* ---- map layers: a toggle per layer group ------------------------------ */
 
@@ -949,6 +998,9 @@ static void settings_select(screen_t *s, int idx)
     case ROOT_LAYERS:
         layers_open();
         break;
+    case ROOT_ROUTE:
+        route_open();
+        break;
     case ROOT_RESET:
         stats_reset();
         menu_close();
@@ -970,6 +1022,7 @@ static void settings_refresh(screen_t *s)
     set_right(s, ROOT_BACKLIGHT, buf, true);
     tz_text(buf, sizeof buf);
     set_right(s, ROOT_TZ, buf, true);
+    set_right(s, ROOT_ROUTE, route_text(), true);
 }
 
 static void timer_cb(lv_timer_t *t)
@@ -1000,6 +1053,7 @@ void menu_open(void)
     add_item(s, "Time zone", ITEM_ARROW, buf, false);
     add_item(s, "Theme", ITEM_VALUE, theme_name(config_get()->theme), false);
     add_item(s, "Map layers", ITEM_ARROW, NULL, false);
+    add_item(s, "Route", ITEM_ARROW, route_text(), false);
     add_item(s, "Reset statistics", ITEM_PLAIN, NULL, false);
     add_item(s, "System", ITEM_ARROW, NULL, false);
     s->sel = 0;

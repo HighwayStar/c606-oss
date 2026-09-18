@@ -7,6 +7,7 @@
   tools/devcon.py PORT heap
   tools/devcon.py PORT ls [/sdcard/dir]  list the ride files (default /sdcard/c606oss)
   tools/devcon.py PORT get /sdcard/c606oss/x.fit [out.fit]   copy a file to the host
+  tools/devcon.py PORT put local.gpx /sdcard/c606oss/routes/x.gpx   copy a file to the card
   tools/devcon.py PORT mv /sdcard/a /sdcard/b   rename a file on the card
   tools/devcon.py PORT pos 55.03 82.92  centre the map page on a position ("pos" alone: back to GPS)
   tools/devcon.py PORT zoom 14          map zoom level
@@ -112,6 +113,45 @@ def get(p, path, out):
         f.write(b"".join(chunks))
     print(f"saved {out} ({size} bytes)")
 
+def put(p, local, path):
+    data = open(local, "rb").read()
+    p.reset_input_buffer()
+    p.write(f"put {path} {len(data)}\n".encode())
+    end = time.time() + 5
+    while time.time() < end:
+        line = read_line(p, 1)
+        if "PUT_GO" in line:
+            break
+        if "PUT_ERR" in line:
+            sys.exit(line.strip())
+        if line:
+            sys.stdout.write(line)
+    else:
+        sys.exit("device did not accept the transfer")
+    for i in range(0, len(data), 128):
+        p.write(b"F" + data[i:i + 128].hex().encode() + b"\n")
+        p.flush()
+        end = time.time() + 5
+        while time.time() < end:
+            line = read_line(p, 1)
+            if "PUT_ACK" in line:
+                break
+            if line:
+                sys.stdout.write(line)
+        else:
+            p.write(b"PUT_END\n")
+            sys.exit(f"no ack after {i} bytes")
+    p.write(b"PUT_END\n")
+    end = time.time() + 30
+    while time.time() < end:
+        line = read_line(p, 2)
+        if "PUT_OK" in line or "PUT_ERR" in line:
+            print(line.strip())
+            return
+        if line:
+            sys.stdout.write(line)
+    sys.exit("no reply after the transfer")
+
 def nmea(fields):
     body = ",".join(fields)
     cs = 0
@@ -167,6 +207,8 @@ def run(p, args):
                 sys.stdout.write(line)
     elif args[0] == "ls":
         ls(p, args[1] if len(args) > 1 else "")
+    elif args[0] == "put":
+        put(p, args[1], args[2])
     elif args[0] == "sim":
         sim(p, *[float(a) for a in args[1:6]])
     elif args[0] == "get":

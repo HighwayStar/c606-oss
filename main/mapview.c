@@ -19,6 +19,7 @@
 #include "ui_port.h"
 #include "theme.h"
 #include "config.h"
+#include "route.h"
 
 static const char *TAG = "mapview";
 
@@ -77,11 +78,12 @@ static const style_t k_styles[] = {
     { "natural=coastline",     RGB(0x30, 0x60, 0xa0), RGB(0x40, 0x70, 0xb0), 2, 0, L_COASTLINE },
 };
 static const style_t k_default_style = { "", RGB(0x90, 0x90, 0x90), RGB(0x70, 0x70, 0x70), 1, 0, L_OTHER };
+static const uint16_t k_route_light = RGB(0xc0, 0x20, 0xa0), k_route_dark = RGB(0xe0, 0x50, 0xd0);
 static const uint16_t k_bg_light = RGB(0xe4, 0xe0, 0xd6);   /* a little darker than the page */
 static const uint16_t k_bg_dark  = RGB(0x1c, 0x1e, 0x22);
 static bool s_dark;                    /* palette of the current render */
 static bool s_shown_dark;
-static uint32_t s_shown_layers;
+static uint32_t s_shown_layers, s_shown_route;
 
 static inline uint16_t style_color(const style_t *st) { return s_dark ? st->dark : st->light; }
 
@@ -353,13 +355,44 @@ static int render_map(map_t *map, double lat, double lon, uint8_t zoom, uint32_t
 
 static void scale_bar_update(double lat, uint8_t zoom);
 
+/* The loaded GPX route on top of the map: points are zoom-20 pixels, the
+ * screen is a window at `zoom` around (cx, cy) (zoom-20 pixels too).
+ * `dx`, `dy` shift the route like the position when the map is GCJ-02. */
+static void draw_route(double cx20, double cy20, uint8_t zoom, double dx, double dy)
+{
+    const int32_t *x, *y;
+    route_lock();
+    size_t n = route_points(&x, &y);
+    float scale = ldexpf(1.0f, (int)zoom - 20);
+    uint16_t c = s_dark ? k_route_dark : k_route_light;
+    int px = 0, py = 0;
+    for (size_t i = 0; i < n; i++) {
+        int sx = (int)lroundf((float)((double)x[i] - cx20 + dx) * scale) + s_w / 2;
+        int sy = (int)lroundf((float)((double)y[i] - cy20 + dy) * scale) + s_h / 2;
+        if (i && (sx != px || sy != py || i == n - 1)) draw_line(px, py, sx, sy, c, 4);
+        px = sx;
+        py = sy;
+    }
+    /* start (green) and end (red) squares */
+    if (n) {
+        for (int k = 0; k < 2; k++) {
+            size_t i = k ? n - 1 : 0;
+            int sx = (int)lroundf((float)((double)x[i] - cx20 + dx) * scale) + s_w / 2;
+            int sy = (int)lroundf((float)((double)y[i] - cy20 + dy) * scale) + s_h / 2;
+            uint16_t mc = k ? RGB(0xe0, 0x30, 0x30) : RGB(0x30, 0xb0, 0x40);
+            for (int yy = -4; yy <= 4; yy++) for (int xx = -4; xx <= 4; xx++) put_px(sx + xx, sy + yy, mc);
+        }
+    }
+    route_unlock();
+}
+
 static void render_task(void *arg)
 {
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 again:
         xSemaphoreTake(s_mtx, portMAX_DELAY);
-        if (!s_have_pos || !s_back || !s_nmaps) { xSemaphoreGive(s_mtx); continue; }
+        if (!s_have_pos || !s_back || (!s_nmaps && !route_loaded())) { xSemaphoreGive(s_mtx); continue; }
         s_busy = true;
         double lat = s_lat, lon = s_lon;
         uint8_t zoom = s_zoom;
@@ -372,10 +405,19 @@ again:
         for (int32_t i = 0; i < w * h; i++) s_back[i] = bg;
         int tiles = 0;
         uint32_t ways = 0;
+        double gcj_dx = 0, gcj_dy = 0;   /* route shift on a GCJ-02 map */
         for (int i = 0; i < s_nmaps; i++) {
             tiles += render_map(&s_maps[i], lat, lon, zoom, layers);
             ways += s_maps[i].mf.ways - s_maps[i].mf.filtered;   /* drawn ways */
+            if (s_maps[i].gcj02 && mapfile_contains(&s_maps[i].mf, (int32_t)(lat * 1e6), (int32_t)(lon * 1e6))) {
+                double glat, glon;
+                wgs_to_gcj(lat, lon, &glat, &glon);
+                gcj_dx = mapfile_lon_to_px(glon, 20) - mapfile_lon_to_px(lon, 20);
+                gcj_dy = mapfile_lat_to_py(glat, 20) - mapfile_lat_to_py(lat, 20);
+            }
         }
+        uint32_t route_gen = route_generation();
+        if (route_loaded()) draw_route(mapfile_lon_to_px(lon, 20), mapfile_lat_to_py(lat, 20), zoom, gcj_dx, gcj_dy);
         int ms = (int)((esp_timer_get_time() - t0) / 1000);
         xSemaphoreGive(s_mtx);
 
@@ -387,10 +429,11 @@ again:
             s_shown_zoom = zoom;
             s_shown_dark = s_dark;
             s_shown_layers = layers;
+            s_shown_route = route_gen;
             s_shown = true;
             scale_bar_update(lat, zoom);
             snprintf(s_status, sizeof s_status, "z%u %lu w %d ms%s", zoom, (unsigned long)ways, ms,
-                     tiles ? "" : " off map");
+                     tiles || !s_nmaps ? "" : " off map");
             if (s_canvas) lv_obj_invalidate(s_canvas);
             if (s_nomap) lv_obj_set_hidden(s_nomap, tiles > 0);
         }
@@ -408,7 +451,7 @@ static void refresh_cb(lv_timer_t *t)
     if (!s_visible || !s_task || s_busy) return;
     xSemaphoreTake(s_mtx, portMAX_DELAY);
     bool need = s_have_pos && (!s_shown || s_shown_zoom != s_zoom || s_shown_dark != (theme_current() == THEME_DARK)
-                               || s_shown_layers != config_get()->map_layers);
+                               || s_shown_layers != config_get()->map_layers || s_shown_route != route_generation());
     if (s_have_pos && !need) {
         double dx = mapfile_lon_to_px(s_lon, s_zoom) - mapfile_lon_to_px(s_shown_lon, s_zoom);
         double dy = mapfile_lat_to_py(s_lat, s_zoom) - mapfile_lat_to_py(s_shown_lat, s_zoom);
@@ -513,7 +556,7 @@ lv_obj_t *mapview_create(lv_obj_t *parent, int32_t y, int32_t w, int32_t h)
     s_nomap = lv_label_create(parent);
     lv_obj_set_style_text_font(s_nomap, &lv_font_montserrat_14, 0);
     lv_obj_add_style(s_nomap, &theme_st_muted, 0);
-    lv_label_set_text(s_nomap, s_nmaps ? "Waiting for a GPS fix" : "No maps in " MAP_DIR);
+    lv_label_set_text(s_nomap, s_nmaps || route_loaded() ? "Waiting for a GPS fix" : "No maps in " MAP_DIR);
 
     s_btn_in = zoom_button(parent, LV_SYMBOL_PLUS, zoom_in_cb, 0, 0);
     s_btn_out = zoom_button(parent, LV_SYMBOL_MINUS, zoom_out_cb, 0, 0);
@@ -653,5 +696,5 @@ void mapview_close(void)
     xSemaphoreGive(s_mtx);
 }
 
-bool mapview_available(void) { return s_nmaps > 0; }
+bool mapview_available(void) { return s_nmaps > 0 || route_loaded(); }
 int mapview_map_count(void) { return s_nmaps; }

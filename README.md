@@ -35,6 +35,10 @@ This PoC replaces only the ESP32 application. It:
   under 100 ms per view. Configured like the data pages (Settings → Pages →
   Map): enable, layout *Map* (map only), *M1* / *M2* (one or two data fields
   in a strip under the map, Speed + Heading by default), fields per cell,
+* **GPX routes**: copy `.gpx` tracks/routes to `c606oss/routes/` on the USB
+  disk, pick one in Settings → Route and it is drawn on the map (magenta,
+  green start / red end); the map page works with a route even without a
+  map file,
 * developer console on the USB port: inject key/touch events and take
   screenshots from the host (`tools/devcon.py`),
 * idle / riding / paused modes: the idle screen (clock, GPS and sensor state,
@@ -191,6 +195,12 @@ with `esp32_image_parser.py dump_partition`.)
      track, cycleway), water, coastline and "other" — switched-off layers
      are skipped before their coordinates are even decoded, so a
      roads-only map renders a little faster, never slower.
+   * *Route*: *None* or one of the `.gpx` files in `/sdcard/c606oss/routes/`
+     (shows the route length once loaded). `main/route.c` scans the file for
+     `<trkpt>` / `<rtept>` lat/lon attributes, so GPX 1.0/1.1 tracks and
+     routes from any tool work; points are kept as Web-Mercator pixels in
+     PSRAM (long tracks are thinned to 16k points), the choice persists in
+     the config.
    * *Reset statistics*.
    * *System* → *USB storage*, *Power off*, *Reset settings* (with a
      confirmation: everything back to the firmware defaults), *About*.
@@ -226,7 +236,8 @@ Developer console (same port, `main/devcon.c`): `tools/devcon.py /dev/ttyACM0
 key 0 1` clicks key 0, `... tap 120 160` touches the screen, `... shot out.png`
 saves a screenshot, `... ls` lists the ride files and `... get
 /sdcard/c606oss/<name>.fit` copies one to the host (no need for USB storage
-mode), `... mv a b` renames a file on the card, `... pos 55.03 82.92` centres
+mode), `... put local.gpx /sdcard/c606oss/routes/x.gpx` copies a file to the
+card (e.g. a route), `... mv a b` renames a file on the card, `... pos 55.03 82.92` centres
 the map page on a position without a GPS fix (`pos` alone: back to the GPS),
 `... zoom 13` sets the map zoom, `... sim 55.03 82.92 45 30 60` simulates a
 GPS receiver riding from that position on heading 45° at 30 km/h for 60 s
@@ -291,7 +302,8 @@ main/fit.c         minimal FIT encoder (definitions, data messages, CRC)
 main/utc.c         wall clock from the nRF RTC or the GPS date
 main/ride.c        idle / riding / paused state machine
 main/mapfile.c     Mapsforge binary map reader (header, tile index, way decoding)
-main/mapview.c     map page: render task, rasteriser, canvas, zoom buttons
+main/mapview.c     map page: render task, rasteriser, canvas, zoom buttons, route overlay
+main/route.c       GPX track/route loader for the map page
 tools/mapdump/     host build of mapfile.c: dump or render a tile of a .map file
 main/trip.c        distance (wheel sensor or GPS) and auto laps
 main/usb_msc.c     TinyUSB mass storage over the eMMC (esp_tinyusb)

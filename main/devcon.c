@@ -121,6 +121,37 @@ static void cmd_get(const char *path)
     write_all("FILE_END\n", 9);
 }
 
+/* host -> device: "put <path> <size>", then hex lines prefixed with 'F'
+ * until PUT_END; the device answers "PUT_OK <bytes>" or "PUT_ERR ..." */
+static void cmd_put(const char *path, long size)
+{
+    char *dir = strdup(path);
+    char *slash = dir ? strrchr(dir, '/') : NULL;
+    if (slash && slash != dir) { *slash = 0; mkdir(dir, 0775); }
+    free(dir);
+    FILE *f = fopen(path, "wb");
+    if (!f) { printf("PUT_ERR cannot create %s\n", path); return; }
+    printf("PUT_GO\n");
+    static char line[1100];
+    long got = 0;
+    bool ok = true;
+    while (fgets(line, sizeof line, stdin)) {
+        line[strcspn(line, "\r\n")] = 0;
+        if (!strcmp(line, "PUT_END")) break;
+        if (line[0] != 'F') continue;
+        for (const char *h = line + 1; h[0] && h[1]; h += 2) {
+            char b[3] = { h[0], h[1], 0 };
+            uint8_t v = (uint8_t)strtoul(b, NULL, 16);
+            if (fwrite(&v, 1, 1, f) != 1) ok = false;
+            got++;
+        }
+        printf("PUT_ACK\n");   /* the host sends the next line only now (512-byte RX ring) */
+    }
+    fclose(f);
+    if (ok && got == size) printf("PUT_OK %ld\n", got);
+    else printf("PUT_ERR got %ld of %ld\n", got, size);
+}
+
 static void handle(char *cmd)
 {
     char *save;
@@ -163,6 +194,10 @@ static void handle(char *cmd)
         char *a = strtok_r(NULL, " ", &save);
         if (a) mapview_zoom_by(atoi(a) - mapview_zoom());
         printf("zoom %u\n", mapview_zoom());
+    } else if (!strcmp(w, "put")) {
+        char *a = strtok_r(NULL, " ", &save), *b = strtok_r(NULL, " ", &save);
+        if (a && b) cmd_put(a, atol(b));
+        else printf("PUT_ERR usage\n");
     } else if (!strcmp(w, "heap")) {
         printf("heap int %u psram %u\n", (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
@@ -201,6 +236,6 @@ esp_err_t devcon_init(devcon_key_cb_t key_cb)
     usb_serial_jtag_vfs_use_driver();
     usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_CRLF);
     xTaskCreate(devcon_task, "devcon", 4096, NULL, 3, NULL);
-    ESP_LOGI(TAG, "ready: key/tap/spd/shot/ls/get/mv/pos/zoom/nmea/heap");
+    ESP_LOGI(TAG, "ready: key/tap/spd/shot/ls/get/put/mv/pos/zoom/nmea/heap");
     return ESP_OK;
 }
