@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "esp_heap_caps.h"
+#include "esp_timer.h"
 #include "lvgl.h"
 
 #include "board.h"
@@ -131,7 +132,7 @@ static void build_status(lv_obj_t *scr)
 
     s_ant = label(s_page_status, &lv_font_unscii_8, lv_palette_main(LV_PALETTE_PINK));
     lv_obj_align(s_ant, LV_ALIGN_TOP_LEFT, 120, 290);
-    lv_label_set_text(s_ant, "ant: -");
+    lv_label_set_text(s_ant, "ANT: waiting for nRF");
 
     /* footer */
     s_foot = label(s_page_status, &lv_font_unscii_8, lv_palette_main(LV_PALETTE_GREY));
@@ -176,8 +177,8 @@ static void build_ride(lv_obj_t *scr)
     lv_label_set_text(s_ride_pos, "");
     lv_obj_align(s_ride_pos, LV_ALIGN_TOP_MID, 0, 172);
 
-    s_ride_sens = label(s_page_ride, &lv_font_montserrat_20, lv_palette_main(LV_PALETTE_PINK));
-    lv_label_set_text(s_ride_sens, "");
+    s_ride_sens = label(s_page_ride, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_PINK));
+    lv_label_set_text(s_ride_sens, "HR --  cad --  --.- km/h");
     lv_obj_align(s_ride_sens, LV_ALIGN_TOP_MID, 0, 206);
 
     s_ride_env = label(s_page_ride, &lv_font_montserrat_20, lv_palette_main(LV_PALETTE_CYAN));
@@ -422,23 +423,51 @@ void ui_set_gps(const gps_fix_t *g)
     ui_unlock();
 }
 
+/* A channel counts as live when it is connected and delivered a page in
+ * the last 10 s; otherwise its values are shown as "--". */
+static bool ch_live(const ant_channel_t *ch, size_t nch, uint8_t a, uint8_t b, uint32_t now)
+{
+    for (size_t i = 0; i < nch; i++) {
+        if ((ch[i].dev_type == a || ch[i].dev_type == b) && ch[i].state == ANT_ST_CONNECTED &&
+            ch[i].pages && now - ch[i].last_rx_ms < 10000) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void ui_set_sensors(const ant_sensors_t *v, const ant_channel_t *ch, size_t nch)
 {
-    char line[96];
-    int n = 0;
-    ui_lock();
-    if (v->hr_bpm) n += snprintf(line + n, sizeof line - n, LV_SYMBOL_CHARGE "%u ", v->hr_bpm);
-    if (v->cadence_rpm > 0 || v->power_cadence) {
-        n += snprintf(line + n, sizeof line - n, LV_SYMBOL_REFRESH "%.0f ", v->cadence_rpm > 0 ? v->cadence_rpm : v->power_cadence);
+    char line[96], hr[8], cad[8], spd[12], pwr[8];
+    uint32_t now = esp_timer_get_time() / 1000;
+    bool have_hr  = ch_live(ch, nch, ANT_DEV_HR, ANT_DEV_HR, now) && v->hr_bpm;
+    bool have_cad = ch_live(ch, nch, ANT_DEV_CADENCE, ANT_DEV_SPD_CAD, now);
+    bool have_spd = ch_live(ch, nch, ANT_DEV_SPEED, ANT_DEV_SPD_CAD, now);
+    bool have_pwr = ch_live(ch, nch, ANT_DEV_POWER, ANT_DEV_POWER, now);
+
+    snprintf(hr, sizeof hr, have_hr ? "%u" : "--", v->hr_bpm);
+    snprintf(cad, sizeof cad, have_cad ? "%.0f" : "--", v->cadence_rpm);
+    snprintf(spd, sizeof spd, have_spd ? "%.1f" : "--.-", v->speed_kmh);
+    int n = snprintf(line, sizeof line, "HR %s  cad %s  %s km/h", hr, cad, spd);
+    if (have_pwr) {
+        snprintf(pwr, sizeof pwr, "%uW", v->power_w);
+        snprintf(line + n, sizeof line - n, "  %s", pwr);
     }
-    if (v->power_w) n += snprintf(line + n, sizeof line - n, "%uW ", v->power_w);
-    if (v->speed_kmh > 0) n += snprintf(line + n, sizeof line - n, "%.1fkm/h", v->speed_kmh);
+
+    ui_lock();
     lv_label_set_text(s_ride_sens, line);
 
-    n = snprintf(line, sizeof line, "ant:");
-    for (size_t i = 0; i < nch && n < (int)sizeof line - 8; i++) {
-        const char *st = ch[i].state == ANT_ST_CONNECTED ? "+" : ch[i].state == ANT_ST_SEARCHING ? "?" : "-";
-        n += snprintf(line + n, sizeof line - n, " %.3s%s", ant_dev_name(ch[i].dev_type), st);
+    n = snprintf(line, sizeof line, "ANT");
+    if (nch == 0) {
+        n += snprintf(line + n, sizeof line - n, ": no paired sensors");
+    }
+    for (size_t i = 0; i < nch && n < (int)sizeof line - 12; i++) {
+        const char *name = ch[i].dev_type == ANT_DEV_HR ? "HR" : ch[i].dev_type == ANT_DEV_CADENCE ? "cad"
+                         : ch[i].dev_type == ANT_DEV_SPEED ? "spd" : ch[i].dev_type == ANT_DEV_POWER ? "pwr"
+                         : ant_dev_name(ch[i].dev_type);
+        bool live = ch[i].state == ANT_ST_CONNECTED && ch[i].pages && now - ch[i].last_rx_ms < 10000;
+        const char *st = live ? "ok" : ch[i].state == ANT_ST_SEARCHING ? ".." : "--";
+        n += snprintf(line + n, sizeof line - n, "  %s %s", name, st);
     }
     lv_label_set_text(s_ant, line);
     ui_unlock();

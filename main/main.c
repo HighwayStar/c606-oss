@@ -259,6 +259,13 @@ void app_main(void)
             }
         }
         ui_tick(now / 1000);
+        if (sensors_started) {
+            size_t nch;
+            const ant_channel_t *ch = ant_channels(&nch);
+            ant_sensors_t v;
+            ant_get(&v);
+            ui_set_sensors(&v, ch, nch);
+        }
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
