@@ -15,6 +15,14 @@ Requires esptool (comes with ESP-IDF: run inside `. export.sh`).
 """
 import argparse, os, struct, subprocess, sys, tempfile, time
 
+def default_app():
+    """c606_oss.bin next to this script (release zip) or build/c606_oss.bin (source tree)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for c in (os.path.join(here, "c606_oss.bin"), os.path.join(here, "..", "build", "c606_oss.bin"), "build/c606_oss.bin"):
+        if os.path.exists(c):
+            return c
+    return "build/c606_oss.bin"
+
 def esptool(port, *args, after="no_reset"):
     cmd = [sys.executable, "-m", "esptool", "--chip", "esp32s3", "-p", port, "--after", after] + list(args)
     print("+", " ".join(cmd))
@@ -40,7 +48,7 @@ def parse_parttable(data):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-p", "--port", required=True)
-    ap.add_argument("--app", default="build/c606_oss.bin")
+    ap.add_argument("--app", default=default_app(), help="firmware image (default: %(default)s)")
     ap.add_argument("--no-backup", action="store_true")
     ap.add_argument("--full-backup", action="store_true", help="dump the whole flash instead of just ota_0/otadata")
     ap.add_argument("--flash-size", default="16MB", help="for --full-backup")
@@ -50,7 +58,7 @@ def main():
 
     img = a.restore or a.app
     if not os.path.exists(img):
-        sys.exit(f"{img} not found (build first: idf.py build)")
+        sys.exit(f"{img} not found (build first, or keep c606_oss.bin next to this script)")
 
     with tempfile.TemporaryDirectory() as td:
         pt = os.path.join(td, "pt.bin")
