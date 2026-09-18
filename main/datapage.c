@@ -1,11 +1,9 @@
 #include <string.h>
 #include "datapage.h"
 #include "fields.h"
+#include "theme.h"
 
-static const lv_color_t C_LINE  = LV_COLOR_MAKE(0x50, 0x50, 0x50);
-static const lv_color_t C_NAME  = LV_COLOR_MAKE(0xa0, 0xa0, 0xa0);
-static const lv_color_t C_HL    = LV_COLOR_MAKE(0xff, 0xd4, 0x00);
-static const lv_color_t C_EMPTY = LV_COLOR_MAKE(0x40, 0x40, 0x40);
+#define C_HL (theme_colors()->sel)
 
 #define NAME_H 16
 
@@ -73,16 +71,17 @@ void datapage_build(datapage_t *dp, lv_obj_t *parent, const page_cfg_t *cfg, int
         lv_obj_set_pos(box, cx, cy);
         lv_obj_set_size(box, cw, ch);
         lv_obj_set_style_border_width(box, 1, 0);
-        lv_obj_set_style_border_color(box, C_LINE, 0);
+        lv_obj_add_style(box, &theme_st_line, 0);
+        lv_obj_add_style(box, &theme_st_bg, 0);
         lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
-        lv_obj_set_style_bg_color(box, lv_color_black(), 0);
         lv_obj_add_event_cb(box, cell_click_cb, LV_EVENT_CLICKED, dp);
         dp->cell[i].box = box;
 
         field_id_t f = cfg->field[i];
         lv_obj_t *n = lv_label_create(box);
         lv_obj_set_style_text_font(n, &lv_font_montserrat_14, 0);
-        lv_obj_set_style_text_color(n, f == FIELD_NONE ? C_EMPTY : C_NAME, 0);
+        lv_obj_add_style(n, &theme_st_muted, 0);
+        if (f == FIELD_NONE) lv_obj_set_style_text_opa(n, LV_OPA_50, 0);
         lv_label_set_text(n, field_name(f));
         lv_label_set_long_mode(n, LV_LABEL_LONG_CLIP);
         lv_obj_set_width(n, cw - 4);
@@ -101,13 +100,13 @@ void datapage_build(datapage_t *dp, lv_obj_t *parent, const page_cfg_t *cfg, int
         lv_obj_set_clickable(row, false);
 
         lv_obj_t *v = lv_label_create(row);
-        lv_obj_set_style_text_color(v, lv_color_white(), 0);
+        lv_obj_add_style(v, &theme_st_text, 0);
         lv_label_set_text(v, "");
         dp->cell[i].val = v;
 
         lv_obj_t *u = lv_label_create(row);
         lv_obj_set_style_text_font(u, &lv_font_montserrat_14, 0);
-        lv_obj_set_style_text_color(u, C_NAME, 0);
+        lv_obj_add_style(u, &theme_st_muted, 0);
         lv_label_set_text(u, field_unit(f));
         lv_obj_set_style_translate_y(u, 3, 0);   /* sit on the digits' baseline */
         dp->cell[i].unit = u;
@@ -140,7 +139,8 @@ void datapage_highlight(datapage_t *dp, int cell)
     for (int i = 0; i < dp->ncells; i++) {
         bool on = i == cell;
         lv_obj_set_style_border_width(dp->cell[i].box, on ? 3 : 1, 0);
-        lv_obj_set_style_border_color(dp->cell[i].box, on ? C_HL : C_LINE, 0);
+        if (on) lv_obj_set_style_border_color(dp->cell[i].box, C_HL, 0);
+        else lv_obj_remove_local_style_prop(dp->cell[i].box, LV_STYLE_BORDER_COLOR, 0);
     }
     dp->hl = cell;
 }

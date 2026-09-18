@@ -16,6 +16,7 @@
 #include "config.h"
 #include "datapage.h"
 #include "menu.h"
+#include "theme.h"
 
 #define LOG_LINES 2
 #define MAX_PAGES (2 + CFG_PAGES)
@@ -41,7 +42,6 @@ static int s_log_n;
 static uint8_t s_bl_pct = 70;
 static uint32_t s_uptime;
 
-static const lv_color_t C_BG   = LV_COLOR_MAKE(0x00, 0x00, 0x00);
 static const lv_color_t C_HDR  = LV_COLOR_MAKE(0x10, 0x40, 0xa0);
 static const lv_color_t C_IDLE = LV_COLOR_MAKE(0x30, 0x30, 0x30);
 static const lv_color_t C_HOLD = LV_COLOR_MAKE(0xd0, 0x20, 0x20);
@@ -57,12 +57,21 @@ static lv_obj_t *label(lv_obj_t *parent, const lv_font_t *font, lv_color_t color
     return l;
 }
 
+/* A label whose colour follows the theme (theme_st_text / theme_st_muted). */
+static lv_obj_t *tlabel(lv_obj_t *parent, const lv_font_t *font, lv_style_t *style)
+{
+    lv_obj_t *l = lv_label_create(parent);
+    lv_obj_set_style_text_font(l, font, 0);
+    lv_obj_add_style(l, style, 0);
+    return l;
+}
+
 static lv_obj_t *page(lv_obj_t *parent)
 {
     lv_obj_t *p = lv_obj_create(parent);
     lv_obj_remove_style_all(p);
     lv_obj_set_size(p, LCD_H_RES, LCD_V_RES);
-    lv_obj_set_style_bg_color(p, C_BG, 0);
+    lv_obj_add_style(p, &theme_st_bg, 0);
     lv_obj_set_style_bg_opa(p, LV_OPA_COVER, 0);
     return p;
 }
@@ -102,24 +111,24 @@ static void build_status(lv_obj_t *scr)
     lv_obj_set_style_arc_width(s_arc, 10, LV_PART_INDICATOR);
     lv_obj_set_style_arc_color(s_arc, C_IDLE, LV_PART_MAIN);
     lv_obj_set_style_arc_color(s_arc, C_CLK, LV_PART_INDICATOR);
-    s_arc_lbl = label(s_arc, &lv_font_montserrat_20, lv_color_white());
+    s_arc_lbl = tlabel(s_arc, &lv_font_montserrat_20, &theme_st_text);
     lv_label_set_text(s_arc_lbl, "--\n-- mV");
     lv_obj_set_style_text_align(s_arc_lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(s_arc_lbl);
 
-    s_env = label(s_page_status, &lv_font_montserrat_14, lv_color_white());
+    s_env = tlabel(s_page_status, &lv_font_montserrat_14, &theme_st_text);
     lv_label_set_text(s_env, "no sensor data yet");
     lv_obj_align(s_env, LV_ALIGN_TOP_MID, 0, 160);
 
-    s_nrf = label(s_page_status, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_ORANGE));
+    s_nrf = label(s_page_status, &lv_font_montserrat_14, theme_palette(LV_PALETTE_ORANGE));
     lv_label_set_text(s_nrf, "nRF: no reply yet");
     lv_obj_align(s_nrf, LV_ALIGN_TOP_MID, 0, 178);
 
-    s_gps = label(s_page_status, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_ORANGE));
+    s_gps = label(s_page_status, &lv_font_montserrat_14, theme_palette(LV_PALETTE_ORANGE));
     lv_label_set_text(s_gps, "GPS: probing baud");
     lv_obj_align(s_gps, LV_ALIGN_TOP_MID, 0, 196);
 
-    s_sd = label(s_page_status, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_ORANGE));
+    s_sd = label(s_page_status, &lv_font_montserrat_14, theme_palette(LV_PALETTE_ORANGE));
     lv_label_set_text(s_sd, "SD: not mounted");
     lv_obj_align(s_sd, LV_ALIGN_TOP_MID, 0, 214);
 
@@ -138,21 +147,21 @@ static void build_status(lv_obj_t *scr)
     }
 
     /* event log */
-    s_log = label(s_page_status, &lv_font_unscii_8, lv_palette_lighten(LV_PALETTE_GREY, 2));
+    s_log = tlabel(s_page_status, &lv_font_unscii_8, &theme_st_muted);
     lv_obj_set_width(s_log, LCD_H_RES - 16);
     lv_obj_align(s_log, LV_ALIGN_TOP_LEFT, 8, 268);
     lv_label_set_text(s_log, "press a key...");
 
-    s_touch_lbl = label(s_page_status, &lv_font_unscii_8, lv_palette_main(LV_PALETTE_CYAN));
+    s_touch_lbl = label(s_page_status, &lv_font_unscii_8, theme_palette(LV_PALETTE_CYAN));
     lv_obj_align(s_touch_lbl, LV_ALIGN_TOP_LEFT, 8, 290);
     lv_label_set_text(s_touch_lbl, "touch: none");
 
-    s_ant = label(s_page_status, &lv_font_unscii_8, lv_palette_main(LV_PALETTE_PINK));
+    s_ant = label(s_page_status, &lv_font_unscii_8, theme_palette(LV_PALETTE_PINK));
     lv_obj_align(s_ant, LV_ALIGN_TOP_LEFT, 120, 290);
     lv_label_set_text(s_ant, "ANT: waiting for nRF");
 
     /* footer */
-    s_foot = label(s_page_status, &lv_font_unscii_8, lv_palette_main(LV_PALETTE_GREY));
+    s_foot = tlabel(s_page_status, &lv_font_unscii_8, &theme_st_muted);
     lv_obj_align(s_foot, LV_ALIGN_BOTTOM_LEFT, 8, -4);
     lv_label_set_text(s_foot, "");
 }
@@ -173,32 +182,32 @@ static void build_ride(lv_obj_t *scr)
     s_page_ride = page(scr);
     lv_obj_set_hidden(s_page_ride, true);
 
-    s_ride_time = label(s_page_ride, &lv_font_montserrat_20, lv_palette_main(LV_PALETTE_GREY));
+    s_ride_time = tlabel(s_page_ride, &lv_font_montserrat_20, &theme_st_muted);
     lv_label_set_text(s_ride_time, "--:--:-- UTC");
     lv_obj_align(s_ride_time, LV_ALIGN_TOP_MID, 0, 12);
 
-    s_big = label(s_page_ride, &lv_font_montserrat_48, lv_color_white());
+    s_big = tlabel(s_page_ride, &lv_font_montserrat_48, &theme_st_text);
     lv_label_set_text(s_big, "0.0");
     lv_obj_align(s_big, LV_ALIGN_TOP_MID, 0, 56);
 
-    s_big_caption = label(s_page_ride, &lv_font_montserrat_20, lv_palette_main(LV_PALETTE_GREY));
+    s_big_caption = tlabel(s_page_ride, &lv_font_montserrat_20, &theme_st_muted);
     lv_label_set_text(s_big_caption, "km/h");
     lv_obj_align(s_big_caption, LV_ALIGN_TOP_MID, 0, 112);
 
-    s_ride_gps = label(s_page_ride, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_ORANGE));
+    s_ride_gps = label(s_page_ride, &lv_font_montserrat_14, theme_palette(LV_PALETTE_ORANGE));
     lv_label_set_text(s_ride_gps, "no GPS data");
     lv_obj_align(s_ride_gps, LV_ALIGN_TOP_MID, 0, 150);
 
-    s_ride_pos = label(s_page_ride, &lv_font_montserrat_14, lv_color_white());
+    s_ride_pos = tlabel(s_page_ride, &lv_font_montserrat_14, &theme_st_text);
     lv_obj_set_style_text_align(s_ride_pos, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(s_ride_pos, "");
     lv_obj_align(s_ride_pos, LV_ALIGN_TOP_MID, 0, 172);
 
-    s_ride_sens = label(s_page_ride, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_PINK));
+    s_ride_sens = label(s_page_ride, &lv_font_montserrat_14, theme_palette(LV_PALETTE_PINK));
     lv_label_set_text(s_ride_sens, "HR --  cad --  --.- km/h");
     lv_obj_align(s_ride_sens, LV_ALIGN_TOP_MID, 0, 206);
 
-    s_ride_env = label(s_page_ride, &lv_font_montserrat_20, lv_palette_main(LV_PALETTE_CYAN));
+    s_ride_env = label(s_page_ride, &lv_font_montserrat_20, theme_palette(LV_PALETTE_CYAN));
     lv_label_set_text(s_ride_env, "--.- C");
     lv_obj_align(s_ride_env, LV_ALIGN_TOP_MID, 0, 234);
 
@@ -288,9 +297,20 @@ static void show_page(int idx)
     }
 }
 
+/* Status colours are local styles set at creation: refresh them for the
+ * current theme (the themed labels update themselves). */
+static void apply_theme_colors(void)
+{
+    lv_obj_set_style_text_color(s_touch_lbl, theme_palette(LV_PALETTE_CYAN), 0);
+    lv_obj_set_style_text_color(s_ride_env, theme_palette(LV_PALETTE_CYAN), 0);
+    lv_obj_set_style_text_color(s_ant, theme_palette(LV_PALETTE_PINK), 0);
+    lv_obj_set_style_text_color(s_ride_sens, theme_palette(LV_PALETTE_PINK), 0);
+}
+
 /* The configuration may have changed while the menu was open. */
 static void on_menu_closed(void)
 {
+    apply_theme_colors();
     build_data_pages(lv_screen_active());
     if (s_page_idx >= s_npages) s_page_idx = 0;
     show_page(s_page_idx);
@@ -390,7 +410,8 @@ void ui_create(void)
 {
     ui_lock();
     lv_obj_t *scr = lv_screen_active();
-    lv_obj_set_style_bg_color(scr, C_BG, 0);
+    theme_init(config_get()->theme);
+    lv_obj_add_style(scr, &theme_st_bg, 0);
     build_status(scr);
     build_ride(scr);
     s_pages[0] = s_page_status;
@@ -442,7 +463,7 @@ void ui_set_nrf(bool alive, uint8_t reason, const uint8_t fw[3])
     ui_lock();
     if (alive) {
         lv_label_set_text_fmt(s_nrf, "nRF ok  reason %u  fw %u.%u.%u", reason, fw[0], fw[1], fw[2]);
-        lv_obj_set_style_text_color(s_nrf, lv_palette_main(LV_PALETTE_GREEN), 0);
+        lv_obj_set_style_text_color(s_nrf, theme_palette(LV_PALETTE_GREEN), 0);
     } else {
         lv_label_set_text(s_nrf, "nRF: no reply yet");
     }
@@ -515,13 +536,11 @@ void ui_set_gps(const gps_fix_t *g)
         const char *fix = g->valid ? (g->fix_quality == 2 ? "DGPS" : "fix") : "no fix";
         snprintf(buf, sizeof buf, "GPS %s  %u/%u sats  hdop %.1f", fix, g->sats_used, g->sats_in_view, g->hdop);
         lv_label_set_text(s_gps, buf);
-        lv_obj_set_style_text_color(s_gps, g->valid ? lv_palette_main(LV_PALETTE_GREEN)
-                                                    : lv_palette_main(LV_PALETTE_ORANGE), 0);
+        lv_obj_set_style_text_color(s_gps, theme_palette(g->valid ? LV_PALETTE_GREEN : LV_PALETTE_ORANGE), 0);
         snprintf(buf, sizeof buf, "%s  %u/%u sats  %lu sent", fix, g->sats_used, g->sats_in_view,
                  (unsigned long)g->sentences);
         lv_label_set_text(s_ride_gps, buf);
-        lv_obj_set_style_text_color(s_ride_gps, g->valid ? lv_palette_main(LV_PALETTE_GREEN)
-                                                         : lv_palette_main(LV_PALETTE_ORANGE), 0);
+        lv_obj_set_style_text_color(s_ride_gps, theme_palette(g->valid ? LV_PALETTE_GREEN : LV_PALETTE_ORANGE), 0);
         if (g->valid) {
             lv_label_set_text_fmt(s_big, "%.1f", g->speed_kmh);
             snprintf(buf, sizeof buf, "%.5f  %.5f\nalt %.0f m  crs %.0f", g->lat, g->lon, g->alt_m, g->course_deg);
@@ -578,7 +597,7 @@ void ui_set_sd(bool mounted, const char *name, uint32_t size_mb)
     if (mounted) {
         lv_label_set_text_fmt(s_sd, "SD %s  %lu.%lu GB", name, (unsigned long)(size_mb / 1024),
                               (unsigned long)((size_mb % 1024) * 10 / 1024));
-        lv_obj_set_style_text_color(s_sd, lv_palette_main(LV_PALETTE_GREEN), 0);
+        lv_obj_set_style_text_color(s_sd, theme_palette(LV_PALETTE_GREEN), 0);
     } else {
         lv_label_set_text(s_sd, "SD: not mounted");
     }
@@ -606,10 +625,10 @@ void ui_show_usb_mode(void)
     lv_obj_t *icon = label(p, &lv_font_montserrat_48, lv_palette_main(LV_PALETTE_BLUE));
     lv_label_set_text(icon, LV_SYMBOL_USB);
     lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 70);
-    lv_obj_t *t = label(p, &lv_font_montserrat_20, lv_color_white());
+    lv_obj_t *t = tlabel(p, &lv_font_montserrat_20, &theme_st_text);
     lv_label_set_text(t, "USB storage");
     lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 140);
-    lv_obj_t *h = label(p, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_GREY));
+    lv_obj_t *h = tlabel(p, &lv_font_montserrat_14, &theme_st_muted);
     lv_obj_set_style_text_align(h, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(h, "eMMC is exposed to the host.\nEject it, then hold key 1\nto reboot.");
     lv_obj_align(h, LV_ALIGN_TOP_MID, 0, 180);

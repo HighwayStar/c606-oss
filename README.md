@@ -106,6 +106,8 @@ with `esp32_image_parser.py dump_partition`.)
      category and a field).
    * *Time zone* (tap: +1 h, wraps at UTC+14 → UTC-12) for the time of day,
      which comes from the nRF's RTC (UTC), GPS as fallback.
+   * *Theme*: dark (default) or light, applied immediately (`main/theme.c`:
+     shared LVGL styles; status colours are darkened on the light background).
    * *Reset statistics*.
    The configuration lives in the NVS partition, namespace `c606oss` (the
    vendor's entries are untouched); defaults are in `config_defaults()`.
@@ -170,6 +172,7 @@ main/layouts.c     the cell layouts ("fences" 1 … 12)
 main/fields.c      data field catalogue (name, unit, current text)
 main/config.c      page configuration + settings, persisted in NVS
 main/menu.c        settings menu (pages, layout picker, field editor, ...)
+main/theme.c       dark / light colour theme (shared styles)
 main/stats.c       session statistics (min/max/time-weighted avg, staleness)
 main/devcon.c      developer console: key/tap injection, screenshots
 tools/devcon.py    host side of the developer console

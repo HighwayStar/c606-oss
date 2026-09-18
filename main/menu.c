@@ -8,6 +8,7 @@
  *         Fields       -> page preview, tap a cell (or move with keys) ->
  *           category   -> field list -> assigned, back to the preview
  *     Time zone        (tap: +1 h, wraps)
+ *     Theme            (tap: dark / light)
  *     Reset statistics
  *
  * Screens are stacked; each one is a full-screen object on the top layer
@@ -26,18 +27,20 @@
 #include "layouts.h"
 #include "datapage.h"
 #include "stats.h"
+#include "theme.h"
 
 #define MAX_DEPTH 8
 #define MAX_ITEMS 16
 #define HDR_H 28
 #define ROW_H 40
 
-static const lv_color_t C_BG    = LV_COLOR_MAKE(0x00, 0x00, 0x00);
+/* the header stays dark in both themes (as on the reference device) */
 static const lv_color_t C_HDR   = LV_COLOR_MAKE(0x18, 0x18, 0x18);
-static const lv_color_t C_ROW   = LV_COLOR_MAKE(0x20, 0x20, 0x20);
-static const lv_color_t C_LINE  = LV_COLOR_MAKE(0x38, 0x38, 0x38);
-static const lv_color_t C_SEL   = LV_COLOR_MAKE(0xff, 0xd4, 0x00);
-static const lv_color_t C_GREY  = LV_COLOR_MAKE(0xa0, 0xa0, 0xa0);
+#define C_SEL    (theme_colors()->sel)
+#define C_SEL_FG (theme_colors()->sel_fg)
+#define C_ROW    (theme_colors()->panel)
+#define C_FG     (theme_colors()->fg)
+#define C_GREY   (theme_colors()->muted)
 
 typedef struct screen screen_t;
 struct screen {
@@ -87,7 +90,7 @@ static screen_t *push(const char *title)
     s->root = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(s->root);
     lv_obj_set_size(s->root, LCD_H_RES, LCD_V_RES);
-    lv_obj_set_style_bg_color(s->root, C_BG, 0);
+    lv_obj_add_style(s->root, &theme_st_bg, 0);
     lv_obj_set_style_bg_opa(s->root, LV_OPA_COVER, 0);
 
     lv_obj_t *hdr = lv_obj_create(s->root);
@@ -112,12 +115,12 @@ static screen_t *push(const char *title)
 static void update_hl(screen_t *s)
 {
     lv_obj_set_style_bg_color(s->back, s->sel == -1 ? C_SEL : C_HDR, 0);
-    lv_obj_set_style_text_color(lv_obj_get_child(s->back, 0), s->sel == -1 ? lv_color_black() : lv_color_white(), 0);
+    lv_obj_set_style_text_color(lv_obj_get_child(s->back, 0), s->sel == -1 ? C_SEL_FG : lv_color_white(), 0);
     for (int i = 0; i < s->n; i++) {
         bool on = i == s->sel;
         lv_obj_set_style_bg_color(s->rows[i], on ? C_SEL : C_ROW, 0);
-        lv_obj_set_style_text_color(s->lbl[i], on ? lv_color_black() : lv_color_white(), 0);
-        if (s->right[i]) lv_obj_set_style_text_color(s->right[i], on ? lv_color_black() : C_GREY, 0);
+        lv_obj_set_style_text_color(s->lbl[i], on ? C_SEL_FG : C_FG, 0);
+        if (s->right[i]) lv_obj_set_style_text_color(s->right[i], on ? C_SEL_FG : C_GREY, 0);
         if (on && s->list) lv_obj_scroll_to_view(s->rows[i], LV_ANIM_OFF);
     }
 }
@@ -153,15 +156,14 @@ static int add_item(screen_t *s, const char *text, item_kind_t kind, const char 
     lv_obj_t *r = lv_obj_create(s->list);
     lv_obj_remove_style_all(r);
     lv_obj_set_size(r, LCD_H_RES, ROW_H);
-    lv_obj_set_style_bg_color(r, C_ROW, 0);
+    lv_obj_add_style(r, &theme_st_panel, 0);
     lv_obj_set_style_bg_opa(r, LV_OPA_COVER, 0);
     lv_obj_set_style_border_side(r, LV_BORDER_SIDE_BOTTOM, 0);
     lv_obj_set_style_border_width(r, 1, 0);
-    lv_obj_set_style_border_color(r, C_LINE, 0);
     lv_obj_add_event_cb(r, row_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
     s->rows[i] = r;
 
-    s->lbl[i] = label(r, &lv_font_montserrat_14, lv_color_white(), text);
+    s->lbl[i] = label(r, &lv_font_montserrat_14, C_FG, text);
     lv_obj_align(s->lbl[i], LV_ALIGN_LEFT_MID, 10, 0);
 
     if (kind == ITEM_TOGGLE) {
@@ -490,6 +492,13 @@ static void settings_select(screen_t *s, int idx)
         break;
     }
     case 2:
+        config_get()->theme = config_get()->theme == THEME_LIGHT ? THEME_DARK : THEME_LIGHT;
+        config_save();
+        theme_set(config_get()->theme);
+        set_right(s, 2, theme_name(config_get()->theme), false);
+        update_hl(s);   /* rows keep local colours: re-apply for the new theme */
+        break;
+    case 3:
         stats_reset();
         menu_close();
         break;
@@ -515,6 +524,7 @@ void menu_open(void)
     tz_text(buf, sizeof buf);
     add_item(s, "Pages", ITEM_ARROW, NULL, false);
     add_item(s, "Time zone", ITEM_VALUE, buf, false);
+    add_item(s, "Theme", ITEM_VALUE, theme_name(config_get()->theme), false);
     add_item(s, "Reset statistics", ITEM_PLAIN, NULL, false);
     s->sel = 0;
     update_hl(s);

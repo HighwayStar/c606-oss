@@ -4,6 +4,7 @@
  * and write our own namespace and never erase the partition.
  */
 #include <string.h>
+#include <stddef.h>
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -13,7 +14,7 @@
 
 static const char *TAG = "config";
 #define CFG_MAGIC   0xC606
-#define CFG_VERSION 1
+#define CFG_VERSION 2
 #define NVS_NS      "c606oss"
 #define NVS_KEY     "cfg"
 
@@ -69,6 +70,7 @@ void config_defaults(app_cfg_t *c)
 static bool valid(const app_cfg_t *c)
 {
     if (c->magic != CFG_MAGIC || c->version != CFG_VERSION) return false;
+    if (c->theme > 1) return false;
     for (int p = 0; p < CFG_PAGES; p++) {
         if (c->page[p].layout >= layout_count()) return false;
         for (int i = 0; i < LAYOUT_MAX_CELLS; i++) {
@@ -95,9 +97,16 @@ void config_load(void)
         return;
     }
     app_cfg_t tmp;
+    memset(&tmp, 0, sizeof tmp);
     size_t len = sizeof tmp;
     err = nvs_get_blob(h, NVS_KEY, &tmp, &len);
     nvs_close(h);
+    /* version 1 blobs end right before `theme`: upgrade in place */
+    if (err == ESP_OK && tmp.magic == CFG_MAGIC && tmp.version == 1 && len == offsetof(app_cfg_t, theme)) {
+        tmp.version = 2;
+        tmp.theme = 0;
+        len = sizeof tmp;
+    }
     if (err == ESP_OK && len == sizeof tmp && valid(&tmp)) {
         s_cfg = tmp;
         ESP_LOGI(TAG, "config loaded");

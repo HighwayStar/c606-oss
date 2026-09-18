@@ -21,6 +21,7 @@ typedef struct {
     uint8_t version;
     int16_t tz_min;                     /* local time = UTC + tz_min */
     page_cfg_t page[CFG_PAGES];
+    uint8_t theme;                      /* theme_id_t (added in version 2) */
 } app_cfg_t;
 
 app_cfg_t *config_get(void);
