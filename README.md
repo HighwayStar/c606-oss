@@ -215,8 +215,10 @@ with `esp32_image_parser.py dump_partition`.)
      track, cycleway), water, coastline and "other" — switched-off layers
      are skipped before their coordinates are even decoded, so a
      roads-only map renders a little faster, never slower.
-   * *Route*: *None* or one of the `.gpx` files in `/sdcard/c606oss/routes/`
-     (shows the route length once loaded). Picking a file opens a preview:
+   * *Route*: one of the `.gpx` files in `/sdcard/c606oss/routes/` (the
+     loaded one is ticked, "rev." when reversed; the settings row shows its length) or
+     the first row — *None*, which becomes *Unload route* while a route is
+     loaded — to take the track off the map. Picking a file opens a preview:
      the track outline with start (green) / end (red) markers, length and
      point count, total climb / descent with the elevation range when the
      points carry `<ele>` (a 5 m hysteresis keeps GPS noise from adding up;

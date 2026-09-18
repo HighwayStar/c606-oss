@@ -210,6 +210,10 @@ static int add_item(screen_t *s, const char *text, item_kind_t kind, const char 
                  kind == ITEM_ARROW ? LV_SYMBOL_RIGHT : "");
         s->right[i] = label(r, &lv_font_montserrat_14, C_GREY, buf);
         lv_obj_align(s->right[i], LV_ALIGN_RIGHT_MID, -10, 0);
+        /* a long name (route file, sensor) ends in "..." before the value */
+        lv_obj_update_layout(s->right[i]);
+        lv_obj_set_width(s->lbl[i], LCD_H_RES - 28 - lv_obj_get_width(s->right[i]));
+        lv_label_set_long_mode(s->lbl[i], LV_LABEL_LONG_DOT);
     }
     return i;
 }
@@ -1073,11 +1077,14 @@ static void route_open(void)
     s->select_cb = route_select;
     make_list(s);
     s_nroutes = route_list(s_routes, MAX_ITEMS - 1);
-    add_item(s, "None", ITEM_PLAIN, NULL, false);
+    /* first row: clears the loaded route (reads "None" while nothing is loaded) */
+    add_item(s, route_loaded() ? LV_SYMBOL_CLOSE "  Unload route" : "None", ITEM_PLAIN, NULL, false);
     s->sel = 0;
     for (int i = 0; i < s_nroutes; i++) {
-        add_item(s, s_routes[i], ITEM_PLAIN, NULL, false);
-        if (!strcmp(s_routes[i], config_get()->route)) s->sel = i + 1;
+        bool cur = route_loaded() && !strcmp(s_routes[i], config_get()->route);
+        add_item(s, s_routes[i], cur ? ITEM_VALUE : ITEM_PLAIN,
+                 config_get()->route_reverse ? LV_SYMBOL_OK " rev." : LV_SYMBOL_OK, false);
+        if (cur) s->sel = i + 1;
     }
     if (!s_nroutes) {
         lv_obj_t *h = label(s->root, &lv_font_montserrat_14, C_GREY,
