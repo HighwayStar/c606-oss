@@ -35,6 +35,7 @@ static int s_npages, s_page_idx;
 static int s_ring[MAX_PAGES], s_ring_n;  /* pages reachable with key 0 in the current mode */
 static ride_mode_t s_mode = RIDE_IDLE;
 static datapage_t s_dp[CFG_PAGES];          /* one per configured page */
+static datapage_t s_dp_map;                 /* field strip under the map */
 static int s_dp_of_page[MAX_PAGES];         /* page index -> config page */
 static lv_obj_t *s_data_bat[MAX_PAGES], *s_mode_lbl[MAX_PAGES];
 static uint8_t s_bat_pct;
@@ -260,7 +261,18 @@ static void build_map(lv_obj_t *scr)
     lv_label_set_text(s_data_bat[PAGE_MAP], "--%");
     lv_obj_align(s_data_bat[PAGE_MAP], LV_ALIGN_RIGHT_MID, -6, 0);
     gear_button(hdr);
+    /* the strip is built first so the map widgets end up above it */
+    datapage_build(&s_dp_map, s_page_map, &config_get()->map_page, 0, HDR_H, LCD_H_RES, LCD_V_RES - HDR_H);
     mapview_create(s_page_map, HDR_H, LCD_H_RES, LCD_V_RES - HDR_H);
+    mapview_set_area(HDR_H, LCD_V_RES - HDR_H - layout_strip_h(layout_get(config_get()->map_page.layout)));
+}
+
+/* The map page's layout / theme may have changed (menu closed). */
+static void rebuild_map(void)
+{
+    const page_cfg_t *mp = &config_get()->map_page;
+    datapage_build(&s_dp_map, s_page_map, mp, 0, HDR_H, LCD_H_RES, LCD_V_RES - HDR_H);
+    mapview_set_area(HDR_H, LCD_V_RES - HDR_H - layout_strip_h(layout_get(mp->layout)));
 }
 
 /* (Re)creates the enabled data pages from the configuration. */
@@ -325,6 +337,7 @@ static void data_refresh_cb(lv_timer_t *t)
         lv_label_set_text(s_idle_clock, buf);
     } else if (s_page_idx == PAGE_MAP) {
         lv_label_set_text(s_map_status, mapview_status());
+        datapage_refresh(&s_dp_map);
     } else if (s_page_idx >= PAGE_FIRST_DATA && s_page_idx < s_npages) {
         datapage_refresh(&s_dp[s_dp_of_page[s_page_idx]]);
         char ses[16];
@@ -362,7 +375,7 @@ static void set_ring(bool keep_page)
         for (int i = PAGE_FIRST_DATA; i < s_npages; i++) s_ring[s_ring_n++] = i;
         if (!s_ring_n) s_ring[s_ring_n++] = PAGE_STATUS;
     }
-    if (mapview_available()) s_ring[s_ring_n++] = PAGE_MAP;
+    if (mapview_available() && config_get()->map_page.enabled) s_ring[s_ring_n++] = PAGE_MAP;
     int pos = 0;
     if (keep_page) {
         for (int i = 0; i < s_ring_n; i++) if (s_ring[i] == s_page_idx) pos = i;
@@ -384,6 +397,7 @@ static void on_menu_closed(void)
 {
     apply_theme_colors();
     build_data_pages(lv_screen_active());
+    rebuild_map();
     set_ring(true);
 }
 

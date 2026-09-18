@@ -16,6 +16,7 @@ enum {
     FIELD_SESSION_TIME,    /* since the last stats reset */
     FIELD_BATTERY_PCT,
     FIELD_SATS,            /* GPS satellites used / in view */
+    FIELD_HEADING,         /* compass direction of travel from the GPS course */
     FIELD_STAT_BASE = 8,   /* FIELD_STAT(stat, agg), room for 14 stats */
     /* distance / laps (trip.c) */
     FIELD_DISTANCE = 64,

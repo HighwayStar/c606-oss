@@ -245,7 +245,7 @@ static void fieldlist_select(screen_t *s, int idx)
     field_id_t ids[AGG_COUNT + 8];
     int n = field_category_items(s->cat, ids, sizeof ids / sizeof ids[0]);
     if (idx >= n) return;
-    config_get()->page[s->page].field[s->cell] = ids[idx];
+    config_page(config_get(), s->page)->field[s->cell] = ids[idx];
     config_save();
     pop();   /* field list */
     pop();   /* category list -> back at the field editor */
@@ -260,7 +260,7 @@ static void fieldlist_open(int page, int cell, int cat)
     make_list(s);
     field_id_t ids[AGG_COUNT + 8];
     int n = field_category_items(cat, ids, sizeof ids / sizeof ids[0]);
-    field_id_t current = config_get()->page[page].field[cell];
+    field_id_t current = config_page(config_get(), page)->field[cell];
     s->sel = 0;
     for (int i = 0; i < n; i++) {
         add_item(s, field_name(ids[i]), ITEM_PLAIN, NULL, false);
@@ -283,7 +283,7 @@ static void category_open(int page, int cell)
     s->page = page; s->cell = cell;
     s->select_cb = category_select;
     make_list(s);
-    field_id_t current = config_get()->page[page].field[cell];
+    field_id_t current = config_page(config_get(), page)->field[cell];
     s->sel = 0;
     for (int c = 0; c < field_category_count(); c++) {
         add_item(s, field_category_name(c), ITEM_ARROW, NULL, false);
@@ -320,14 +320,21 @@ static void fields_key(screen_t *s, uint8_t key)
 static void fields_refresh(screen_t *s)
 {
     /* a field may have changed: rebuild the preview */
-    datapage_build(&s_dp_fields, s->root, &config_get()->page[s->page], 0, HDR_H, LCD_H_RES, LCD_V_RES - HDR_H);
+    datapage_build(&s_dp_fields, s->root, config_page(config_get(), s->page), 0, HDR_H, LCD_H_RES, LCD_V_RES - HDR_H);
+    if (s_dp_fields.ncells == 0) s->sel = -1;   /* "Map" layout: nothing to edit, key 0 goes back */
     datapage_highlight(&s_dp_fields, s->sel);
+}
+
+static void page_title(char *buf, size_t n, int page, const char *suffix)
+{
+    if (page == CFG_PAGES) snprintf(buf, n, "Map%s", suffix);
+    else snprintf(buf, n, "Page %d%s", page + 1, suffix);
 }
 
 static void fields_open(int page)
 {
     char title[24];
-    snprintf(title, sizeof title, "Page %d fields", page + 1);
+    page_title(title, sizeof title, page, " fields");
     screen_t *s = push(title);
     if (!s) return;
     s->page = page;
@@ -350,14 +357,13 @@ static void layout_preview(screen_t *s)
 
 static void layout_step(screen_t *s, int dir)
 {
-    int n = layout_count();
-    s_tmp_page.layout = (s_tmp_page.layout + n + dir) % n;
+    s_tmp_page.layout = layout_next(s_tmp_page.layout, dir, s->page == CFG_PAGES);
     layout_preview(s);
 }
 
 static void layout_apply(screen_t *s)
 {
-    config_get()->page[s->page] = s_tmp_page;
+    *config_page(config_get(), s->page) = s_tmp_page;
     config_save();
     pop();
 }
@@ -376,12 +382,12 @@ static void layout_key(screen_t *s, uint8_t key)
 static void layout_open(int page)
 {
     char title[24];
-    snprintf(title, sizeof title, "Page %d layout", page + 1);
+    page_title(title, sizeof title, page, " layout");
     screen_t *s = push(title);
     if (!s) return;
     s->page = page;
     s->key_cb = layout_key;
-    s_tmp_page = config_get()->page[page];
+    s_tmp_page = *config_page(config_get(), page);
 
     /* selector: up / name / down, like the reference device */
     lv_obj_t *sel = lv_obj_create(s->root);
@@ -420,14 +426,14 @@ static void layout_open(int page)
 
 static void page_refresh(screen_t *s)
 {
-    page_cfg_t *p = &config_get()->page[s->page];
+    page_cfg_t *p = config_page(config_get(), s->page);
     set_toggle(s, 0, p->enabled);
     set_right(s, 1, layout_get(p->layout)->name, true);
 }
 
 static void page_select(screen_t *s, int idx)
 {
-    page_cfg_t *p = &config_get()->page[s->page];
+    page_cfg_t *p = config_page(config_get(), s->page);
     switch (idx) {
     case 0:
         p->enabled = !p->enabled;
@@ -443,14 +449,14 @@ static void page_select(screen_t *s, int idx)
 static void page_open(int page)
 {
     char title[24];
-    snprintf(title, sizeof title, "Page %d", page + 1);
+    page_title(title, sizeof title, page, "");
     screen_t *s = push(title);
     if (!s) return;
     s->page = page;
     s->select_cb = page_select;
     s->refresh_cb = page_refresh;
     make_list(s);
-    page_cfg_t *p = &config_get()->page[page];
+    page_cfg_t *p = config_page(config_get(), page);
     add_item(s, "Enable", ITEM_TOGGLE, NULL, p->enabled);
     add_item(s, "Layout", ITEM_ARROW, layout_get(p->layout)->name, false);
     add_item(s, "Fields", ITEM_ARROW, NULL, false);
@@ -462,15 +468,15 @@ static void page_open(int page)
 
 static void pages_refresh(screen_t *s)
 {
-    for (int i = 0; i < CFG_PAGES; i++) {
-        page_cfg_t *p = &config_get()->page[i];
+    for (int i = 0; i <= CFG_PAGES; i++) {
+        page_cfg_t *p = config_page(config_get(), i);
         set_right(s, i, p->enabled ? layout_get(p->layout)->name : "off", true);
     }
 }
 
 static void pages_select(screen_t *s, int idx)
 {
-    if (idx < CFG_PAGES) page_open(idx);
+    if (idx <= CFG_PAGES) page_open(idx);
 }
 
 static void pages_open(void)
@@ -485,6 +491,7 @@ static void pages_open(void)
         snprintf(t, sizeof t, "Page %d", i + 1);
         add_item(s, t, ITEM_ARROW, "", false);
     }
+    add_item(s, "Map", ITEM_ARROW, "", false);
     pages_refresh(s);
     s->sel = 0;
     update_hl(s);

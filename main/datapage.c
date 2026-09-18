@@ -60,9 +60,32 @@ void datapage_build(datapage_t *dp, lv_obj_t *parent, const page_cfg_t *cfg, int
     lv_obj_set_pos(dp->cont, x, y);
     lv_obj_set_size(dp->cont, w, h);
 
+    /* map layouts: the cells form a strip at the bottom, the map canvas
+     * (mapview.c) covers the rest; a placeholder marks that area in the
+     * menu previews */
+    int strip_h = layout_strip_h(l);
+    int cells_y = l->map ? h - strip_h : 0;
+    int cells_h = l->map ? strip_h : h;
+    if (l->map) {
+        lv_obj_t *ph = lv_obj_create(dp->cont);
+        lv_obj_remove_style_all(ph);
+        lv_obj_set_pos(ph, 0, 0);
+        lv_obj_set_size(ph, w, cells_y);
+        lv_obj_add_style(ph, &theme_st_panel, 0);
+        lv_obj_set_style_bg_opa(ph, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(ph, 1, 0);
+        lv_obj_set_clickable(ph, false);
+        lv_obj_t *t = lv_label_create(ph);
+        lv_obj_set_style_text_font(t, &lv_font_montserrat_20, 0);
+        lv_obj_add_style(t, &theme_st_muted, 0);
+        lv_label_set_text(t, "Map");
+        lv_obj_center(t);
+    }
+
     for (int i = 0; i < dp->ncells; i++) {
         int cx, cy, cw, ch;
-        layout_cell_rect(l, i, w, h, &cx, &cy, &cw, &ch);
+        layout_cell_rect(l, i, w, cells_h, &cx, &cy, &cw, &ch);
+        cy += cells_y;
         dp->cell[i].w = cw;
         dp->cell[i].h = ch;
 

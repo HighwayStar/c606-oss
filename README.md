@@ -30,8 +30,11 @@ This PoC replaces only the ESP32 application. It:
   device in the settings menu (gear icon), saved in NVS,
 * **map page**: reads the vendor's vector maps (`MAP/*.map` on the eMMC —
   plain Mapsforge binary files, see `docs/HARDWARE.md`) and draws the roads
-  around the GPS position; +/− zoom buttons (zoom 10–17), rendered in its own
-  task in well under 100 ms per view,
+  around the GPS position; +/− zoom buttons (zoom 10–17), scale bar, light
+  and dark palettes following the theme, rendered in its own task in well
+  under 100 ms per view. Configured like the data pages (Settings → Pages →
+  Map): enable, layout *Map* (map only), *M1* / *M2* (one or two data fields
+  in a strip under the map, Speed + Heading by default), fields per cell,
 * developer console on the USB port: inject key/touch events and take
   screenshots from the host (`tools/devcon.py`),
 * idle / riding / paused modes: the idle screen (clock, GPS and sensor state,
@@ -122,7 +125,8 @@ with `esp32_image_parser.py dump_partition`.)
    grey `--` when no fresh reading arrived within a few seconds). Fields are
    the current / min / max / avg of every measured parameter, distance and
    laps (Distance, Laps, Lap Dist, Lap Time, Lap Speed, PreLap Time, PreLap
-   Dist), time of day, session time, battery % and satellites. Distance comes
+   Dist), time of day, session time, battery %, satellites and heading
+   (compass point from the GPS course while moving). Distance comes
    from the ANT+ wheel sensor when it is live (revs × `ANT_WHEEL_CIRC_M`),
    otherwise from consecutive GPS fixes (moving faster than 2 km/h); a lap
    ends automatically every *Lap length*; key 1 ends the current lap by hand
@@ -136,7 +140,8 @@ with `esp32_image_parser.py dump_partition`.)
    * *Pages* → *Page n* → *Enable*, *Layout* (preview of the page with an
      up/down selector, tick applies), *Fields* (preview of the page: tap a cell,
      or move the yellow frame with the keys and press key 0, then pick a
-     category and a field).
+     category and a field). The last entry, *Map*, configures the map page
+     the same way with the layouts *Map* / *M1* / *M2*.
    * *Sensors* → *Wheel* (circumference in mm, +/− screen, hold to run) and
      the known ANT+ sensors with their state (`ok` / `searching` / `--`); tap
      one to *Forget* it, *Add sensor* runs a 30 s ANT scan and lists what it

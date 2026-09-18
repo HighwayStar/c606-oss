@@ -22,6 +22,10 @@ int mapview_map_count(void);
 /* Creates the canvas and the zoom buttons inside `parent` at (0, y), w x h.
  * Called under the LVGL lock. Only one instance is supported. */
 lv_obj_t *mapview_create(lv_obj_t *parent, int32_t y, int32_t w, int32_t h);
+/* Moves / shrinks the map area (h <= the h given to mapview_create), e.g.
+ * when the field strip below it changes; also re-applies the theme colours
+ * and puts the map widgets above anything built since. */
+void mapview_set_area(int32_t y, int32_t h);
 void mapview_set_visible(bool visible);   /* the page is shown / hidden */
 void mapview_zoom_by(int delta);
 uint8_t mapview_zoom(void);

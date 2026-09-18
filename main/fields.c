@@ -24,6 +24,7 @@ static const struct { field_id_t id; const char *name, *unit; } k_other[] = {
     { FIELD_SESSION_TIME, "Session Time", "" },
     { FIELD_BATTERY_PCT,  "Battery",      "%" },
     { FIELD_SATS,         "Satellites",   "" },
+    { FIELD_HEADING,      "Heading",      "" },
     { FIELD_DISTANCE,     "Distance",     "km" },
     { FIELD_LAPS,         "Laps",         "" },
     { FIELD_LAP_DIST,     "Lap Dist",     "km" },
@@ -37,7 +38,7 @@ static const struct { field_id_t id; const char *name, *unit; } k_other[] = {
 /* chooser categories after the statistics */
 static const field_id_t k_cat_distance[] = { FIELD_DISTANCE, FIELD_LAP_DIST, FIELD_PRELAP_DIST };
 static const field_id_t k_cat_lap[]      = { FIELD_LAPS, FIELD_LAP_TIME, FIELD_LAP_SPEED, FIELD_PRELAP_TIME };
-static const field_id_t k_cat_other[]    = { FIELD_TIME_OF_DAY, FIELD_SESSION_TIME, FIELD_BATTERY_PCT, FIELD_SATS, FIELD_NONE };
+static const field_id_t k_cat_other[]    = { FIELD_TIME_OF_DAY, FIELD_SESSION_TIME, FIELD_BATTERY_PCT, FIELD_SATS, FIELD_HEADING, FIELD_NONE };
 
 static int other_idx(field_id_t id)
 {
@@ -125,6 +126,14 @@ void field_value(field_id_t id, char *buf, size_t n)
         gps_fix_t g;
         gps_get(&g);
         if (g.baud) snprintf(buf, n, "%u/%u", g.sats_used, g.sats_in_view);
+        else snprintf(buf, n, "--");
+        break;
+    }
+    case FIELD_HEADING: {
+        static const char *k_dir[] = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" };
+        gps_fix_t g;
+        gps_get(&g);
+        if (g.valid && g.speed_kmh > 2.0f) snprintf(buf, n, "%s", k_dir[((int)(g.course_deg + 22.5f) / 45) & 7]);
         else snprintf(buf, n, "--");
         break;
     }

@@ -17,6 +17,7 @@
 #include "mapfile.h"
 #include "mapview.h"
 #include "ui_port.h"
+#include "theme.h"
 
 static const char *TAG = "mapview";
 
@@ -34,43 +35,49 @@ typedef struct {
     char name[48];
 } map_t;
 
-/* colour and width per way tag; the first matching prefix wins */
+/* colour (light theme, dark theme) and width per way tag; the first
+ * matching prefix wins */
 typedef struct {
     const char *tag;
-    uint16_t color;      /* RGB565 */
+    uint16_t light, dark; /* RGB565 */
     uint8_t width;
-    uint8_t pass;        /* 0 = drawn first (areas, minor roads), 1 = on top */
+    uint8_t pass;         /* 0 = drawn first (areas, minor roads), 1 = on top */
 } style_t;
 
 #define RGB(r, g, b) ((uint16_t)((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3)))
 
 static const style_t k_styles[] = {
-    { "highway=motorway",      RGB(0xe8, 0x92, 0xa2), 5, 1 },
-    { "highway=trunk",         RGB(0xf9, 0xb2, 0x9c), 4, 1 },
-    { "highway=primary",       RGB(0xfc, 0xd6, 0xa4), 4, 1 },
-    { "highway=secondary",     RGB(0xf7, 0xfa, 0xbf), 3, 1 },
-    { "highway=tertiary",      RGB(0xff, 0xff, 0xff), 3, 1 },
-    { "highway=residential",   RGB(0xff, 0xff, 0xff), 2, 0 },
-    { "highway=unclassified",  RGB(0xff, 0xff, 0xff), 2, 0 },
-    { "highway=living_street", RGB(0xed, 0xed, 0xed), 2, 0 },
-    { "highway=pedestrian",    RGB(0xdd, 0xdd, 0xe8), 2, 0 },
-    { "highway=service",       RGB(0xdd, 0xdd, 0xdd), 1, 0 },
-    { "highway=road",          RGB(0xdd, 0xdd, 0xdd), 1, 0 },
-    { "highway=cycleway",      RGB(0x40, 0x40, 0xff), 1, 0 },
-    { "highway=footway",       RGB(0xfa, 0x80, 0x72), 1, 0 },
-    { "highway=path",          RGB(0xaa, 0x66, 0x33), 1, 0 },
-    { "highway=track",         RGB(0x99, 0x66, 0x22), 1, 0 },
-    { "natural=water",         RGB(0xaa, 0xd3, 0xdf), 2, 0 },
-    { "natural=coastline",     RGB(0x33, 0x66, 0xaa), 2, 0 },
+    { "highway=motorway",      RGB(0xe0, 0x80, 0x92), RGB(0xb0, 0x50, 0x60), 5, 1 },
+    { "highway=trunk",         RGB(0xf4, 0xa0, 0x88), RGB(0xc0, 0x70, 0x58), 4, 1 },
+    { "highway=primary",       RGB(0xf6, 0xc8, 0x8c), RGB(0xc8, 0x98, 0x60), 4, 1 },
+    { "highway=secondary",     RGB(0xf0, 0xf0, 0xa0), RGB(0xb0, 0xb0, 0x70), 3, 1 },
+    { "highway=tertiary",      RGB(0xff, 0xff, 0xff), RGB(0xa0, 0xa0, 0xa8), 3, 1 },
+    { "highway=residential",   RGB(0xff, 0xff, 0xff), RGB(0x80, 0x80, 0x88), 2, 0 },
+    { "highway=unclassified",  RGB(0xff, 0xff, 0xff), RGB(0x80, 0x80, 0x88), 2, 0 },
+    { "highway=living_street", RGB(0xf4, 0xf4, 0xf4), RGB(0x70, 0x70, 0x78), 2, 0 },
+    { "highway=pedestrian",    RGB(0xe0, 0xe0, 0xee), RGB(0x68, 0x68, 0x80), 2, 0 },
+    { "highway=service",       RGB(0xf0, 0xf0, 0xf0), RGB(0x60, 0x60, 0x68), 1, 0 },
+    { "highway=road",          RGB(0xf0, 0xf0, 0xf0), RGB(0x60, 0x60, 0x68), 1, 0 },
+    { "highway=cycleway",      RGB(0x40, 0x40, 0xff), RGB(0x60, 0x60, 0xe0), 1, 0 },
+    { "highway=footway",       RGB(0xf0, 0x70, 0x60), RGB(0x98, 0x50, 0x48), 1, 0 },
+    { "highway=path",          RGB(0xa0, 0x60, 0x30), RGB(0x88, 0x60, 0x40), 1, 0 },
+    { "highway=track",         RGB(0x90, 0x60, 0x20), RGB(0x80, 0x60, 0x38), 1, 0 },
+    { "natural=water",         RGB(0x90, 0xc0, 0xd8), RGB(0x30, 0x50, 0x70), 2, 0 },
+    { "natural=coastline",     RGB(0x30, 0x60, 0xa0), RGB(0x40, 0x70, 0xb0), 2, 0 },
 };
-static const style_t k_default_style = { "", RGB(0x90, 0x90, 0x90), 1, 0 };
-static const uint16_t k_bg = RGB(0xf2, 0xf0, 0xea);
+static const style_t k_default_style = { "", RGB(0x90, 0x90, 0x90), RGB(0x70, 0x70, 0x70), 1, 0 };
+static const uint16_t k_bg_light = RGB(0xe4, 0xe0, 0xd6);   /* a little darker than the page */
+static const uint16_t k_bg_dark  = RGB(0x1c, 0x1e, 0x22);
+static bool s_dark;                    /* palette of the current render */
+static bool s_shown_dark;
+
+static inline uint16_t style_color(const style_t *st) { return s_dark ? st->dark : st->light; }
 
 static map_t s_maps[MAX_MAPS];
 static int s_nmaps;
 
 static uint16_t *s_front, *s_back;    /* canvas buffer, render target (PSRAM) */
-static int32_t s_w, s_h;
+static int32_t s_w, s_h, s_max_h;
 static lv_obj_t *s_canvas, *s_marker, *s_nomap;
 static lv_timer_t *s_timer;
 static TaskHandle_t s_task;
@@ -212,7 +219,7 @@ static void way_cb(const mapfile_way_t *w, void *ctx)
             s_defer[s_defer_n++] = clamp16(x);
             s_defer[s_defer_n++] = clamp16(y);
         } else if (i) {
-            draw_line(px, py, x, y, st->color, st->width);
+            draw_line(px, py, x, y, style_color(st), st->width);
         }
         px = x;
         py = y;
@@ -229,7 +236,7 @@ static void draw_deferred(void)
         i += 2;
         for (int k = 1; k < n; k++) {
             draw_line(s_defer[i + 2 * k - 2], s_defer[i + 2 * k - 1], s_defer[i + 2 * k], s_defer[i + 2 * k + 1],
-                      st->color, st->width);
+                      style_color(st), st->width);
         }
         i += 2 * n;
     }
@@ -296,6 +303,8 @@ static int render_map(map_t *map, double lat, double lon, uint8_t zoom)
     return tiles;
 }
 
+static void scale_bar_update(double lat, uint8_t zoom);
+
 static void render_task(void *arg)
 {
     for (;;) {
@@ -306,9 +315,12 @@ again:
         s_busy = true;
         double lat = s_lat, lon = s_lon;
         uint8_t zoom = s_zoom;
+        int32_t w = s_w, h = s_h;
+        s_dark = theme_current() == THEME_DARK;
         int64_t t0 = esp_timer_get_time();
 
-        for (int32_t i = 0; i < s_w * s_h; i++) s_back[i] = k_bg;
+        uint16_t bg = s_dark ? k_bg_dark : k_bg_light;
+        for (int32_t i = 0; i < w * h; i++) s_back[i] = bg;
         int tiles = 0;
         uint32_t ways = 0;
         for (int i = 0; i < s_nmaps; i++) {
@@ -319,12 +331,14 @@ again:
         xSemaphoreGive(s_mtx);
 
         ui_lock();
-        if (s_front) {
-            memcpy(s_front, s_back, (size_t)s_w * s_h * 2);
+        if (s_front && w == s_w && h == s_h) {   /* the area may have been resized meanwhile */
+            memcpy(s_front, s_back, (size_t)w * h * 2);
             s_shown_lat = lat;
             s_shown_lon = lon;
             s_shown_zoom = zoom;
+            s_shown_dark = s_dark;
             s_shown = true;
+            scale_bar_update(lat, zoom);
             snprintf(s_status, sizeof s_status, "z%u %lu w %d ms%s", zoom, (unsigned long)ways, ms,
                      tiles ? "" : " off map");
             if (s_canvas) lv_obj_invalidate(s_canvas);
@@ -332,7 +346,7 @@ again:
         }
         ui_unlock();
         s_busy = false;
-        if (s_zoom != zoom) goto again;   /* zoomed again meanwhile */
+        if (s_zoom != zoom || w != s_w || h != s_h) goto again;   /* zoomed / resized meanwhile */
     }
 }
 
@@ -343,7 +357,7 @@ static void refresh_cb(lv_timer_t *t)
 {
     if (!s_visible || !s_task || s_busy) return;
     xSemaphoreTake(s_mtx, portMAX_DELAY);
-    bool need = s_have_pos && (!s_shown || s_shown_zoom != s_zoom);
+    bool need = s_have_pos && (!s_shown || s_shown_zoom != s_zoom || s_shown_dark != (theme_current() == THEME_DARK));
     if (s_have_pos && !need) {
         double dx = mapfile_lon_to_px(s_lon, s_zoom) - mapfile_lon_to_px(s_shown_lon, s_zoom);
         double dy = mapfile_lat_to_py(s_lat, s_zoom) - mapfile_lat_to_py(s_shown_lat, s_zoom);
@@ -351,6 +365,28 @@ static void refresh_cb(lv_timer_t *t)
     }
     xSemaphoreGive(s_mtx);
     if (need) xTaskNotifyGive(s_task);
+}
+
+static lv_obj_t *s_scale_line, *s_scale_lbl;
+static lv_point_precise_t s_scale_pts[2];
+static int32_t s_y;                     /* top of the map area inside the page */
+
+/* Scale bar: the longest of 20 m .. 50 km that fits in ~80 px (LVGL task). */
+static void scale_bar_update(double lat, uint8_t zoom)
+{
+    if (!s_scale_line) return;
+    /* metres per pixel at this latitude */
+    double mpp = 40075016.686 * cos(lat * M_PI / 180.0) / (256.0 * ldexp(1.0, zoom));
+    static const int k_steps[] = { 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000 };
+    int m = k_steps[0];
+    for (size_t i = 0; i < sizeof k_steps / sizeof k_steps[0]; i++) {
+        if (k_steps[i] / mpp <= 80) m = k_steps[i];
+    }
+    int px = (int)(m / mpp);
+    s_scale_pts[1].x = px;
+    lv_line_set_points(s_scale_line, s_scale_pts, 2);
+    if (m >= 1000) lv_label_set_text_fmt(s_scale_lbl, "%d km", m / 1000);
+    else lv_label_set_text_fmt(s_scale_lbl, "%d m", m);
 }
 
 static void zoom_in_cb(lv_event_t *e) { mapview_zoom_by(1); }
@@ -373,11 +409,29 @@ static lv_obj_t *zoom_button(lv_obj_t *parent, const char *txt, lv_event_cb_t cb
     return b;
 }
 
+static lv_obj_t *s_btn_in, *s_btn_out;
+
+/* Places the widgets for a map area of w x h at (0, y) and brings them to
+ * the front (the datapage strip may have been rebuilt underneath). */
+static void place_widgets(void)
+{
+    lv_obj_set_pos(s_marker, s_w / 2 - 7, s_y + s_h / 2 - 7);
+    lv_obj_align(s_nomap, LV_ALIGN_TOP_MID, 0, s_y + 12);
+    lv_obj_set_pos(s_btn_in, s_w - 48, s_y + s_h - 96);
+    lv_obj_set_pos(s_btn_out, s_w - 48, s_y + s_h - 48);
+    lv_obj_set_pos(s_scale_line, 8, s_y + s_h - 10);
+    lv_obj_align_to(s_scale_lbl, s_scale_line, LV_ALIGN_OUT_TOP_LEFT, 0, -2);
+    lv_obj_t *objs[] = { s_canvas, s_marker, s_nomap, s_btn_in, s_btn_out, s_scale_line, s_scale_lbl };
+    for (size_t i = 0; i < sizeof objs / sizeof objs[0]; i++) lv_obj_move_foreground(objs[i]);
+}
+
 lv_obj_t *mapview_create(lv_obj_t *parent, int32_t y, int32_t w, int32_t h)
 {
     s_w = w;
     s_h = h;
+    s_y = y;
     if (!s_front) {
+        /* sized for the whole area below the header; mapview_set_area() only shrinks */
         s_front = heap_caps_malloc((size_t)w * h * 2, MALLOC_CAP_SPIRAM);
         s_back = heap_caps_malloc((size_t)w * h * 2, MALLOC_CAP_SPIRAM);
         s_defer = heap_caps_malloc(DEFER_MAX * sizeof(int16_t), MALLOC_CAP_SPIRAM);
@@ -386,7 +440,9 @@ lv_obj_t *mapview_create(lv_obj_t *parent, int32_t y, int32_t w, int32_t h)
         ESP_LOGE(TAG, "no PSRAM for the map buffers");
         return NULL;
     }
-    for (int32_t i = 0; i < w * h; i++) s_front[i] = k_bg;
+    s_max_h = h;
+    uint16_t bg = theme_current() == THEME_DARK ? k_bg_dark : k_bg_light;
+    for (int32_t i = 0; i < w * h; i++) s_front[i] = bg;
 
     s_canvas = lv_canvas_create(parent);
     lv_canvas_set_buffer(s_canvas, s_front, w, h, LV_COLOR_FORMAT_RGB565);
@@ -401,17 +457,30 @@ lv_obj_t *mapview_create(lv_obj_t *parent, int32_t y, int32_t w, int32_t h)
     lv_obj_set_style_bg_opa(s_marker, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_marker, 3, 0);
     lv_obj_set_style_border_color(s_marker, lv_color_white(), 0);
-    lv_obj_set_pos(s_marker, w / 2 - 7, y + h / 2 - 7);
     lv_obj_set_clickable(s_marker, false);
 
     s_nomap = lv_label_create(parent);
     lv_obj_set_style_text_font(s_nomap, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(s_nomap, lv_color_make(0x60, 0x60, 0x60), 0);
+    lv_obj_add_style(s_nomap, &theme_st_muted, 0);
     lv_label_set_text(s_nomap, s_nmaps ? "Waiting for a GPS fix" : "No maps in " MAP_DIR);
-    lv_obj_align(s_nomap, LV_ALIGN_TOP_MID, 0, y + 12);
 
-    zoom_button(parent, LV_SYMBOL_PLUS, zoom_in_cb, w - 48, y + h - 96);
-    zoom_button(parent, LV_SYMBOL_MINUS, zoom_out_cb, w - 48, y + h - 48);
+    s_btn_in = zoom_button(parent, LV_SYMBOL_PLUS, zoom_in_cb, 0, 0);
+    s_btn_out = zoom_button(parent, LV_SYMBOL_MINUS, zoom_out_cb, 0, 0);
+
+    /* scale bar, bottom left */
+    s_scale_pts[0].x = 0; s_scale_pts[0].y = 0;
+    s_scale_pts[1].x = 60; s_scale_pts[1].y = 0;
+    s_scale_line = lv_line_create(parent);
+    lv_line_set_points(s_scale_line, s_scale_pts, 2);
+    lv_obj_set_style_line_width(s_scale_line, 3, 0);
+    lv_obj_set_style_line_color(s_scale_line, lv_color_make(0x30, 0x30, 0x30), 0);
+    lv_obj_set_style_line_color(s_scale_line, theme_colors()->fg, 0);
+    lv_obj_set_clickable(s_scale_line, false);
+    s_scale_lbl = lv_label_create(parent);
+    lv_obj_set_style_text_font(s_scale_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_add_style(s_scale_lbl, &theme_st_text, 0);
+    lv_label_set_text(s_scale_lbl, "");
+    place_widgets();
 
     if (!s_mtx) s_mtx = xSemaphoreCreateMutex();
     if (!s_task) {
@@ -419,6 +488,23 @@ lv_obj_t *mapview_create(lv_obj_t *parent, int32_t y, int32_t w, int32_t h)
     }
     if (!s_timer) s_timer = lv_timer_create(refresh_cb, REFRESH_MS, NULL);
     return s_canvas;
+}
+
+void mapview_set_area(int32_t y, int32_t h)
+{
+    if (!s_canvas) return;
+    if (h > s_max_h) h = s_max_h;
+    if (h < 40) h = 40;
+    s_y = y;
+    s_h = h;
+    uint16_t bg = theme_current() == THEME_DARK ? k_bg_dark : k_bg_light;
+    for (int32_t i = 0; i < s_w * h; i++) s_front[i] = bg;
+    lv_canvas_set_buffer(s_canvas, s_front, s_w, h, LV_COLOR_FORMAT_RGB565);
+    lv_obj_set_pos(s_canvas, 0, y);
+    lv_obj_set_style_line_color(s_scale_line, theme_colors()->fg, 0);
+    place_widgets();
+    s_shown = false;
+    if (s_visible && s_task) xTaskNotifyGive(s_task);
 }
 
 void mapview_set_visible(bool visible)

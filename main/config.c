@@ -14,9 +14,9 @@
 
 static const char *TAG = "config";
 #define CFG_MAGIC   0xC606
-#define CFG_VERSION 6
+#define CFG_VERSION 7
 /* keep k_len_by_version in config_load() in sync when appending fields */
-_Static_assert(sizeof(app_cfg_t) == 118, "app_cfg_t layout changed: add its size to k_len_by_version");
+_Static_assert(sizeof(app_cfg_t) == 132, "app_cfg_t layout changed: add its size to k_len_by_version");
 #define NVS_NS      "c606oss"
 #define NVS_KEY     "cfg"
 
@@ -70,6 +70,15 @@ void config_defaults(app_cfg_t *c)
     set_page(&c->page[2], true, "12", p3, sizeof p3);
     set_page(&c->page[3], false, "6A", p4, sizeof p4);
     set_page(&c->page[4], false, "1", p1, 1);
+    static const field_id_t pm[] = { FIELD_STAT(STAT_SPEED, AGG_CUR), FIELD_HEADING };
+    set_page(&c->map_page, true, "M2", pm, sizeof pm);
+}
+
+static void map_page_defaults(app_cfg_t *c)
+{
+    app_cfg_t d;
+    config_defaults(&d);
+    c->map_page = d.map_page;
 }
 
 static bool valid(const app_cfg_t *c)
@@ -81,10 +90,12 @@ static bool valid(const app_cfg_t *c)
     if (c->auto_pause > 1) return false;
     if (c->wheel_mm < CFG_WHEEL_MIN_MM || c->wheel_mm > CFG_WHEEL_MAX_MM) return false;
     if (c->nsensors > CFG_MAX_SENSORS) return false;
-    for (int p = 0; p < CFG_PAGES; p++) {
-        if (c->page[p].layout >= layout_count()) return false;
+    for (int p = 0; p <= CFG_PAGES; p++) {
+        const page_cfg_t *pg = config_page((app_cfg_t *)c, p);
+        if (pg->layout >= layout_count()) return false;
+        if (!!layout_get(pg->layout)->map != (p == CFG_PAGES)) return false;
         for (int i = 0; i < LAYOUT_MAX_CELLS; i++) {
-            if (c->page[p].field[i] >= FIELD_COUNT) return false;
+            if (pg->field[i] >= FIELD_COUNT) return false;
         }
     }
     return c->tz_min >= -12 * 60 && c->tz_min <= 14 * 60;
@@ -115,7 +126,7 @@ void config_load(void)
      * appended) but their length includes the tail padding of that version,
      * so the sizes are listed explicitly. The struct was zeroed before the
      * read; fill in the defaults of the fields the blob does not have. */
-    static const size_t k_len_by_version[] = { 0, 76, 78, 80, 82, 82, 118 };
+    static const size_t k_len_by_version[] = { 0, 76, 78, 80, 82, 82, 118, 132 };
     if (err == ESP_OK && tmp.magic == CFG_MAGIC && tmp.version >= 1 && tmp.version < CFG_VERSION
         && len == k_len_by_version[tmp.version]) {
         if (tmp.version < 2) tmp.theme = 0;
@@ -123,6 +134,7 @@ void config_load(void)
         if (tmp.version < 4) tmp.backlight = 70;
         if (tmp.version < 5) tmp.auto_pause = 1;
         if (tmp.version < 6) { tmp.wheel_mm = 2105; tmp.nsensors = 0; tmp.sensors_imported = 0; }
+        if (tmp.version < 7) map_page_defaults(&tmp);
         ESP_LOGI(TAG, "config upgraded from version %u", tmp.version);
         tmp.version = CFG_VERSION;
         len = sizeof tmp;
