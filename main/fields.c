@@ -10,11 +10,11 @@
 #include "gps.h"
 #include "config.h"
 #include "trip.h"
+#include "utc.h"
 
 static char s_name[FIELD_COUNT][24];
 static uint8_t s_batt_pct;
 static bool s_batt_valid;
-static struct { uint8_t hh, mm, ss; uint32_t at_ms; bool valid; } s_rtc;
 
 static const char *k_agg_prefix[AGG_COUNT] = { "", "Min ", "Max ", "Avg " };
 
@@ -79,13 +79,6 @@ void fields_set_battery_pct(uint8_t pct)
     s_batt_valid = true;
 }
 
-void fields_set_rtc(uint8_t hh, uint8_t mm, uint8_t ss)
-{
-    s_rtc.hh = hh; s_rtc.mm = mm; s_rtc.ss = ss;
-    s_rtc.at_ms = esp_timer_get_time() / 1000;
-    s_rtc.valid = true;
-}
-
 static void fmt_hms(char *buf, size_t n, uint32_t secs)
 {
     snprintf(buf, n, "%lu:%02lu:%02lu", (unsigned long)(secs / 3600), (unsigned long)(secs / 60 % 60),
@@ -94,21 +87,13 @@ static void fmt_hms(char *buf, size_t n, uint32_t secs)
 
 static void fmt_time_of_day(char *buf, size_t n)
 {
-    int32_t utc = -1;
-    if (s_rtc.valid) {
-        utc = s_rtc.hh * 3600 + s_rtc.mm * 60 + s_rtc.ss + (int32_t)((esp_timer_get_time() / 1000 - s_rtc.at_ms) / 1000);
-    } else {
-        gps_fix_t g;
-        gps_get(&g);
-        if (g.sentences && (g.hh || g.mm || g.ss)) {
-            utc = g.hh * 3600 + g.mm * 60 + g.ss;
-        }
-    }
-    if (utc < 0) {
+    uint32_t unix_s;
+    if (!utc_now(&unix_s)) {
         snprintf(buf, n, "--:--:--");
         return;
     }
-    int32_t local = (utc + config_get()->tz_min * 60) % 86400;
+    int32_t local = (int32_t)(unix_s % 86400) + config_get()->tz_min * 60;
+    local %= 86400;
     if (local < 0) local += 86400;
     snprintf(buf, n, "%02ld:%02ld:%02ld", (long)(local / 3600), (long)(local / 60 % 60), (long)(local % 60));
 }

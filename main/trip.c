@@ -14,6 +14,7 @@ static const char *TAG = "trip";
 
 static float s_dist_m, s_lap_start_m, s_prev_lap_m;
 static uint32_t s_laps, s_lap_start_ms, s_prev_lap_ms;
+static bool s_prev_lap_manual;
 static struct { bool valid; double lat, lon; } s_last_fix;
 static struct { bool valid; uint32_t revs, at_ms; } s_wheel;
 
@@ -37,6 +38,7 @@ static void add_distance(float m)
         s_prev_lap_ms = now - s_lap_start_ms;
         s_lap_start_m += lap_len;       /* the overshoot counts towards the next lap */
         s_lap_start_ms = now;
+        s_prev_lap_manual = false;
         ESP_LOGI(TAG, "lap %lu: %lu ms", (unsigned long)s_laps, (unsigned long)s_prev_lap_ms);
     }
 }
@@ -49,6 +51,7 @@ uint32_t trip_lap_manual(void)
     s_prev_lap_ms = now - s_lap_start_ms;
     s_lap_start_m = s_dist_m;
     s_lap_start_ms = now;
+    s_prev_lap_manual = true;
     ESP_LOGI(TAG, "manual lap %lu: %.0f m, %lu ms", (unsigned long)s_laps, s_prev_lap_m, (unsigned long)s_prev_lap_ms);
     return s_laps;
 }
@@ -106,3 +109,4 @@ float trip_lap_avg_kmh(void)
 }
 uint32_t trip_prev_lap_time_ms(void) { return s_prev_lap_ms; }
 float trip_prev_lap_distance_m(void) { return s_prev_lap_m; }
+bool trip_prev_lap_manual(void) { return s_prev_lap_manual; }

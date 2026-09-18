@@ -5,10 +5,12 @@
   tools/devcon.py PORT tap 120 160      touch at x,y
   tools/devcon.py PORT shot out.png     screenshot
   tools/devcon.py PORT heap
+  tools/devcon.py PORT ls [/sdcard/dir]  list the ride files (default /sdcard/c606oss)
+  tools/devcon.py PORT get /sdcard/c606oss/x.fit [out.fit]   copy a file to the host
   tools/devcon.py PORT script "key 0 1" "sleep 0.5" "shot a.png" ...
 
 Needs pyserial. Log lines from the device are printed as they arrive."""
-import re, struct, sys, time, zlib
+import os, re, struct, sys, time, zlib
 import serial
 
 def png_from_rgb565(w, h, rows, path):
@@ -57,6 +59,54 @@ def shot(p, path):
     png_from_rgb565(w, h, rows, path)
     print(f"saved {path} ({w}x{h})")
 
+def ls(p, path):
+    p.reset_input_buffer()
+    p.write(f"ls {path}\n".encode() if path else b"ls\n")
+    end = time.time() + 10
+    while time.time() < end:
+        line = read_line(p, 2)
+        if not line:
+            continue
+        if "LS_END" in line:
+            rest = line.split("LS_END", 1)[1].strip()
+            if rest:
+                print(rest)
+            break
+        sys.stdout.write(line)
+
+def get(p, path, out):
+    p.reset_input_buffer()
+    p.write(f"get {path}\n".encode())
+    size = None
+    chunks = []
+    got = 0
+    end = time.time() + 600
+    while time.time() < end:
+        line = read_line(p, 5)
+        if not line:
+            continue
+        m = re.search(r"FILE (\d+)", line)
+        if m and size is None:
+            size = int(m.group(1))
+            continue
+        m = re.search(r"F([0-9a-f]+)$", line.strip()) if size is not None else None
+        if m:
+            b = bytes.fromhex(m.group(1))
+            chunks.append(b)
+            got += len(b)
+        elif "FILE_END" in line:
+            rest = line.split("FILE_END", 1)[1].strip()
+            if rest:
+                sys.exit(rest)
+            break
+        else:
+            sys.stdout.write(line)
+    if size is None or got != size:
+        sys.exit(f"incomplete transfer ({got} of {size} bytes)")
+    with open(out, "wb") as f:
+        f.write(b"".join(chunks))
+    print(f"saved {out} ({size} bytes)")
+
 def simple(p, cmd):
     p.reset_input_buffer()
     p.write((cmd + "\n").encode())
@@ -75,6 +125,10 @@ def run(p, args):
         shot(p, args[1] if len(args) > 1 else "shot.png")
     elif args[0] == "sleep":
         time.sleep(float(args[1]))
+    elif args[0] == "ls":
+        ls(p, args[1] if len(args) > 1 else "")
+    elif args[0] == "get":
+        get(p, args[1], args[2] if len(args) > 2 else os.path.basename(args[1]))
     else:
         simple(p, " ".join(args))
 

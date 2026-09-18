@@ -8,6 +8,8 @@
  *   tap <x> <y>       inject a touch tap at screen coordinates
  *   shot              dump the screen as hex rows ("SHOT 240 320" .. "SHOT_END")
  *   spd <kmh>         feed one speed sample to the auto-pause logic
+ *   ls [dir]          list a directory (default /sdcard/c606oss): "name size" .. "LS_END"
+ *   get <path>        dump a file as hex rows ("FILE <size>", 'F'.., "FILE_END")
  *   heap              print free heap
  * tools/devcon.py drives it from the host. */
 

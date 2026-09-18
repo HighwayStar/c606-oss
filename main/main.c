@@ -7,6 +7,7 @@
  * Keys: 0 = next page, 1 = manual lap, 2 = start ride / pause / resume,
  * hold 2 = end ride (dialog), hold 0 = power off (nRF cuts power; next
  * power-on is a full POR). USB mass storage mode: Settings -> System.
+ * Rides are recorded as FIT files (tracklog.c) on the eMMC.
  */
 #include <stdio.h>
 #include <string.h>
@@ -35,6 +36,7 @@
 #include "devcon.h"
 #include "ride.h"
 #include "trip.h"
+#include "utc.h"
 #include "esp_system.h"
 #include "tinyusb.h"
 
@@ -238,7 +240,7 @@ static void on_frame(const uint8_t *f, size_t len, void *ctx)
         stats_update(STAT_BATTERY, p[4] | (p[5] << 8));
         fields_set_battery_pct(p[6]);
     } else if (cmd == 0x00 && p[0] == 0x53) {
-        fields_set_rtc(p[4], p[3], p[2]);   /* nRF RTC: ss mm hh dd MM yy, UTC */
+        utc_set_rtc(p[2], p[3], p[4], p[5], p[6], p[7]);   /* nRF RTC: ss mm hh dd MM yy, UTC */
     } else if (cmd == NRF_CMD_SYS && p[0] == 0xF1 && p[1] == 0x03) {
         s_temp_c100 = p[2] | (p[3] << 8);
         s_press_pa100 = p[4] | (p[5] << 8) | (p[6] << 16) | ((uint32_t)p[7] << 24);
@@ -259,9 +261,6 @@ static void on_gps(const gps_fix_t *fix, void *ctx)
         stats_update(STAT_ALTITUDE, fix->alt_m);
     }
     trip_gps(fix);
-    if (ride_recording()) {
-        tracklog_point(fix, s_temp_c100, s_press_pa100);
-    }
     if (fix->last_rx_ms - last_log > 5000) {
         last_log = fix->last_rx_ms;
         ESP_LOGI(TAG, "GPS %s q=%u sats %u/%u hdop %.1f  %.5f %.5f alt %.0f  %.1f km/h  %02u:%02u:%02u  n=%lu bad=%lu",
@@ -339,6 +338,7 @@ void app_main(void)
         }
 
         ui_tick(now / 1000);
+        tracklog_tick();                 /* one FIT record per second while riding */
 
         /* auto pause: wheel sensor speed if live, else GPS ground speed */
         {

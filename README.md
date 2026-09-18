@@ -11,7 +11,9 @@ This PoC replaces only the ESP32 application. It:
 * opens the UART link to the nRF, sends the vendor's power-on handshake,
 * decodes button, battery, temperature/pressure and version frames,
 * reads the Airoha AG3352Q GNSS on UART0 (auto-baud, NMEA RMC/GGA/GSV),
-* mounts the on-board 4 GB eMMC (FAT, `/sdcard`) and records CSV tracks to `/sdcard/c606oss/`,
+* mounts the on-board 4 GB eMMC (FAT, `/sdcard`) and records rides as standard
+  **FIT activity files** in `/sdcard/c606oss/` (Strava, Garmin Connect, Golden
+  Cheetah, … import them directly),
 * exposes the eMMC over USB as a mass-storage disk on demand,
 * touchscreen (FT6336 over I2C) as an LVGL pointer: on-screen REC / USB buttons,
 * ANT+ sensors through the nRF: HR, speed, cadence, power decoded. The paired
@@ -91,16 +93,23 @@ with `esp32_image_parser.py dump_partition`.)
    status page (battery arc with mV, temperature and pressure, `nRF ok reason 4
    fw 0.2.19`, GPS and eMMC state, three key boxes, event log, heap footer) and
    back. A key box flashes green on a click and stays red while long-pressed.
-2. Key 2 (or *START RIDE*) starts a ride: statistics are reset, a CSV track is
-   opened in `/sdcard/c606oss/<utc date-time>.csv` (one line per second with a
-   fix: position, altitude, speed, course, sats, HDOP, temperature, pressure)
-   and the data pages appear ("Page 1" … "Page 5", only the enabled ones; key 0
+2. Key 2 (or *START RIDE*) starts a ride: statistics are reset, a FIT file is
+   opened in `/sdcard/c606oss/<local date-time>.fit` (`main/tracklog.c` on top
+   of the small encoder in `main/fit.c`: `file_id`, `file_creator`,
+   `device_info` for the unit and the paired ANT+ sensors, timer start/stop
+   events around pauses, one `record` per second with position, altitude,
+   distance, speed — wheel sensor if live, else GPS —, HR, cadence, power and
+   temperature, a `lap` per lap with its averages/maxima, then `session` and
+   `activity`; fields without data carry the FIT "invalid" value) and the
+   data pages appear ("Page 1" … "Page 5", only the enabled ones; key 0
    cycles). The header shows `▶ h:mm:ss` (session time). Key 2 pauses (`‖`,
    recording and statistics stand still, the time excludes pauses) and resumes.
    Hold key 2 for the *End ride?* dialog: key 2 / *End* closes the track file
    and shows the ride summary (time, distance, avg/max speed, avg/max HR, avg
    cadence and power, max altitude, laps); any key or *Done* returns to the
-   idle screen, anything else in the dialog cancels. With *Auto pause*
+   idle screen, anything else in the dialog cancels. The file only opens once
+   the clock is known (nRF RTC, else the GPS date — after 20 s without either
+   it records anyway, timestamped from 2000-01-01). With *Auto pause*
    on, standing still (below 1.5 km/h for 3 s, wheel sensor or GPS) pauses the
    ride by itself (`‖ … auto`) and moving again (> 3 km/h) resumes it; a manual
    pause is never auto-resumed.
@@ -169,8 +178,10 @@ nRF frame.
 
 Developer console (same port, `main/devcon.c`): `tools/devcon.py /dev/ttyACM0
 key 0 1` clicks key 0, `... tap 120 160` touches the screen, `... shot out.png`
-saves a screenshot, and `... script "key 0 1" "sleep 0.5" "shot a.png"` chains
-them. Useful for exercising the UI without touching the device.
+saves a screenshot, `... ls` lists the ride files and `... get
+/sdcard/c606oss/<name>.fit` copies one to the host (no need for USB storage
+mode), and `... script "key 0 1" "sleep 0.5" "shot a.png"` chains them. Useful
+for exercising the UI without touching the device.
 
 If the screen stays dark: check the backlight (GPIO45) first — the bars are
 drawn before it is enabled, so a dark-but-flickering panel means the i80 bus
@@ -207,13 +218,15 @@ main/config.c      page configuration + settings, persisted in NVS
 main/menu.c        settings menu (pages, layout picker, field editor, ...)
 main/theme.c       dark / light colour theme (shared styles)
 main/stats.c       session statistics (min/max/time-weighted avg, staleness)
-main/devcon.c      developer console: key/tap injection, screenshots
+main/devcon.c      developer console: key/tap injection, screenshots, file transfer
 tools/devcon.py    host side of the developer console
 main/backlight.c   LEDC PWM
 main/nrf_link.c    UART framing, CRC16, TX helpers, key decoding
 main/gps.c         UART0 NMEA reader with baud probing
 main/sdcard.c      eMMC mount (SDMMC 4-bit)
-main/tracklog.c    CSV track recorder
+main/tracklog.c    ride recorder: FIT activity file (records, laps, session)
+main/fit.c         minimal FIT encoder (definitions, data messages, CRC)
+main/utc.c         wall clock from the nRF RTC or the GPS date
 main/ride.c        idle / riding / paused state machine
 main/trip.c        distance (wheel sensor or GPS) and auto laps
 main/usb_msc.c     TinyUSB mass storage over the eMMC (esp_tinyusb)

@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <dirent.h>
+#include <sys/stat.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -66,6 +68,57 @@ static void cmd_shot(void)
     write_all("SHOT_END\n", 9);
 }
 
+/* directory listing: one "name size" line per entry, then LS_END */
+static void cmd_ls(const char *path)
+{
+    DIR *d = opendir(path);
+    if (!d) {
+        printf("LS_END cannot open %s\n", path);
+        return;
+    }
+    struct dirent *e;
+    char full[300];
+    struct stat st;
+    while ((e = readdir(d))) {
+        snprintf(full, sizeof full, "%s/%s", path, e->d_name);
+        long size = stat(full, &st) == 0 && !S_ISDIR(st.st_mode) ? (long)st.st_size : -1;
+        printf("%s %ld\n", e->d_name, size);
+    }
+    closedir(d);
+    printf("LS_END\n");
+}
+
+/* file transfer: "FILE <size>", hex rows prefixed with 'F', FILE_END */
+static void cmd_get(const char *path)
+{
+    static const char hex[] = "0123456789abcdef";
+    static uint8_t buf[512];
+    static char line[sizeof buf * 2 + 3];
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        printf("FILE_END cannot open %s\n", path);
+        return;
+    }
+    struct stat st;
+    stat(path, &st);
+    char hdr[32];
+    int n = snprintf(hdr, sizeof hdr, "FILE %ld\n", (long)st.st_size);
+    write_all(hdr, n);
+    size_t r;
+    while ((r = fread(buf, 1, sizeof buf, f)) > 0) {
+        char *p = line;
+        *p++ = 'F';
+        for (size_t i = 0; i < r; i++) {
+            *p++ = hex[buf[i] >> 4];
+            *p++ = hex[buf[i] & 15];
+        }
+        *p++ = '\n';
+        write_all(line, p - line);
+    }
+    fclose(f);
+    write_all("FILE_END\n", 9);
+}
+
 static void handle(char *cmd)
 {
     char *save;
@@ -85,6 +138,12 @@ static void handle(char *cmd)
         printf("ok\n");
     } else if (!strcmp(w, "shot")) {
         cmd_shot();
+    } else if (!strcmp(w, "ls")) {
+        char *a = strtok_r(NULL, " ", &save);
+        cmd_ls(a ? a : "/sdcard/c606oss");
+    } else if (!strcmp(w, "get")) {
+        char *a = strtok_r(NULL, " ", &save);
+        if (a) cmd_get(a);
     } else if (!strcmp(w, "heap")) {
         printf("heap int %u psram %u\n", (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
@@ -95,7 +154,7 @@ static void handle(char *cmd)
 
 static void devcon_task(void *arg)
 {
-    char line[64];
+    char line[128];
     for (;;) {
         if (fgets(line, sizeof line, stdin)) {
             line[strcspn(line, "\r\n")] = 0;
@@ -123,6 +182,6 @@ esp_err_t devcon_init(devcon_key_cb_t key_cb)
     usb_serial_jtag_vfs_use_driver();
     usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_CRLF);
     xTaskCreate(devcon_task, "devcon", 4096, NULL, 3, NULL);
-    ESP_LOGI(TAG, "ready: key/tap/shot/heap");
+    ESP_LOGI(TAG, "ready: key/tap/spd/shot/ls/get/heap");
     return ESP_OK;
 }

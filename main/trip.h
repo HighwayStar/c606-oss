@@ -20,3 +20,4 @@ uint32_t trip_lap_time_ms(void);
 float    trip_lap_avg_kmh(void);
 uint32_t trip_prev_lap_time_ms(void);     /* last completed lap, 0 if none */
 float    trip_prev_lap_distance_m(void);
+bool     trip_prev_lap_manual(void);      /* last completed lap ended by key 1 (else by distance) */

@@ -41,7 +41,6 @@ void field_value(field_id_t id, char *buf, size_t n);
 
 /* Data sources that are not statistics. */
 void fields_set_battery_pct(uint8_t pct);
-void fields_set_rtc(uint8_t hh, uint8_t mm, uint8_t ss);   /* UTC */
 
 /* Chooser: categories = one per measured parameter + Distance, Lap, Other. */
 int field_category_count(void);

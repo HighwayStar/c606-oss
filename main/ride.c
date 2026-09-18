@@ -2,7 +2,6 @@
 #include "ride.h"
 #include "stats.h"
 #include "tracklog.h"
-#include "gps.h"
 #include "trip.h"
 #include "config.h"
 
@@ -40,9 +39,7 @@ void ride_start(void)
     s_still_s = 0;
     stats_reset();
     trip_reset();
-    gps_fix_t fix;
-    gps_get(&fix);
-    if (tracklog_start(&fix) != ESP_OK) {
+    if (tracklog_start() != ESP_OK) {
         ESP_LOGW(TAG, "no track file (SD?) - riding without recording");
     }
     set_mode(RIDE_RIDING);
@@ -52,7 +49,7 @@ void ride_pause(void)
 {
     if (s_mode == RIDE_RIDING) {
         s_auto_paused = false;
-        tracklog_flush();
+        tracklog_pause();
         set_mode(RIDE_PAUSED);
     }
 }
@@ -62,6 +59,7 @@ void ride_resume(void)
     if (s_mode == RIDE_PAUSED) {
         s_auto_paused = false;
         s_still_s = 0;
+        tracklog_resume();
         set_mode(RIDE_RIDING);
     }
 }
