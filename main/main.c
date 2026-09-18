@@ -24,6 +24,7 @@
 #include "ui_port.h"
 #include "ui.h"
 #include "gps.h"
+#include "sun.h"
 #include "sdcard.h"
 #include "tracklog.h"
 #include "usb_msc.h"
@@ -261,6 +262,7 @@ static void on_gps(const gps_fix_t *fix, void *ctx)
     if (fix->valid) {
         stats_update(STAT_SPEED, fix->speed_kmh);
         stats_update(STAT_ALTITUDE, fix->alt_m);
+        sun_set_position(fix->lat, fix->lon);
     }
     trip_gps(fix);
     if (fix->last_rx_ms - last_log > 5000) {
@@ -288,6 +290,7 @@ void app_main(void)
     stats_init();
     fields_init();
     config_load();                       /* NVS; defaults if nothing saved */
+    sun_init();                          /* last GPS position for sunrise / sunset */
     devcon_init(inject_key);             /* dev console on the USB port; mirrors the screen from the first frame */
     ESP_ERROR_CHECK(ui_port_init());
     ui_create();

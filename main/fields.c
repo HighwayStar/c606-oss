@@ -11,6 +11,7 @@
 #include "config.h"
 #include "trip.h"
 #include "utc.h"
+#include "sun.h"
 
 static char s_name[FIELD_COUNT][24];
 static uint8_t s_batt_pct;
@@ -25,6 +26,9 @@ static const struct { field_id_t id; const char *name, *unit; } k_other[] = {
     { FIELD_BATTERY_PCT,  "Battery",      "%" },
     { FIELD_SATS,         "Satellites",   "" },
     { FIELD_HEADING,      "Heading",      "" },
+    { FIELD_SUNRISE,      "Sunrise",      "" },
+    { FIELD_SUNSET,       "Sunset",       "" },
+    { FIELD_SUNSET_IN,    "Sunset in",    "" },
     { FIELD_DISTANCE,     "Distance",     "km" },
     { FIELD_LAPS,         "Laps",         "" },
     { FIELD_LAP_DIST,     "Lap Dist",     "km" },
@@ -38,7 +42,7 @@ static const struct { field_id_t id; const char *name, *unit; } k_other[] = {
 /* chooser categories after the statistics */
 static const field_id_t k_cat_distance[] = { FIELD_DISTANCE, FIELD_LAP_DIST, FIELD_PRELAP_DIST };
 static const field_id_t k_cat_lap[]      = { FIELD_LAPS, FIELD_LAP_TIME, FIELD_LAP_SPEED, FIELD_PRELAP_TIME };
-static const field_id_t k_cat_other[]    = { FIELD_TIME_OF_DAY, FIELD_SESSION_TIME, FIELD_BATTERY_PCT, FIELD_SATS, FIELD_HEADING, FIELD_NONE };
+static const field_id_t k_cat_other[]    = { FIELD_TIME_OF_DAY, FIELD_SESSION_TIME, FIELD_BATTERY_PCT, FIELD_SATS, FIELD_HEADING, FIELD_SUNRISE, FIELD_SUNSET, FIELD_SUNSET_IN, FIELD_NONE };
 
 static int other_idx(field_id_t id)
 {
@@ -99,6 +103,36 @@ static void fmt_time_of_day(char *buf, size_t n)
     snprintf(buf, n, "%02ld:%02ld:%02ld", (long)(local / 3600), (long)(local / 60 % 60), (long)(local % 60));
 }
 
+/* Sunrise (rise = true) or sunset as local HH:MM; "--:--" while the
+ * position or the clock is unknown, "24h" / "none" on polar days. */
+void field_fmt_sun(bool rise, char *buf, size_t n)
+{
+    sun_times_t s;
+    if (!sun_today(&s)) {
+        snprintf(buf, n, "--:--");
+        return;
+    }
+    if (s.polar_day)   { snprintf(buf, n, "24h");  return; }
+    if (s.polar_night) { snprintf(buf, n, "none"); return; }
+    int32_t local = (int32_t)((rise ? s.rise_unix : s.set_unix) % 86400) + config_get()->tz_min * 60;
+    local %= 86400;
+    if (local < 0) local += 86400;
+    snprintf(buf, n, "%02ld:%02ld", (long)(local / 3600), (long)(local / 60 % 60));
+}
+
+/* h:mm until today's sunset; "--" once the sun is down. */
+static void fmt_sunset_in(char *buf, size_t n)
+{
+    sun_times_t s;
+    uint32_t now;
+    if (!sun_today(&s) || !utc_now(&now)) { snprintf(buf, n, "--:--"); return; }
+    if (s.polar_day)   { snprintf(buf, n, "24h");  return; }
+    if (s.polar_night) { snprintf(buf, n, "none"); return; }
+    if (now >= s.set_unix) { snprintf(buf, n, "--"); return; }
+    uint32_t left = (s.set_unix - now + 30) / 60;   /* minutes, rounded */
+    snprintf(buf, n, "%lu:%02lu", (unsigned long)(left / 60), (unsigned long)(left % 60));
+}
+
 void field_value(field_id_t id, char *buf, size_t n)
 {
     if (id >= FIELD_STAT_BASE && id < FIELD_STAT_END) {
@@ -137,6 +171,9 @@ void field_value(field_id_t id, char *buf, size_t n)
         else snprintf(buf, n, "--");
         break;
     }
+    case FIELD_SUNRISE:     field_fmt_sun(true, buf, n); break;
+    case FIELD_SUNSET:      field_fmt_sun(false, buf, n); break;
+    case FIELD_SUNSET_IN:   fmt_sunset_in(buf, n); break;
     case FIELD_DISTANCE:    snprintf(buf, n, "%.2f", trip_distance_m() / 1000); break;
     case FIELD_LAP_DIST:    snprintf(buf, n, "%.2f", trip_lap_distance_m() / 1000); break;
     case FIELD_LAPS:        snprintf(buf, n, "%lu", (unsigned long)trip_laps()); break;

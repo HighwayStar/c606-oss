@@ -28,6 +28,12 @@ This PoC replaces only the ESP32 application. It:
   one of 18 cell layouts ("fences" 1, 2, 3A … 12) and every cell shows one
   data field (Speed, Max Speed, Avg HR, Time of Day, …). Configured on the
   device in the settings menu (gear icon), saved in NVS,
+* **sunrise / sunset** (`main/sun.c`, NOAA equations) for the day and the
+  last GPS position — *Sunrise*, *Sunset* and *Sunset in* (h:mm countdown)
+  data fields for any cell, a line on the idle screen, and an *Auto theme*
+  setting that uses the light theme by day and the dark one after sunset.
+  The position is remembered in NVS, so the times are there right after
+  power-on, before the receiver has a fix,
 * **map page**: reads the vendor's vector maps (`MAP/*.map` on the eMMC —
   plain Mapsforge binary files, see `docs/HARDWARE.md`) and draws the roads
   around the GPS position; +/− zoom buttons (zoom 10–17), scale bar, light
@@ -133,7 +139,7 @@ with `esp32_image_parser.py dump_partition`.)
 ## What to expect on boot (verified on hardware)
 
 1. Idle screen: clock (nRF RTC + time zone), GPS fix / satellites, paired
-   sensor values and a *START RIDE* button. Key 0 switches to the
+   sensor values, today's sunrise / sunset and a *START RIDE* button. Key 0 switches to the
    status page (battery arc with mV, temperature and pressure, `nRF ok reason 4
    fw 0.2.19`, GPS and eMMC state, three key boxes, event log, heap footer) and
    back. A key box flashes green on a click and stays red while long-pressed.
@@ -161,8 +167,13 @@ with `esp32_image_parser.py dump_partition`.)
    grey `--` when no fresh reading arrived within a few seconds). Fields are
    the current / min / max / avg of every measured parameter, distance and
    laps (Distance, Laps, Lap Dist, Lap Time, Lap Speed, PreLap Time, PreLap
-   Dist), time of day, session time, battery %, satellites and heading
-   (compass point from the GPS course while moving). Distance comes
+   Dist), time of day, session time, battery %, satellites, heading
+   (compass point from the GPS course while moving), sunrise / sunset
+   (local HH:MM for the current local date at the last GPS position, `24h` /
+   `none` on polar days; `--:--` until both a position and the clock are
+   known — the position is saved in NVS whenever it moves ~10 km from the
+   saved one, so it survives power cycles) and *Sunset in* (h:mm left until
+   today's sunset, `--` once the sun is down). Distance comes
    from the ANT+ wheel sensor when it is live (revs × `ANT_WHEEL_CIRC_M`),
    otherwise from consecutive GPS fixes (moving faster than 2 km/h); a lap
    ends automatically every *Lap length*; key 1 ends the current lap by hand
@@ -191,6 +202,10 @@ with `esp32_image_parser.py dump_partition`.)
      time of day, which comes from the nRF's RTC (UTC), GPS as fallback.
    * *Theme*: dark (default) or light, applied immediately (`main/theme.c`:
      shared LVGL styles; status colours are darkened on the light background).
+   * *Auto theme*: light between sunrise and sunset, dark otherwise, checked
+     twice a second from the sun times above (so it also follows the clock
+     and time zone). Applied at once when switched on; picking a theme by
+     hand switches it off again.
    * *Map layers*: a toggle per road class (motorway/trunk, primary, …,
      track, cycleway), water, coastline and "other" — switched-off layers
      are skipped before their coordinates are even decoded, so a
@@ -300,6 +315,7 @@ main/sdcard.c      eMMC mount (SDMMC 4-bit)
 main/tracklog.c    ride recorder: FIT activity file (records, laps, session)
 main/fit.c         minimal FIT encoder (definitions, data messages, CRC)
 main/utc.c         wall clock from the nRF RTC or the GPS date
+main/sun.c         sunrise / sunset for the last GPS position (NOAA solar equations)
 main/ride.c        idle / riding / paused state machine
 main/mapfile.c     Mapsforge binary map reader (header, tile index, way decoding)
 main/mapview.c     map page: render task, rasteriser, canvas, zoom buttons, route overlay

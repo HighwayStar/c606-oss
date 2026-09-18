@@ -13,6 +13,7 @@
  *     Backlight        -> +/- screen (10 % steps)
  *     Time zone        -> +/- screen (30 min steps)
  *     Theme            (tap: dark / light)
+ *     Auto theme       (toggle: light by day, dark after sunset)
  *     Map layers       (toggle per road class / water / coastline)
  *     Route            -> GPX file drawn on the map (c606oss/routes/, .gpx), or none
  *     Reset statistics
@@ -35,6 +36,7 @@
 #include "datapage.h"
 #include "stats.h"
 #include "theme.h"
+#include "sun.h"
 #include "mapview.h"
 #include "route.h"
 #include "ant.h"
@@ -892,8 +894,8 @@ static void system_open(void)
 }
 
 /* ---- settings root ----------------------------------------------------- */
-enum { ROOT_PAGES, ROOT_SENSORS, ROOT_LAP, ROOT_AUTOPAUSE, ROOT_BACKLIGHT, ROOT_TZ, ROOT_THEME, ROOT_LAYERS,
-       ROOT_ROUTE, ROOT_RESET, ROOT_SYSTEM };
+enum { ROOT_PAGES, ROOT_SENSORS, ROOT_LAP, ROOT_AUTOPAUSE, ROOT_BACKLIGHT, ROOT_TZ, ROOT_THEME, ROOT_AUTOTHEME,
+       ROOT_LAYERS, ROOT_ROUTE, ROOT_RESET, ROOT_SYSTEM };
 
 /* ---- route: GPX files in /sdcard/c606oss/routes ------------------------ */
 
@@ -989,12 +991,31 @@ static void settings_select(screen_t *s, int idx)
         value_open("Time zone", &k_tz_value);
         break;
     case ROOT_THEME:
-        config_get()->theme = config_get()->theme == THEME_LIGHT ? THEME_DARK : THEME_LIGHT;
+        /* a manual choice ends the automatic mode */
+        config_get()->theme = theme_current() == THEME_LIGHT ? THEME_DARK : THEME_LIGHT;
+        config_get()->theme_auto = 0;
         config_save();
         theme_set(config_get()->theme);
-        set_right(s, idx, theme_name(config_get()->theme), false);
+        set_right(s, idx, theme_name(theme_current()), false);
+        set_toggle(s, ROOT_AUTOTHEME, false);
         update_hl(s);   /* rows keep local colours: re-apply for the new theme */
         break;
+    case ROOT_AUTOTHEME: {
+        /* light between sunrise and sunset, dark otherwise (ui.c keeps it
+         * up to date); apply right away when the sun times are known */
+        bool day;
+        config_get()->theme_auto = !config_get()->theme_auto;
+        config_save();
+        set_toggle(s, idx, config_get()->theme_auto);
+        theme_id_t want = config_get()->theme;
+        if (config_get()->theme_auto && sun_is_day(&day)) want = day ? THEME_LIGHT : THEME_DARK;
+        if (want != theme_current()) {
+            theme_set(want);
+            set_right(s, ROOT_THEME, theme_name(want), false);
+            update_hl(s);
+        }
+        break;
+    }
     case ROOT_LAYERS:
         layers_open();
         break;
@@ -1051,7 +1072,8 @@ void menu_open(void)
     add_item(s, "Backlight", ITEM_ARROW, buf, false);
     tz_text(buf, sizeof buf);
     add_item(s, "Time zone", ITEM_ARROW, buf, false);
-    add_item(s, "Theme", ITEM_VALUE, theme_name(config_get()->theme), false);
+    add_item(s, "Theme", ITEM_VALUE, theme_name(theme_current()), false);
+    add_item(s, "Auto theme", ITEM_TOGGLE, NULL, config_get()->theme_auto);
     add_item(s, "Map layers", ITEM_ARROW, NULL, false);
     add_item(s, "Route", ITEM_ARROW, route_text(), false);
     add_item(s, "Reset statistics", ITEM_PLAIN, NULL, false);

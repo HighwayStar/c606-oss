@@ -15,6 +15,7 @@
 #include "ui.h"
 #include "stats.h"
 #include "fields.h"
+#include "sun.h"
 #include "config.h"
 #include "datapage.h"
 #include "menu.h"
@@ -41,7 +42,7 @@ static lv_obj_t *s_data_bat[MAX_PAGES], *s_mode_lbl[MAX_PAGES];
 static uint8_t s_bat_pct;
 static lv_obj_t *s_hdr_bat, *s_arc, *s_arc_lbl, *s_env, *s_nrf, *s_gps, *s_sd, *s_log, *s_foot;
 static lv_obj_t *s_key[3];
-static lv_obj_t *s_idle_clock, *s_idle_gps, *s_idle_sens, *s_idle_hint;
+static lv_obj_t *s_idle_clock, *s_idle_gps, *s_idle_sens, *s_idle_sun, *s_idle_hint;
 static lv_obj_t *s_cursor, *s_touch_lbl, *s_btn_start, *s_ant;
 static ui_action_cb_t s_on_start, s_on_usb, s_on_usb_reboot, s_on_power_off, s_on_end_ride;
 static lv_obj_t *s_popup;
@@ -216,6 +217,10 @@ static void build_idle(lv_obj_t *scr)
     lv_label_set_text(s_idle_sens, "HR --  cad --  --.- km/h");
     lv_obj_align(s_idle_sens, LV_ALIGN_TOP_MID, 0, 150);
 
+    s_idle_sun = tlabel(s_page_idle, &lv_font_montserrat_14, &theme_st_muted);
+    lv_label_set_text(s_idle_sun, "");
+    lv_obj_align(s_idle_sun, LV_ALIGN_TOP_MID, 0, 172);
+
     s_btn_start = button(s_page_idle, LV_SYMBOL_PLAY "  START RIDE", lv_palette_main(LV_PALETTE_GREEN), 200, 56);
     lv_obj_align(s_btn_start, LV_ALIGN_TOP_MID, 0, 200);
     lv_obj_add_event_cb(s_btn_start, start_btn_cb, LV_EVENT_CLICKED, NULL);
@@ -320,6 +325,21 @@ static void build_data_pages(lv_obj_t *scr)
     if (s_cursor) lv_obj_move_foreground(s_cursor);
 }
 
+/* "Sunrise 06:42   Sunset 19:11" under the sensor line; blank until the
+ * position (last GPS fix, remembered across power cycles) and the clock
+ * are known. */
+static void idle_sun_refresh(void)
+{
+    char rise[12], set[12];
+    if (!sun_has_position()) {
+        lv_label_set_text(s_idle_sun, "");
+        return;
+    }
+    field_fmt_sun(true, rise, sizeof rise);
+    field_fmt_sun(false, set, sizeof set);
+    lv_label_set_text_fmt(s_idle_sun, "Sunrise %s   Sunset %s", rise, set);
+}
+
 static void fmt_session(char *buf, size_t n)
 {
     uint32_t t = stats_session_ms() / 1000;
@@ -327,14 +347,31 @@ static void fmt_session(char *buf, size_t n)
              (unsigned long)(t % 60));
 }
 
+/* Auto theme: light between sunrise and sunset, dark otherwise. The
+ * manual choice (config theme) is left alone so switching auto off
+ * returns to it. Not while the menu is open (its rows keep local colours). */
+static void apply_theme_colors(void);
+static void auto_theme_tick(void)
+{
+    bool day;
+    if (!config_get()->theme_auto || !sun_is_day(&day)) return;
+    theme_id_t want = day ? THEME_LIGHT : THEME_DARK;
+    if (theme_current() == want) return;
+    theme_set(want);
+    apply_theme_colors();
+    rebuild_map();
+}
+
 /* Refreshes the visible page's live content (LVGL task, 2 Hz). */
 static void data_refresh_cb(lv_timer_t *t)
 {
     char buf[24];
     if (menu_active() || s_page_idx < 0) return;
+    auto_theme_tick();
     if (s_page_idx == PAGE_IDLE) {
         field_value(FIELD_TIME_OF_DAY, buf, sizeof buf);
         lv_label_set_text(s_idle_clock, buf);
+        idle_sun_refresh();
     } else if (s_page_idx == PAGE_MAP) {
         lv_label_set_text(s_map_status, mapview_status());
         datapage_refresh(&s_dp_map);

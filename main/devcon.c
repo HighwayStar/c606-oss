@@ -23,6 +23,7 @@
 #include "ride.h"
 #include "mapview.h"
 #include "gps.h"
+#include "sun.h"
 
 static const char *TAG = "devcon";
 
@@ -187,7 +188,7 @@ static void handle(char *cmd)
         else printf(a && gps_inject(a) ? "ok\n" : "nmea failed\n");
     } else if (!strcmp(w, "pos")) {   /* centre the map page on a fixed position */
         char *a = strtok_r(NULL, " ", &save), *b = strtok_r(NULL, " ", &save);
-        if (a && b) mapview_set_override(atof(a), atof(b), true);
+        if (a && b) { mapview_set_override(atof(a), atof(b), true); sun_set_position(atof(a), atof(b)); }
         else mapview_set_override(0, 0, false);
         printf("ok\n");
     } else if (!strcmp(w, "zoom")) {
