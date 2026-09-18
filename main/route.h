@@ -37,6 +37,15 @@ size_t route_points(const int32_t **x20, const int32_t **y20);
 /* Bounding box in microdegrees (valid when loaded). */
 void route_bbox(int32_t *min_lat, int32_t *min_lon, int32_t *max_lat, int32_t *max_lon);
 
+/* Position on the loaded route. route_track() (every valid GPS fix) finds
+ * the nearest point of the track — preferring the leg matched last time, so
+ * an out-and-back track does not flip to the other leg — and
+ * route_remaining() gives the track distance from there to the end, plus
+ * how far off the track the rider is. False until a route is loaded and a
+ * fix has been seen. */
+void route_track(double lat, double lon);
+bool route_remaining(float *remaining_m, float *off_track_m);
+
 /* Summary of a file for the preview screen, without touching the loaded
  * route: length, climb / descent (when the points carry <ele>, with a
  * 5 m hysteresis so GPS noise does not add up), bounding box and a thinned

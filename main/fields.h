@@ -30,6 +30,7 @@ enum {
     FIELD_PRELAP_TIME,
     FIELD_PRELAP_DIST,
     FIELD_SUNSET_IN,       /* h:mm until today's sunset */
+    FIELD_ROUTE_LEFT,      /* km along the loaded GPX route to its end (route.c) */
     FIELD_COUNT
 };
 

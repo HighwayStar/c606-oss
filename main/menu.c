@@ -296,8 +296,11 @@ static void category_open(int page, int cell)
     s->sel = 0;
     for (int c = 0; c < field_category_count(); c++) {
         add_item(s, field_category_name(c), ITEM_ARROW, NULL, false);
-        if (current >= FIELD_STAT_BASE && (current - FIELD_STAT_BASE) / AGG_COUNT == c) s->sel = c;
-        if (current < FIELD_STAT_BASE && c == field_category_count() - 1) s->sel = c;
+        field_id_t ids[AGG_COUNT + 8];
+        int n = field_category_items(c, ids, sizeof ids / sizeof ids[0]);
+        for (int i = 0; i < n; i++) {
+            if (ids[i] == current) s->sel = c;
+        }
     }
     update_hl(s);
 }

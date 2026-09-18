@@ -17,11 +17,13 @@ static const char *TAG = "route";
 
 static SemaphoreHandle_t s_mtx;
 static int32_t *s_x, *s_y;             /* zoom-20 pixels, PSRAM */
+static float *s_cum;                   /* track metres from the start at each point */
 static size_t s_n;
 static char s_name[ROUTE_NAME_MAX];
 static float s_len_m;
 static uint32_t s_gen;
 static int32_t s_min_lat, s_min_lon, s_max_lat, s_max_lon;
+static struct { bool valid; size_t seg; float along_m, off_m; } s_prog;   /* where the rider is on it */
 
 static void lock(void)
 {
@@ -42,6 +44,7 @@ void route_unlock(void) { unlock(); }
 
 typedef struct {
     int32_t *x, *y;
+    float *cum;                /* optional: track metres at each kept point */
     size_t n, cap;
     unsigned stride, skip;     /* decimation: keep one point in `stride` */
     uint32_t total;
@@ -76,12 +79,17 @@ static void add_point(build_t *b, double lat, double lon)
     if (b->skip++ % b->stride) return;
     if (b->n == b->cap) {
         /* full: keep every other point and halve the input rate from now on */
-        for (size_t i = 0; i < b->n / 2; i++) { b->x[i] = b->x[2 * i]; b->y[i] = b->y[2 * i]; }
+        for (size_t i = 0; i < b->n / 2; i++) {
+            b->x[i] = b->x[2 * i];
+            b->y[i] = b->y[2 * i];
+            if (b->cum) b->cum[i] = b->cum[2 * i];
+        }
         b->n /= 2;
         b->stride *= 2;
     }
     b->x[b->n] = (int32_t)mapfile_lon_to_px(lon, 20);
     b->y[b->n] = (int32_t)mapfile_lat_to_py(lat, 20);
+    if (b->cum) b->cum[b->n] = (float)b->len_m;
     b->n++;
 }
 
@@ -173,14 +181,16 @@ static esp_err_t parse_file(const char *name, build_t *b)
     return ESP_OK;
 }
 
-static bool alloc_points(build_t *b, size_t cap)
+static bool alloc_points(build_t *b, size_t cap, bool with_cum)
 {
     b->cap = cap;
     b->x = heap_caps_malloc(cap * sizeof(int32_t), MALLOC_CAP_SPIRAM);
     b->y = heap_caps_malloc(cap * sizeof(int32_t), MALLOC_CAP_SPIRAM);
-    if (b->x && b->y) return true;
-    free(b->x); free(b->y);
+    b->cum = with_cum ? heap_caps_malloc(cap * sizeof(float), MALLOC_CAP_SPIRAM) : NULL;
+    if (b->x && b->y && (b->cum || !with_cum)) return true;
+    free(b->x); free(b->y); free(b->cum);
     b->x = b->y = NULL;
+    b->cum = NULL;
     return false;
 }
 
@@ -190,20 +200,22 @@ esp_err_t route_load(const char *name, bool reverse)
     if (!name || !*name) return ESP_OK;
 
     build_t b = { 0 };
-    if (!alloc_points(&b, ROUTE_MAX_POINTS)) return ESP_ERR_NO_MEM;
+    if (!alloc_points(&b, ROUTE_MAX_POINTS, true)) return ESP_ERR_NO_MEM;
     esp_err_t err = parse_file(name, &b);
     if (err != ESP_OK) {
-        free(b.x); free(b.y);
+        free(b.x); free(b.y); free(b.cum);
         return err;
     }
     if (reverse) {
         for (size_t i = 0, j = b.n - 1; i < j; i++, j--) {
             int32_t t = b.x[i]; b.x[i] = b.x[j]; b.x[j] = t;
             t = b.y[i]; b.y[i] = b.y[j]; b.y[j] = t;
+            float c = b.cum[i]; b.cum[i] = b.cum[j]; b.cum[j] = c;
         }
+        for (size_t i = 0; i < b.n; i++) b.cum[i] = (float)b.len_m - b.cum[i];
     }
     lock();
-    s_x = b.x; s_y = b.y; s_n = b.n;
+    s_x = b.x; s_y = b.y; s_cum = b.cum; s_n = b.n;
     s_len_m = (float)b.len_m;
     s_min_lat = b.min_lat; s_min_lon = b.min_lon; s_max_lat = b.max_lat; s_max_lon = b.max_lon;
     strncpy(s_name, name, sizeof s_name - 1);
@@ -218,7 +230,7 @@ esp_err_t route_scan(const char *name, size_t max_points, route_info_t *info)
 {
     memset(info, 0, sizeof *info);
     build_t b = { 0 };
-    if (!alloc_points(&b, max_points)) return ESP_ERR_NO_MEM;
+    if (!alloc_points(&b, max_points, false)) return ESP_ERR_NO_MEM;
     esp_err_t err = parse_file(name, &b);
     if (err != ESP_OK) {
         free(b.x); free(b.y);
@@ -248,9 +260,11 @@ void route_info_free(route_info_t *info)
 void route_clear(void)
 {
     lock();
-    free(s_x); free(s_y);
+    free(s_x); free(s_y); free(s_cum);
     s_x = s_y = NULL;
+    s_cum = NULL;
     s_n = 0;
+    s_prog.valid = false;
     s_name[0] = 0;
     s_len_m = 0;
     s_gen++;
@@ -267,6 +281,68 @@ size_t route_points(const int32_t **x20, const int32_t **y20)
     *x20 = s_x;
     *y20 = s_y;
     return s_n;
+}
+
+/* ---- position on the route ---------------------------------------------- */
+
+#define TRACK_WINDOW  32     /* points around the last match searched first */
+#define TRACK_STICK_M 50.0f  /* stay with the local match while this close */
+
+/* Nearest point of segments [from, to) to q; returns the squared pixel
+ * distance and fills the segment index and the parameter along it. */
+static float nearest_seg(int32_t qx, int32_t qy, size_t from, size_t to, size_t *seg, float *t_out)
+{
+    float best = INFINITY;
+    for (size_t i = from; i < to; i++) {
+        float ax = (float)(s_x[i] - qx), ay = (float)(s_y[i] - qy);
+        float dx = (float)(s_x[i + 1] - s_x[i]), dy = (float)(s_y[i + 1] - s_y[i]);
+        float l2 = dx * dx + dy * dy, t = 0;
+        if (l2 > 0) {
+            t = -(ax * dx + ay * dy) / l2;
+            if (t < 0) t = 0;
+            else if (t > 1) t = 1;
+        }
+        float ex = ax + t * dx, ey = ay + t * dy, d2 = ex * ex + ey * ey;
+        if (d2 < best) { best = d2; *seg = i; *t_out = t; }
+    }
+    return best;
+}
+
+void route_track(double lat, double lon)
+{
+    lock();
+    if (s_n < 2) { unlock(); return; }
+    int32_t qx = (int32_t)mapfile_lon_to_px(lon, 20), qy = (int32_t)mapfile_lat_to_py(lat, 20);
+    float m_per_px = (float)(156543.03392 * cos(lat * M_PI / 180.0) / (1 << 20));
+    size_t seg = 0;
+    float t = 0, d2 = INFINITY;
+    /* on an out-and-back track both legs are equally close: stay on the leg
+     * we were on (search around the last match) unless we have left it */
+    if (s_prog.valid) {
+        size_t from = s_prog.seg > TRACK_WINDOW ? s_prog.seg - TRACK_WINDOW : 0;
+        size_t to = s_prog.seg + TRACK_WINDOW < s_n - 1 ? s_prog.seg + TRACK_WINDOW : s_n - 1;
+        d2 = nearest_seg(qx, qy, from, to, &seg, &t);
+        if (sqrtf(d2) * m_per_px > TRACK_STICK_M) d2 = INFINITY;
+    }
+    if (d2 == INFINITY) d2 = nearest_seg(qx, qy, 0, s_n - 1, &seg, &t);
+    s_prog.seg = seg;
+    s_prog.along_m = s_cum[seg] + t * (s_cum[seg + 1] - s_cum[seg]);
+    s_prog.off_m = sqrtf(d2) * m_per_px;
+    s_prog.valid = true;
+    unlock();
+}
+
+bool route_remaining(float *remaining_m, float *off_track_m)
+{
+    lock();
+    bool ok = s_prog.valid && s_n >= 2;
+    if (ok) {
+        *remaining_m = s_len_m - s_prog.along_m;
+        if (*remaining_m < 0) *remaining_m = 0;
+        if (off_track_m) *off_track_m = s_prog.off_m;
+    }
+    unlock();
+    return ok;
 }
 
 void route_bbox(int32_t *min_lat, int32_t *min_lon, int32_t *max_lat, int32_t *max_lon)

@@ -263,6 +263,7 @@ static void on_gps(const gps_fix_t *fix, void *ctx)
         stats_update(STAT_SPEED, fix->speed_kmh);
         stats_update(STAT_ALTITUDE, fix->alt_m);
         sun_set_position(fix->lat, fix->lon);
+        route_track(fix->lat, fix->lon);
     }
     trip_gps(fix);
     if (fix->last_rx_ms - last_log > 5000) {

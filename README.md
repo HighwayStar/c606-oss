@@ -45,7 +45,8 @@ This PoC replaces only the ESP32 application. It:
   disk, pick one in Settings → Route — a preview shows the track outline,
   length, climb / descent (from `<ele>`, when present) and a *Reverse*
   toggle before it is loaded — and it is drawn on the map (magenta, green
-  start / red end); the map page works with a route even without a map
+  start / red end) and a *Route Left* data field counts down the track
+  distance to its end; the map page works with a route even without a map
   file,
 * developer console on the USB port: inject key/touch events and take
   screenshots from the host (`tools/devcon.py`),
@@ -169,7 +170,9 @@ with `esp32_image_parser.py dump_partition`.)
    grey `--` when no fresh reading arrived within a few seconds). Fields are
    the current / min / max / avg of every measured parameter, distance and
    laps (Distance, Laps, Lap Dist, Lap Time, Lap Speed, PreLap Time, PreLap
-   Dist), time of day, session time, battery %, satellites, heading
+   Dist), *Route Left* (km along the loaded GPX route from the nearest point
+   of the track to its end, see *Route* below; `--` without a route or a
+   fix), time of day, session time, battery %, satellites, heading
    (compass point from the GPS course while moving), sunrise / sunset
    (local HH:MM for the current local date at the last GPS position, `24h` /
    `none` on polar days; `--:--` until both a position and the clock are
@@ -223,7 +226,11 @@ with `esp32_image_parser.py dump_partition`.)
      attributes and their `<ele>` child, so GPX 1.0/1.1 tracks and routes
      from any tool work; points are kept as Web-Mercator pixels in PSRAM
      (long tracks are thinned to 16k points, the preview to 512), the
-     choice and the direction persist in the config.
+     choice and the direction persist in the config. Every GPS fix is
+     matched to the nearest point of the loaded track for the *Route Left*
+     field; the match prefers the stretch it was on last time, so an
+     out-and-back track does not flip to the other leg where both run along
+     the same road.
    * *Reset statistics*.
    * *System* → *USB storage*, *Power off*, *Reset settings* (with a
      confirmation: everything back to the firmware defaults), *About*.
@@ -327,7 +334,7 @@ main/sun.c         sunrise / sunset for the last GPS position (NOAA solar equati
 main/ride.c        idle / riding / paused state machine
 main/mapfile.c     Mapsforge binary map reader (header, tile index, way decoding)
 main/mapview.c     map page: render task, rasteriser, canvas, zoom buttons, route overlay
-main/route.c       GPX track/route loader for the map page
+main/route.c       GPX track/route loader for the map page, position on the route
 tools/mapdump/     host build of mapfile.c: dump or render a tile of a .map file
 main/trip.c        distance (wheel sensor or GPS) and auto laps
 main/usb_msc.c     TinyUSB mass storage over the eMMC (esp_tinyusb)

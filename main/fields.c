@@ -12,6 +12,7 @@
 #include "trip.h"
 #include "utc.h"
 #include "sun.h"
+#include "route.h"
 
 static char s_name[FIELD_COUNT][24];
 static uint8_t s_batt_pct;
@@ -36,11 +37,12 @@ static const struct { field_id_t id; const char *name, *unit; } k_other[] = {
     { FIELD_LAP_SPEED,    "Lap Speed",    "km/h" },
     { FIELD_PRELAP_TIME,  "PreLap Time",  "" },
     { FIELD_PRELAP_DIST,  "PreLap Dist",  "km" },
+    { FIELD_ROUTE_LEFT,   "Route Left",   "km" },
 };
 #define N_OTHER (sizeof k_other / sizeof k_other[0])
 
 /* chooser categories after the statistics */
-static const field_id_t k_cat_distance[] = { FIELD_DISTANCE, FIELD_LAP_DIST, FIELD_PRELAP_DIST };
+static const field_id_t k_cat_distance[] = { FIELD_DISTANCE, FIELD_LAP_DIST, FIELD_PRELAP_DIST, FIELD_ROUTE_LEFT };
 static const field_id_t k_cat_lap[]      = { FIELD_LAPS, FIELD_LAP_TIME, FIELD_LAP_SPEED, FIELD_PRELAP_TIME };
 static const field_id_t k_cat_other[]    = { FIELD_TIME_OF_DAY, FIELD_SESSION_TIME, FIELD_BATTERY_PCT, FIELD_SATS, FIELD_HEADING, FIELD_SUNRISE, FIELD_SUNSET, FIELD_SUNSET_IN, FIELD_NONE };
 
@@ -187,6 +189,12 @@ void field_value(field_id_t id, char *buf, size_t n)
         if (trip_laps()) snprintf(buf, n, "%.2f", trip_prev_lap_distance_m() / 1000);
         else snprintf(buf, n, "--");
         break;
+    case FIELD_ROUTE_LEFT: {
+        float left;
+        if (route_remaining(&left, NULL)) snprintf(buf, n, left < 100000 ? "%.1f" : "%.0f", left / 1000);
+        else snprintf(buf, n, "--");
+        break;
+    }
     default:
         buf[0] = 0;
         break;
