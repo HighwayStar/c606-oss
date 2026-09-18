@@ -43,5 +43,11 @@ void ui_show_end_ride_popup(void);
 void ui_hide_popup(void);
 ui_popup_t ui_popup_active(void);
 void ui_tick(uint32_t uptime_s);   /* call ~1x per second */
+
+/* Ride summary, shown after a ride was ended; any key click or "Done"
+ * dismisses it. */
+void ui_show_summary(void);
+void ui_hide_summary(void);
+bool ui_summary_active(void);
 /* Short message over the current page (e.g. "LAP 3"), gone after 1.5 s. */
 void ui_toast(const char *text);

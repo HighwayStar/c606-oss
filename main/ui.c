@@ -439,6 +439,69 @@ static void show_popup(ui_popup_t kind, const char *title, const char *hint, con
     ui_unlock();
 }
 
+/* ---- ride summary ------------------------------------------------------ */
+
+static lv_obj_t *s_summary;
+
+static void summary_done_cb(lv_event_t *e) { ui_hide_summary(); }
+
+bool ui_summary_active(void) { return s_summary != NULL; }
+
+void ui_hide_summary(void)
+{
+    ui_lock();
+    if (s_summary) { lv_obj_delete(s_summary); s_summary = NULL; }
+    ui_unlock();
+}
+
+void ui_show_summary(void)
+{
+    static const struct { const char *name; field_id_t id; } rows[] = {
+        { "Time",        FIELD_SESSION_TIME },
+        { "Distance",    FIELD_DISTANCE },
+        { "Avg speed",   FIELD_STAT(STAT_SPEED, AGG_AVG) },
+        { "Max speed",   FIELD_STAT(STAT_SPEED, AGG_MAX) },
+        { "Avg HR",      FIELD_STAT(STAT_HR, AGG_AVG) },
+        { "Max HR",      FIELD_STAT(STAT_HR, AGG_MAX) },
+        { "Avg cadence", FIELD_STAT(STAT_CADENCE, AGG_AVG) },
+        { "Avg power",   FIELD_STAT(STAT_POWER, AGG_AVG) },
+        { "Max altitude",FIELD_STAT(STAT_ALTITUDE, AGG_MAX) },
+        { "Laps",        FIELD_LAPS },
+    };
+    char buf[24], val[32];
+    ui_lock();
+    ui_hide_summary();
+    s_summary = page(lv_layer_top());
+
+    lv_obj_t *hdr = lv_obj_create(s_summary);
+    lv_obj_remove_style_all(hdr);
+    lv_obj_set_size(hdr, LCD_H_RES, HDR_H);
+    lv_obj_set_style_bg_color(hdr, C_HDR, 0);
+    lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
+    lv_obj_t *t = label(hdr, &lv_font_montserrat_14, lv_color_white());
+    lv_label_set_text(t, LV_SYMBOL_OK "  Ride summary");
+    lv_obj_center(t);
+
+    const int row_h = 24, y0 = HDR_H + 6;
+    for (size_t i = 0; i < sizeof rows / sizeof rows[0]; i++) {
+        int y = y0 + i * row_h;
+        lv_obj_t *n = tlabel(s_summary, &lv_font_montserrat_14, &theme_st_muted);
+        lv_label_set_text(n, rows[i].name);
+        lv_obj_align(n, LV_ALIGN_TOP_LEFT, 12, y + 3);
+        field_value(rows[i].id, buf, sizeof buf);
+        const char *unit = field_unit(rows[i].id);
+        snprintf(val, sizeof val, "%s%s%s", buf, *unit ? " " : "", unit);
+        lv_obj_t *v = tlabel(s_summary, &lv_font_montserrat_20, &theme_st_text);
+        lv_label_set_text(v, val);
+        lv_obj_align(v, LV_ALIGN_TOP_RIGHT, -12, y);
+    }
+
+    lv_obj_t *b = button(s_summary, "Done", lv_palette_main(LV_PALETTE_GREEN), 120, 34);
+    lv_obj_align(b, LV_ALIGN_BOTTOM_MID, 0, -4);
+    lv_obj_add_event_cb(b, summary_done_cb, LV_EVENT_CLICKED, NULL);
+    ui_unlock();
+}
+
 /* ---- toast ------------------------------------------------------------- */
 
 static lv_obj_t *s_toast;

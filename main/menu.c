@@ -13,7 +13,7 @@
  *     Time zone        -> +/- screen (30 min steps)
  *     Theme            (tap: dark / light)
  *     Reset statistics
- *     System           -> USB storage, Power off, About
+ *     System           -> USB storage, Power off, Reset settings (confirm), About
  *
  * Screens are stacked; each one is a full-screen object on the top layer
  * with a header (back arrow + title). List screens share one implementation
@@ -494,13 +494,45 @@ static void about_open(void)
     update_hl(s);
 }
 
+/* "Reset settings?" confirmation: a two-item list so keys work too. */
+static void reset_confirm_select(screen_t *s, int idx)
+{
+    if (idx != 1) {
+        pop();
+        return;
+    }
+    config_defaults(config_get());
+    config_save();
+    theme_set(config_get()->theme);
+    if (s_action_cb[MENU_ACTION_BACKLIGHT]) s_action_cb[MENU_ACTION_BACKLIGHT]();
+    menu_close();   /* the close callback rebuilds the pages */
+}
+
+static void reset_confirm_open(void)
+{
+    screen_t *s = push("Reset settings?");
+    if (!s) return;
+    s->select_cb = reset_confirm_select;
+    make_list(s);
+    lv_obj_t *h = label(s->root, &lv_font_montserrat_14, C_GREY,
+                        "Pages, lap length, time zone,\ntheme and backlight go back\nto the firmware defaults.");
+    lv_obj_add_style(h, &theme_st_muted, 0);
+    lv_obj_set_style_text_align(h, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(h, LV_ALIGN_TOP_MID, 0, HDR_H + 2 * ROW_H + 16);
+    add_item(s, "Cancel", ITEM_PLAIN, NULL, false);
+    add_item(s, LV_SYMBOL_WARNING "  Reset to defaults", ITEM_PLAIN, NULL, false);
+    s->sel = 0;
+    update_hl(s);
+}
+
 static void system_select(screen_t *s, int idx)
 {
     void (*cb)(void) = NULL;
     switch (idx) {
     case 0: cb = s_action_cb[MENU_ACTION_USB]; break;
     case 1: cb = s_action_cb[MENU_ACTION_POWER_OFF]; break;
-    case 2: about_open(); return;
+    case 2: reset_confirm_open(); return;
+    case 3: about_open(); return;
     default: return;
     }
     menu_close();
@@ -515,6 +547,7 @@ static void system_open(void)
     make_list(s);
     add_item(s, LV_SYMBOL_USB "  USB storage", ITEM_PLAIN, NULL, false);
     add_item(s, LV_SYMBOL_POWER "  Power off", ITEM_PLAIN, NULL, false);
+    add_item(s, "Reset settings", ITEM_ARROW, NULL, false);
     add_item(s, "About", ITEM_ARROW, NULL, false);
     s->sel = 0;
     update_hl(s);

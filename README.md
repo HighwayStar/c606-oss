@@ -91,7 +91,9 @@ with `esp32_image_parser.py dump_partition`.)
    cycles). The header shows `▶ h:mm:ss` (session time). Key 2 pauses (`‖`,
    recording and statistics stand still, the time excludes pauses) and resumes.
    Hold key 2 for the *End ride?* dialog: key 2 / *End* closes the track file
-   and returns to the idle screen, anything else cancels. With *Auto pause*
+   and shows the ride summary (time, distance, avg/max speed, avg/max HR, avg
+   cadence and power, max altitude, laps); any key or *Done* returns to the
+   idle screen, anything else in the dialog cancels. With *Auto pause*
    on, standing still (below 1.5 km/h for 3 s, wheel sensor or GPS) pauses the
    ride by itself (`‖ … auto`) and moving again (> 3 km/h) resumes it; a manual
    pause is never auto-resumed.
@@ -123,7 +125,8 @@ with `esp32_image_parser.py dump_partition`.)
    * *Theme*: dark (default) or light, applied immediately (`main/theme.c`:
      shared LVGL styles; status colours are darkened on the light background).
    * *Reset statistics*.
-   * *System* → *USB storage*, *Power off*, *About*.
+   * *System* → *USB storage*, *Power off*, *Reset settings* (with a
+     confirmation: everything back to the firmware defaults), *About*.
    The configuration lives in the NVS partition, namespace `c606oss` (the
    vendor's entries are untouched); defaults are in `config_defaults()`.
    New settings are appended to `app_cfg_t`; older blobs are upgraded in

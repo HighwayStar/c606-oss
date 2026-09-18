@@ -61,6 +61,13 @@ static void on_ride_mode(ride_mode_t mode)
     ui_set_mode(mode);
 }
 
+/* "End ride?" confirmed: close the ride and show what it was */
+static void end_ride(void)
+{
+    ride_end();
+    ui_show_summary();
+}
+
 static void apply_backlight(void)
 {
     set_backlight(config_get()->backlight);
@@ -121,12 +128,16 @@ static void on_key(const nrf_key_event_t *ev)
         if (ev->event == KEY_EVT_CLICK) {
             ui_hide_popup();
             if (popup == UI_POPUP_POWER && ev->key == 0) power_off();
-            if (popup == UI_POPUP_END_RIDE && ev->key == 2) ride_end();
+            if (popup == UI_POPUP_END_RIDE && ev->key == 2) end_ride();
         }
         return;
     }
     if (usb_msc_active()) {
         return;   /* only the holds above are meaningful in USB mode */
+    }
+    if (ui_summary_active()) {
+        if (ev->event == KEY_EVT_CLICK) ui_hide_summary();
+        return;
     }
     if (ui_menu_active() && ui_menu_key(ev->key, ev->event)) {
         return;   /* settings menu: 2 = up, 1 = down, 0 = select */
@@ -272,7 +283,7 @@ void app_main(void)
     ui_set_actions(ride_start, enter_usb_mode, apply_backlight);
     ui_set_usb_reboot_cb(usb_msc_leave_and_restart);
     ui_set_power_off_cb(power_off);
-    ui_set_end_ride_cb(ride_end);
+    ui_set_end_ride_cb(end_ride);
     ride_init(on_ride_mode);
     vTaskDelay(pdMS_TO_TICKS(100));      /* let the first frame render */
     apply_backlight();
