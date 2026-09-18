@@ -48,6 +48,38 @@ This PoC replaces only the ESP32 application. It:
 Everything hardware-specific lives in `main/board.h`; the analysis behind it
 is in [`docs/HARDWARE.md`](docs/HARDWARE.md).
 
+## Screenshots
+
+Taken on the device with `tools/devcon.py … shot` (240x320).
+
+| Idle | Status | Data page | Map |
+|:--:|:--:|:--:|:--:|
+| ![idle](docs/images/idle.png) | ![status](docs/images/status.png) | ![page 3](docs/images/page3.png) | ![map](docs/images/map_light.png) |
+
+| Ride: page 2 | Map while riding | Lap | End ride? | Summary |
+|:--:|:--:|:--:|:--:|:--:|
+| ![page 2](docs/images/page2.png) | ![map ride](docs/images/map_ride.png) | ![lap](docs/images/lap_toast.png) | ![end ride](docs/images/end_ride.png) | ![summary](docs/images/summary.png) |
+
+Dark theme (default):
+
+| Idle | Status | Map z15 | Map z12 |
+|:--:|:--:|:--:|:--:|
+| ![idle dark](docs/images/idle_dark.png) | ![status dark](docs/images/status_dark.png) | ![map dark](docs/images/map_dark.png) | ![map dark z12](docs/images/map_dark_z12.png) |
+
+Settings:
+
+| Settings | Pages | Page | Layout picker | Field editor |
+|:--:|:--:|:--:|:--:|:--:|
+| ![settings](docs/images/settings.png) | ![pages](docs/images/pages.png) | ![page menu](docs/images/page_menu.png) | ![layout](docs/images/layout_picker.png) | ![fields](docs/images/field_editor.png) |
+
+| Categories | Field list | Map page | Map layout | Map layers |
+|:--:|:--:|:--:|:--:|:--:|
+| ![categories](docs/images/categories.png) | ![field list](docs/images/field_list.png) | ![map page](docs/images/map_page_menu.png) | ![map layout](docs/images/map_layout.png) | ![map layers](docs/images/map_layers.png) |
+
+| Sensors | System | Settings (dark) |
+|:--:|:--:|:--:|
+| ![sensors](docs/images/sensors.png) | ![system](docs/images/system.png) | ![settings dark](docs/images/settings_dark.png) |
+
 ## Build
 
 Needs ESP-IDF **5.3 or newer** (`esp_driver_uart`, `esp_lcd` i80 API) and
