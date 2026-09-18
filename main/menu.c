@@ -7,8 +7,8 @@
  *         Layout       -> page preview + up/down selector, tick = apply
  *         Fields       -> page preview, tap a cell (or move with keys) ->
  *           category   -> field list -> assigned, back to the preview
- *     Lap length       (tap: +0.5 km, off after 10 km)
- *     Time zone        (tap: +1 h, wraps)
+ *     Lap length       -> +/- screen (0.5 km steps, 0 = off)
+ *     Time zone        -> +/- screen (30 min steps)
  *     Theme            (tap: dark / light)
  *     Reset statistics
  *     System           -> USB storage, Power off, About
@@ -518,6 +518,72 @@ static void system_open(void)
     update_hl(s);
 }
 
+/* ---- +/- value screen -------------------------------------------------- */
+
+typedef struct {
+    void (*text)(char *buf, size_t n);   /* current value as text */
+    void (*step)(int dir);               /* -1 / +1, saves the config */
+} value_def_t;
+
+static const value_def_t *s_value_def;
+static lv_obj_t *s_value_lbl;
+
+static void value_refresh(void)
+{
+    char buf[24];
+    s_value_def->text(buf, sizeof buf);
+    lv_label_set_text(s_value_lbl, buf);
+}
+
+static void value_step(int dir)
+{
+    s_value_def->step(dir);
+    value_refresh();
+}
+
+static void value_minus_cb(lv_event_t *e) { value_step(-1); }
+static void value_plus_cb(lv_event_t *e)  { value_step(+1); }
+
+static void value_key(screen_t *s, uint8_t key)
+{
+    if (key == 2) value_step(+1);
+    else if (key == 1) value_step(-1);
+    else if (key == 0) pop();
+}
+
+static lv_obj_t *round_button(lv_obj_t *parent, const char *sym, lv_event_cb_t cb)
+{
+    lv_obj_t *b = lv_button_create(parent);
+    lv_obj_set_size(b, 64, 64);
+    lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(b, C_SEL, 0);
+    lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_center(label(b, &lv_font_montserrat_28, C_SEL_FG, sym));
+    return b;
+}
+
+static void value_open(const char *title, const value_def_t *def)
+{
+    screen_t *s = push(title);
+    if (!s) return;
+    s->key_cb = value_key;
+    s_value_def = def;
+
+    s_value_lbl = label(s->root, &lv_font_montserrat_28, C_FG, "");
+    lv_obj_add_style(s_value_lbl, &theme_st_text, 0);
+    lv_obj_align(s_value_lbl, LV_ALIGN_CENTER, 0, -30);
+
+    lv_obj_align(round_button(s->root, LV_SYMBOL_MINUS, value_minus_cb), LV_ALIGN_CENTER, -60, 50);
+    lv_obj_align(round_button(s->root, LV_SYMBOL_PLUS, value_plus_cb), LV_ALIGN_CENTER, 60, 50);
+
+    lv_obj_t *h = label(s->root, &lv_font_montserrat_14, C_GREY, "key 2: +   key 1: -   key 0: back");
+    lv_obj_add_style(h, &theme_st_muted, 0);
+    lv_obj_align(h, LV_ALIGN_BOTTOM_MID, 0, -10);
+
+    value_refresh();
+    update_hl(s);
+}
+
 /* ---- settings root ----------------------------------------------------- */
 
 static void lap_text(char *buf, size_t n)
@@ -527,6 +593,14 @@ static void lap_text(char *buf, size_t n)
     else snprintf(buf, n, "off");
 }
 
+static void lap_step(int dir)
+{
+    int m = config_get()->lap_len_m + dir * CFG_LAP_STEP_M;
+    if (m < 0) m = 0;
+    if (m > CFG_LAP_MAX_M) m = CFG_LAP_MAX_M;
+    config_get()->lap_len_m = m;
+    config_save();
+}
 
 static void tz_text(char *buf, size_t n)
 {
@@ -534,33 +608,33 @@ static void tz_text(char *buf, size_t n)
     snprintf(buf, n, "UTC%c%02d:%02d", tz < 0 ? '-' : '+', abs(tz) / 60, abs(tz) % 60);
 }
 
+static void tz_step(int dir)
+{
+    int tz = config_get()->tz_min + dir * 30;
+    if (tz < -12 * 60) tz = -12 * 60;
+    if (tz > 14 * 60) tz = 14 * 60;
+    config_get()->tz_min = tz;
+    config_save();
+}
+
+static const value_def_t k_lap_value = { lap_text, lap_step };
+static const value_def_t k_tz_value  = { tz_text, tz_step };
+
+
 enum { ROOT_PAGES, ROOT_LAP, ROOT_TZ, ROOT_THEME, ROOT_RESET, ROOT_SYSTEM };
 
 static void settings_select(screen_t *s, int idx)
 {
-    char buf[16];
     switch (idx) {
     case ROOT_PAGES:
         pages_open();
         break;
-    case ROOT_LAP: {
-        int m = config_get()->lap_len_m + CFG_LAP_STEP_M;
-        if (m > CFG_LAP_MAX_M) m = 0;   /* ... 9.5, 10.0, off, 0.5 ... */
-        config_get()->lap_len_m = m;
-        config_save();
-        lap_text(buf, sizeof buf);
-        set_right(s, idx, buf, false);
+    case ROOT_LAP:
+        value_open("Lap length", &k_lap_value);
         break;
-    }
-    case ROOT_TZ: {
-        int tz = config_get()->tz_min + 60;
-        if (tz > 14 * 60) tz = -12 * 60;
-        config_get()->tz_min = tz;
-        config_save();
-        tz_text(buf, sizeof buf);
-        set_right(s, idx, buf, false);
+    case ROOT_TZ:
+        value_open("Time zone", &k_tz_value);
         break;
-    }
     case ROOT_THEME:
         config_get()->theme = config_get()->theme == THEME_LIGHT ? THEME_DARK : THEME_LIGHT;
         config_save();
@@ -580,6 +654,15 @@ static void settings_select(screen_t *s, int idx)
     }
 }
 
+static void settings_refresh(screen_t *s)
+{
+    char buf[16];
+    lap_text(buf, sizeof buf);
+    set_right(s, ROOT_LAP, buf, true);
+    tz_text(buf, sizeof buf);
+    set_right(s, ROOT_TZ, buf, true);
+}
+
 static void timer_cb(lv_timer_t *t)
 {
     if (s_dp_layout.cont) datapage_refresh(&s_dp_layout);
@@ -592,13 +675,14 @@ void menu_open(void)
     screen_t *s = push("Settings");
     if (!s) return;
     s->select_cb = settings_select;
+    s->refresh_cb = settings_refresh;
     make_list(s);
     char buf[16];
     add_item(s, "Pages", ITEM_ARROW, NULL, false);
     lap_text(buf, sizeof buf);
-    add_item(s, "Lap length", ITEM_VALUE, buf, false);
+    add_item(s, "Lap length", ITEM_ARROW, buf, false);
     tz_text(buf, sizeof buf);
-    add_item(s, "Time zone", ITEM_VALUE, buf, false);
+    add_item(s, "Time zone", ITEM_ARROW, buf, false);
     add_item(s, "Theme", ITEM_VALUE, theme_name(config_get()->theme), false);
     add_item(s, "Reset statistics", ITEM_PLAIN, NULL, false);
     add_item(s, "System", ITEM_ARROW, NULL, false);

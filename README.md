@@ -110,9 +110,10 @@ with `esp32_image_parser.py dump_partition`.)
      up/down selector, tick applies), *Fields* (preview of the page: tap a cell,
      or move the yellow frame with the keys and press key 0, then pick a
      category and a field).
-   * *Lap length* (tap: +0.5 km, 0.5 … 10 km, then off).
-   * *Time zone* (tap: +1 h, wraps at UTC+14 → UTC-12) for the time of day,
-     which comes from the nRF's RTC (UTC), GPS as fallback.
+   * *Lap length*: +/− screen, 0.5 km steps, 0 = off (touch the buttons or
+     key 2 / key 1, key 0 goes back).
+   * *Time zone*: same +/− screen in 30 min steps (UTC-12 … UTC+14) for the
+     time of day, which comes from the nRF's RTC (UTC), GPS as fallback.
    * *Theme*: dark (default) or light, applied immediately (`main/theme.c`:
      shared LVGL styles; status colours are darkened on the light background).
    * *Reset statistics*.
