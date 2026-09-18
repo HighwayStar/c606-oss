@@ -16,6 +16,13 @@ typedef struct {
     uint8_t field[LAYOUT_MAX_CELLS];    /* field_id_t per cell */
 } page_cfg_t;
 
+#define CFG_MAX_SENSORS 8
+typedef struct {
+    uint16_t dev_num;
+    uint8_t dev_type;                   /* ANT+ device type */
+    uint8_t trans_type;
+} cfg_sensor_t;
+
 typedef struct {
     uint16_t magic;
     uint8_t version;
@@ -25,7 +32,19 @@ typedef struct {
     uint16_t lap_len_m;                 /* auto lap every N metres, 0 = off (version 3) */
     uint8_t backlight;                  /* percent, 10..100 (version 4) */
     uint8_t auto_pause;                 /* 0 / 1 (version 5) */
+    /* version 6 */
+    uint16_t wheel_mm;                  /* wheel circumference for the speed sensor */
+    uint8_t nsensors;
+    uint8_t sensors_imported;           /* vendor sensor_list.json copied once */
+    cfg_sensor_t sensors[CFG_MAX_SENSORS];
 } app_cfg_t;
+
+#define CFG_WHEEL_MIN_MM 1000
+#define CFG_WHEEL_MAX_MM 3000
+
+/* Sensor list helpers; both save the config. */
+bool config_sensor_add(uint8_t dev_type, uint16_t dev_num, uint8_t trans_type);
+void config_sensor_remove(int idx);
 
 #define CFG_LAP_STEP_M 500
 #define CFG_LAP_MAX_M  10000

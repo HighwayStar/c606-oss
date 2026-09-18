@@ -88,7 +88,7 @@ void trip_wheel(uint32_t revs, bool live)
     }
     uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
     if (s_wheel.valid && !stats_paused() && revs != s_wheel.revs) {
-        add_distance((float)(revs - s_wheel.revs) * ANT_WHEEL_CIRC_M);
+        add_distance((float)(revs - s_wheel.revs) * ant_wheel_m());
     }
     s_wheel.valid = true;
     s_wheel.revs = revs;

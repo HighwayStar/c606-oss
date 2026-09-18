@@ -32,14 +32,16 @@ typedef struct {
     uint8_t hr_bpm;
     /* cadence / speed from 121/122/123 */
     float cadence_rpm;
-    float speed_kmh;       /* uses ANT_WHEEL_CIRC_M */
+    float speed_kmh;       /* uses the configured wheel circumference */
     uint32_t wheel_revs;
     /* power meter page 0x10 */
     uint16_t power_w;
     uint8_t power_cadence;
 } ant_sensors_t;
 
-#define ANT_WHEEL_CIRC_M 2.105f
+/* Wheel circumference for speed / distance from the wheel sensor. */
+void ant_set_wheel_mm(uint16_t mm);
+float ant_wheel_m(void);
 
 typedef struct {
     uint8_t dev_type;
@@ -71,6 +73,8 @@ bool ant_nrf_has(uint8_t dev_type);
 /* True if the nRF reported this device type as connected (status 3). */
 bool ant_nrf_live(uint8_t dev_type);
 esp_err_t ant_disconnect(uint8_t dev_type);
+/* Close the channel and drop it from the list (re-pairing flow). */
+void ant_forget(uint8_t dev_type);
 esp_err_t ant_scan(uint16_t seconds);   /* 0 = stop */
 
 const ant_channel_t *ant_channels(size_t *count);

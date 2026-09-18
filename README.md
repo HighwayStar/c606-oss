@@ -14,8 +14,11 @@ This PoC replaces only the ESP32 application. It:
 * mounts the on-board 4 GB eMMC (FAT, `/sdcard`) and records CSV tracks to `/sdcard/c606oss/`,
 * exposes the eMMC over USB as a mass-storage disk on demand,
 * touchscreen (FT6336 over I2C) as an LVGL pointer: on-screen REC / USB buttons,
-* ANT+ sensors through the nRF: auto-connects to the sensors paired in the vendor's
-  `CONFIG/sensor_list.json` (HR, speed, cadence, power decoded; shows on the ride page),
+* ANT+ sensors through the nRF: HR, speed, cadence, power decoded. The paired
+  list lives in our own config (the vendor's `CONFIG/sensor_list.json` is imported
+  once on first run); Settings → Sensors lists them with their live state,
+  forgets them, adds new ones through an ANT scan, and sets the wheel
+  circumference,
 * session statistics (current / min / max / avg) for every measured parameter —
   GPS speed and altitude, HR, cadence, sensor speed, power, temperature,
   pressure, battery,
@@ -116,8 +119,13 @@ with `esp32_image_parser.py dump_partition`.)
      up/down selector, tick applies), *Fields* (preview of the page: tap a cell,
      or move the yellow frame with the keys and press key 0, then pick a
      category and a field).
+   * *Sensors* → *Wheel* (circumference in mm, +/− screen, hold to run) and
+     the known ANT+ sensors with their state (`ok` / `searching` / `--`); tap
+     one to *Forget* it, *Add sensor* runs a 30 s ANT scan and lists what it
+     finds with RSSI — tap a result to pair and connect it.
    * *Lap length*: +/− screen, 0.5 km steps, 0 = off (touch the buttons or
-     key 2 / key 1, key 0 goes back).
+     key 2 / key 1, hold to run, key 0 goes back; the value is saved when
+     leaving the screen).
    * *Auto pause* on/off.
    * *Backlight*: +/− screen, 10 % steps, applied live and remembered.
    * *Time zone*: same +/− screen in 30 min steps (UTC-12 … UTC+14) for the
@@ -207,7 +215,7 @@ main/trip.c        distance (wheel sensor or GPS) and auto laps
 main/usb_msc.c     TinyUSB mass storage over the eMMC (esp_tinyusb)
 main/touch.c       FT6336 / CST328 touch controller over I2C
 main/ant.c         ANT+ channel control + HR/speed/cadence/power page decoding
-main/sensor_list.c reads the vendor's paired-sensor JSON
+main/sensor_list.c reads the vendor's paired-sensor JSON (imported once)
 main/main.c        glue: frame decoding -> UI, key actions, handshake
 tools/flash_poc.py flash/restore helper
 docs/HARDWARE.md   reverse-engineering notes with addresses

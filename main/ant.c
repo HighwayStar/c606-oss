@@ -30,7 +30,11 @@ static size_t s_nch;
 static uint8_t s_nrf_types[MAX_CH];
 static size_t s_nrf_ntypes;
 static ant_sensors_t s_val;
+static float s_wheel_m = 2.105f;
 static SemaphoreHandle_t s_lock;
+
+void ant_set_wheel_mm(uint16_t mm) { s_wheel_m = mm / 1000.0f; }
+float ant_wheel_m(void) { return s_wheel_m; }
 static ant_update_cb_t s_cb;
 static void *s_cb_ctx;
 static ant_scan_cb_t s_scan_cb;
@@ -146,11 +150,22 @@ esp_err_t ant_disconnect(uint8_t dev_type)
      * WARNING: on this unit, closing channels at boot left the nRF refusing
      * every subsequent open (immediate status 4, no search) until it was
      * power-cycled (hold key 0). The vendor only closes before re-pairing.
-     * Not used by the firmware at the moment. */
+     * Only used from the pairing flow (forget / before a scan). */
     uint8_t p[8] = {SUB_CHANNEL, dev_type, 0, 0, 0, 0x01, 0, 0};
     ant_channel_t *c = find_ch(dev_type);
     if (c) c->state = ANT_ST_IDLE;
     return nrf_link_send(NRF_TYPE_SET, 0x01, p, sizeof p);
+}
+
+void ant_forget(uint8_t dev_type)
+{
+    ant_channel_t *c = find_ch(dev_type);
+    if (!c) return;
+    ant_disconnect(dev_type);
+    size_t i = c - s_ch;
+    memmove(&s_ch[i], &s_ch[i + 1], (s_nch - i - 1) * sizeof s_ch[0]);
+    s_nch--;
+    ESP_LOGI(TAG, "forgot %s", ant_dev_name(dev_type));
 }
 
 esp_err_t ant_scan(uint16_t seconds)
@@ -200,7 +215,7 @@ static void decode_page(uint8_t dev_type, const uint8_t *pg, uint32_t now)
             if (s_spd.valid) {
                 uint16_t dt = t - s_spd.t, dr = r - s_spd.revs;
                 if (dt) {
-                    s_val.speed_kmh = dr * ANT_WHEEL_CIRC_M * 1024.0f / dt * 3.6f;
+                    s_val.speed_kmh = dr * s_wheel_m * 1024.0f / dt * 3.6f;
                     s_spd.last_change_ms = now;
                 } else if (now - s_spd.last_change_ms > STALE_MS) {
                     s_val.speed_kmh = 0;

@@ -186,13 +186,24 @@ static void on_ant(const ant_sensors_t *v, void *ctx)
  * only tracked; everything else gets a connect command. */
 static void connect_paired_sensors(void)
 {
-    static sensor_entry_t list[8];
-    size_t n = sensor_list_load(list, 8);
-    for (size_t i = 0; i < n; i++) {
-        if (ant_nrf_live(list[i].ant_dev_type)) {
-            ant_track(list[i].ant_dev_type, list[i].dev_num, list[i].trans_type);
+    app_cfg_t *cfg = config_get();
+    if (!cfg->sensors_imported) {
+        /* first run: take over the sensors paired with the vendor firmware */
+        static sensor_entry_t list[CFG_MAX_SENSORS];
+        size_t n = sensor_list_load(list, CFG_MAX_SENSORS);
+        for (size_t i = 0; i < n; i++) {
+            config_sensor_add(list[i].ant_dev_type, list[i].dev_num, list[i].trans_type);
+        }
+        cfg->sensors_imported = 1;
+        config_save();
+        ESP_LOGI(TAG, "imported %u sensors from the vendor list", (unsigned)n);
+    }
+    for (int i = 0; i < cfg->nsensors; i++) {
+        const cfg_sensor_t *e = &cfg->sensors[i];
+        if (ant_nrf_live(e->dev_type)) {
+            ant_track(e->dev_type, e->dev_num, e->trans_type);
         } else {
-            ant_connect(list[i].ant_dev_type, list[i].dev_num, list[i].trans_type);
+            ant_connect(e->dev_type, e->dev_num, e->trans_type);
             vTaskDelay(pdMS_TO_TICKS(50));
         }
     }
@@ -289,6 +300,7 @@ void app_main(void)
     apply_backlight();
 
     ant_init(on_ant, NULL);
+    ant_set_wheel_mm(config_get()->wheel_mm);
     ESP_ERROR_CHECK(nrf_link_init(on_frame, NULL));
     ESP_ERROR_CHECK(gps_init(on_gps, NULL));
 

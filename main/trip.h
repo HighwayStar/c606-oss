@@ -4,7 +4,7 @@
 #include "gps.h"
 
 /* Ride distance and auto laps. Distance comes from the ANT+ wheel sensor
- * when one is live (revs x ANT_WHEEL_CIRC_M), otherwise from consecutive
+ * when one is live (revs x wheel circumference), otherwise from consecutive
  * GPS fixes. A lap ends every `lap length` metres (config, 0 = off).
  * Accumulation stops while the statistics are paused (ride paused / idle). */
 

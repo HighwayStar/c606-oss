@@ -14,9 +14,9 @@
 
 static const char *TAG = "config";
 #define CFG_MAGIC   0xC606
-#define CFG_VERSION 5
+#define CFG_VERSION 6
 /* keep k_len_by_version in config_load() in sync when appending fields */
-_Static_assert(sizeof(app_cfg_t) == 82, "app_cfg_t layout changed: add its size to k_len_by_version");
+_Static_assert(sizeof(app_cfg_t) == 118, "app_cfg_t layout changed: add its size to k_len_by_version");
 #define NVS_NS      "c606oss"
 #define NVS_KEY     "cfg"
 
@@ -42,6 +42,7 @@ void config_defaults(app_cfg_t *c)
     c->lap_len_m = 1000;
     c->backlight = 70;
     c->auto_pause = 1;
+    c->wheel_mm = 2105;
 
     static const field_id_t p1[] = {
         FIELD_TIME_OF_DAY, FIELD_STAT(STAT_SPEED, AGG_CUR), FIELD_STAT(STAT_SPEED, AGG_AVG),
@@ -78,6 +79,8 @@ static bool valid(const app_cfg_t *c)
     if (c->lap_len_m > CFG_LAP_MAX_M) return false;
     if (c->backlight < 10 || c->backlight > 100) return false;
     if (c->auto_pause > 1) return false;
+    if (c->wheel_mm < CFG_WHEEL_MIN_MM || c->wheel_mm > CFG_WHEEL_MAX_MM) return false;
+    if (c->nsensors > CFG_MAX_SENSORS) return false;
     for (int p = 0; p < CFG_PAGES; p++) {
         if (c->page[p].layout >= layout_count()) return false;
         for (int i = 0; i < LAYOUT_MAX_CELLS; i++) {
@@ -112,13 +115,14 @@ void config_load(void)
      * appended) but their length includes the tail padding of that version,
      * so the sizes are listed explicitly. The struct was zeroed before the
      * read; fill in the defaults of the fields the blob does not have. */
-    static const size_t k_len_by_version[] = { 0, 76, 78, 80, 82, 82 };
+    static const size_t k_len_by_version[] = { 0, 76, 78, 80, 82, 82, 118 };
     if (err == ESP_OK && tmp.magic == CFG_MAGIC && tmp.version >= 1 && tmp.version < CFG_VERSION
         && len == k_len_by_version[tmp.version]) {
         if (tmp.version < 2) tmp.theme = 0;
         if (tmp.version < 3) tmp.lap_len_m = 1000;
         if (tmp.version < 4) tmp.backlight = 70;
         if (tmp.version < 5) tmp.auto_pause = 1;
+        if (tmp.version < 6) { tmp.wheel_mm = 2105; tmp.nsensors = 0; tmp.sensors_imported = 0; }
         ESP_LOGI(TAG, "config upgraded from version %u", tmp.version);
         tmp.version = CFG_VERSION;
         len = sizeof tmp;
@@ -142,4 +146,26 @@ esp_err_t config_save(void)
     nvs_close(h);
     if (err != ESP_OK) ESP_LOGW(TAG, "save failed: %s", esp_err_to_name(err));
     return err;
+}
+
+bool config_sensor_add(uint8_t dev_type, uint16_t dev_num, uint8_t trans_type)
+{
+    for (int i = 0; i < s_cfg.nsensors; i++) {
+        if (s_cfg.sensors[i].dev_type == dev_type && s_cfg.sensors[i].dev_num == dev_num) return true;
+    }
+    if (s_cfg.nsensors >= CFG_MAX_SENSORS) return false;
+    cfg_sensor_t *e = &s_cfg.sensors[s_cfg.nsensors++];
+    e->dev_type = dev_type;
+    e->dev_num = dev_num;
+    e->trans_type = trans_type;
+    config_save();
+    return true;
+}
+
+void config_sensor_remove(int idx)
+{
+    if (idx < 0 || idx >= s_cfg.nsensors) return;
+    memmove(&s_cfg.sensors[idx], &s_cfg.sensors[idx + 1], (s_cfg.nsensors - idx - 1) * sizeof s_cfg.sensors[0]);
+    s_cfg.nsensors--;
+    config_save();
 }

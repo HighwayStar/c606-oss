@@ -3,6 +3,7 @@
  *
  *   Settings
  *     Pages            -> Page 1..5 (layout name / off)
+ *     Sensors          -> wheel circumference, known sensors (forget), add (ANT scan)
  *       Page n         -> Enable, Layout (picker with live preview), Fields
  *         Layout       -> page preview + up/down selector, tick = apply
  *         Fields       -> page preview, tap a cell (or move with keys) ->
@@ -32,6 +33,7 @@
 #include "datapage.h"
 #include "stats.h"
 #include "theme.h"
+#include "ant.h"
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -56,7 +58,9 @@ struct screen {
     int n, sel;
     void (*select_cb)(screen_t *s, int idx);   /* list screens */
     void (*key_cb)(screen_t *s, uint8_t key);  /* custom screens */
-    void (*refresh_cb)(screen_t *s);           /* when a child screen is popped */
+    void (*refresh_cb)(screen_t *s);           /* when a child screen is popped (and 2x/s if live) */
+    void (*close_cb)(screen_t *s);             /* before the screen is deleted */
+    bool live;
     int page, cell, cat;                       /* context */
 };
 
@@ -155,6 +159,16 @@ static lv_obj_t *make_list(screen_t *s)
     return s->list;
 }
 
+static void list_clear(screen_t *s)
+{
+    lv_obj_clean(s->list);
+    s->n = 0;
+    memset(s->rows, 0, sizeof s->rows);
+    memset(s->lbl, 0, sizeof s->lbl);
+    memset(s->right, 0, sizeof s->right);
+    memset(s->sw, 0, sizeof s->sw);
+}
+
 typedef enum { ITEM_PLAIN, ITEM_ARROW, ITEM_VALUE, ITEM_TOGGLE } item_kind_t;
 
 static int add_item(screen_t *s, const char *text, item_kind_t kind, const char *right, bool on)
@@ -210,6 +224,7 @@ static void pop(void)
 {
     if (!s_depth) return;
     screen_t *s = top();
+    if (s->close_cb) s->close_cb(s);
     /* previews are children of the screen: forget them before the root goes */
     if (s_dp_layout.cont && lv_obj_get_parent(s_dp_layout.cont) == s->root) datapage_delete(&s_dp_layout);
     if (s_dp_fields.cont && lv_obj_get_parent(s_dp_fields.cont) == s->root) datapage_delete(&s_dp_fields);
@@ -475,6 +490,318 @@ static void pages_open(void)
     update_hl(s);
 }
 
+/* ---- +/- value screen -------------------------------------------------- */
+
+typedef struct {
+    void (*text)(char *buf, size_t n);   /* current value as text */
+    void (*step)(int dir);               /* -1 / +1, saves the config */
+} value_def_t;
+
+static const value_def_t *s_value_def;
+static lv_obj_t *s_value_lbl;
+
+static void value_refresh(void)
+{
+    char buf[24];
+    s_value_def->text(buf, sizeof buf);
+    lv_label_set_text(s_value_lbl, buf);
+}
+
+static void value_step(int dir)
+{
+    s_value_def->step(dir);
+    value_refresh();
+}
+
+static void value_minus_cb(lv_event_t *e) { value_step(-1); }
+static void value_plus_cb(lv_event_t *e)  { value_step(+1); }
+
+static void value_key(screen_t *s, uint8_t key)
+{
+    if (key == 2) value_step(+1);
+    else if (key == 1) value_step(-1);
+    else if (key == 0) pop();
+}
+
+static lv_obj_t *round_button(lv_obj_t *parent, const char *sym, lv_event_cb_t cb)
+{
+    lv_obj_t *b = lv_button_create(parent);
+    lv_obj_set_size(b, 64, 64);
+    lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(b, C_SEL, 0);
+    lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(b, cb, LV_EVENT_LONG_PRESSED_REPEAT, NULL);   /* hold to run */
+    lv_obj_center(label(b, &lv_font_montserrat_28, C_SEL_FG, sym));
+    return b;
+}
+
+static void value_close(screen_t *s) { config_save(); }
+
+static void value_open(const char *title, const value_def_t *def)
+{
+    screen_t *s = push(title);
+    if (!s) return;
+    s->key_cb = value_key;
+    s->close_cb = value_close;   /* one save per visit, not per step */
+    s_value_def = def;
+
+    s_value_lbl = label(s->root, &lv_font_montserrat_28, C_FG, "");
+    lv_obj_add_style(s_value_lbl, &theme_st_text, 0);
+    lv_obj_align(s_value_lbl, LV_ALIGN_CENTER, 0, -30);
+
+    lv_obj_align(round_button(s->root, LV_SYMBOL_MINUS, value_minus_cb), LV_ALIGN_CENTER, -60, 50);
+    lv_obj_align(round_button(s->root, LV_SYMBOL_PLUS, value_plus_cb), LV_ALIGN_CENTER, 60, 50);
+
+    lv_obj_t *h = label(s->root, &lv_font_montserrat_14, C_GREY, "key 2: +   key 1: -   key 0: back");
+    lv_obj_add_style(h, &theme_st_muted, 0);
+    lv_obj_align(h, LV_ALIGN_BOTTOM_MID, 0, -10);
+
+    value_refresh();
+    update_hl(s);
+}
+
+/* ---- value definitions ------------------------------------------------- */
+
+static void lap_text(char *buf, size_t n)
+{
+    uint16_t m = config_get()->lap_len_m;
+    if (m) snprintf(buf, n, "%u.%u km", m / 1000, m % 1000 / 100);
+    else snprintf(buf, n, "off");
+}
+
+static void lap_step(int dir)
+{
+    int m = config_get()->lap_len_m + dir * CFG_LAP_STEP_M;
+    if (m < 0) m = 0;
+    if (m > CFG_LAP_MAX_M) m = CFG_LAP_MAX_M;
+    config_get()->lap_len_m = m;
+}
+
+static void tz_text(char *buf, size_t n)
+{
+    int tz = config_get()->tz_min;
+    snprintf(buf, n, "UTC%c%02d:%02d", tz < 0 ? '-' : '+', abs(tz) / 60, abs(tz) % 60);
+}
+
+static void tz_step(int dir)
+{
+    int tz = config_get()->tz_min + dir * 30;
+    if (tz < -12 * 60) tz = -12 * 60;
+    if (tz > 14 * 60) tz = 14 * 60;
+    config_get()->tz_min = tz;
+}
+
+static void bl_text(char *buf, size_t n)
+{
+    snprintf(buf, n, "%u %%", config_get()->backlight);
+}
+
+static void bl_step(int dir)
+{
+    int v = config_get()->backlight + dir * 10;
+    if (v < 10) v = 10;
+    if (v > 100) v = 100;
+    config_get()->backlight = v;
+    if (s_action_cb[MENU_ACTION_BACKLIGHT]) s_action_cb[MENU_ACTION_BACKLIGHT]();
+}
+
+static void wheel_text(char *buf, size_t n)
+{
+    snprintf(buf, n, "%u mm", config_get()->wheel_mm);
+}
+
+static void wheel_step(int dir)
+{
+    int v = config_get()->wheel_mm + dir;
+    if (v < CFG_WHEEL_MIN_MM) v = CFG_WHEEL_MIN_MM;
+    if (v > CFG_WHEEL_MAX_MM) v = CFG_WHEEL_MAX_MM;
+    config_get()->wheel_mm = v;
+    ant_set_wheel_mm(v);
+}
+
+static const value_def_t k_wheel_value = { wheel_text, wheel_step };
+static const value_def_t k_lap_value = { lap_text, lap_step };
+static const value_def_t k_tz_value  = { tz_text, tz_step };
+static const value_def_t k_bl_value  = { bl_text, bl_step };
+
+
+/* ---- sensors ----------------------------------------------------------- */
+
+static void sensor_name(const cfg_sensor_t *e, char *buf, size_t n)
+{
+    snprintf(buf, n, "%s %u", ant_dev_name(e->dev_type), e->dev_num);
+}
+
+static const char *sensor_status(const cfg_sensor_t *e)
+{
+    size_t nch;
+    const ant_channel_t *ch = ant_channels(&nch);
+    for (size_t i = 0; i < nch; i++) {
+        if (ch[i].dev_type != e->dev_type) continue;
+        if (ant_live(e->dev_type, e->dev_type)) return "ok";
+        return ch[i].state == ANT_ST_SEARCHING || ch[i].state == ANT_ST_TIMEOUT ? "searching" : "--";
+    }
+    return "--";
+}
+
+/* scan results arrive in the nRF task; the screen picks them up from its
+ * 2 Hz refresh */
+static ant_scan_result_t s_scan_res[CFG_MAX_SENSORS];
+static volatile int s_scan_n, s_scan_shown;
+static volatile bool s_scan_done;
+
+static void scan_cb(const ant_scan_result_t *r, bool end, void *ctx)
+{
+    if (end) {
+        s_scan_done = true;
+        return;
+    }
+    for (int i = 0; i < s_scan_n; i++) {
+        if (s_scan_res[i].dev_type == r->dev_type && s_scan_res[i].dev_num == r->dev_num) {
+            s_scan_res[i].rssi = r->rssi;
+            return;
+        }
+    }
+    if (s_scan_n < CFG_MAX_SENSORS) s_scan_res[s_scan_n++] = *r;
+}
+
+static void scan_refresh(screen_t *s)
+{
+    int n = s_scan_n;
+    if (n == s_scan_shown && s->n) {
+        if (s_scan_done && s->lbl[0]) return;
+    }
+    s_scan_shown = n;
+    list_clear(s);
+    char t[40];
+    snprintf(t, sizeof t, "%s  %d found", s_scan_done ? "Scan finished:" : "Scanning...", n);
+    add_item(s, t, ITEM_PLAIN, NULL, false);
+    lv_obj_set_style_text_color(s->lbl[0], C_GREY, 0);
+    for (int i = 0; i < n; i++) {
+        char name[32], rssi[16];
+        cfg_sensor_t e = { .dev_type = s_scan_res[i].dev_type, .dev_num = s_scan_res[i].dev_num };
+        sensor_name(&e, name, sizeof name);
+        snprintf(rssi, sizeof rssi, "%d dBm", s_scan_res[i].rssi);
+        add_item(s, name, ITEM_VALUE, rssi, false);
+    }
+    if (s->sel >= s->n) s->sel = s->n - 1;
+    if (s->sel < 1 && n) s->sel = 1;
+    update_hl(s);
+}
+
+static void scan_select(screen_t *s, int idx)
+{
+    if (idx < 1 || idx - 1 >= s_scan_n) return;
+    const ant_scan_result_t *r = &s_scan_res[idx - 1];
+    ant_scan(0);
+    if (config_sensor_add(r->dev_type, r->dev_num, r->trans_type)) {
+        ant_connect(r->dev_type, r->dev_num, r->trans_type);
+    }
+    pop();   /* back to the sensor list */
+}
+
+static void scan_close(screen_t *s)
+{
+    if (!s_scan_done) ant_scan(0);
+}
+
+static void scan_open(void)
+{
+    screen_t *s = push("Add sensor");
+    if (!s) return;
+    s->select_cb = scan_select;
+    s->refresh_cb = scan_refresh;
+    s->close_cb = scan_close;
+    s->live = true;
+    make_list(s);
+    s_scan_n = 0;
+    s_scan_shown = -1;
+    s_scan_done = false;
+    ant_set_scan_cb(scan_cb, NULL);
+    ant_scan(30);
+    s->sel = -1;
+    scan_refresh(s);
+}
+
+static void sensor_select(screen_t *s, int idx)
+{
+    if (idx != 1) { pop(); return; }
+    int i = s->page;   /* index into the config list */
+    if (i < config_get()->nsensors) {
+        ant_forget(config_get()->sensors[i].dev_type);
+        config_sensor_remove(i);
+    }
+    pop();
+}
+
+static void sensor_open(int idx)
+{
+    const cfg_sensor_t *e = &config_get()->sensors[idx];
+    char name[32];
+    sensor_name(e, name, sizeof name);
+    screen_t *s = push(name);
+    if (!s) return;
+    s->page = idx;
+    s->select_cb = sensor_select;
+    make_list(s);
+    lv_obj_t *h = label(s->root, &lv_font_montserrat_14, C_GREY, "");
+    lv_obj_add_style(h, &theme_st_muted, 0);
+    lv_label_set_text_fmt(h, "ANT+ %s\ndevice number %u\ntransmission type %u\nstate: %s",
+                          ant_dev_name(e->dev_type), e->dev_num, e->trans_type, sensor_status(e));
+    lv_obj_set_width(h, LCD_H_RES - 16);
+    lv_label_set_long_mode(h, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(h, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(h, LV_ALIGN_TOP_MID, 0, HDR_H + 2 * ROW_H + 16);
+    add_item(s, "Back", ITEM_PLAIN, NULL, false);
+    add_item(s, LV_SYMBOL_TRASH "  Forget sensor", ITEM_PLAIN, NULL, false);
+    s->sel = 0;
+    update_hl(s);
+}
+
+static void sensors_refresh(screen_t *s)
+{
+    const app_cfg_t *c = config_get();
+    if (s->n != c->nsensors + 2) {
+        list_clear(s);
+        char buf[32];
+        wheel_text(buf, sizeof buf);
+        add_item(s, "Wheel", ITEM_ARROW, buf, false);
+        for (int i = 0; i < c->nsensors; i++) {
+            sensor_name(&c->sensors[i], buf, sizeof buf);
+            add_item(s, buf, ITEM_ARROW, "", false);
+        }
+        add_item(s, LV_SYMBOL_PLUS "  Add sensor", ITEM_PLAIN, NULL, false);
+        if (s->sel >= s->n) s->sel = s->n - 1;
+    }
+    char buf[32];
+    wheel_text(buf, sizeof buf);
+    set_right(s, 0, buf, true);
+    for (int i = 0; i < c->nsensors; i++) {
+        set_right(s, 1 + i, sensor_status(&c->sensors[i]), true);
+    }
+    update_hl(s);
+}
+
+static void sensors_select(screen_t *s, int idx)
+{
+    int n = config_get()->nsensors;
+    if (idx == 0) value_open("Wheel circumference", &k_wheel_value);
+    else if (idx <= n) sensor_open(idx - 1);
+    else scan_open();
+}
+
+static void sensors_open(void)
+{
+    screen_t *s = push("Sensors");
+    if (!s) return;
+    s->select_cb = sensors_select;
+    s->refresh_cb = sensors_refresh;
+    s->live = true;
+    make_list(s);
+    s->sel = 0;
+    sensors_refresh(s);
+}
+
 /* ---- system ------------------------------------------------------------ */
 
 static void about_open(void)
@@ -553,132 +880,17 @@ static void system_open(void)
     update_hl(s);
 }
 
-/* ---- +/- value screen -------------------------------------------------- */
-
-typedef struct {
-    void (*text)(char *buf, size_t n);   /* current value as text */
-    void (*step)(int dir);               /* -1 / +1, saves the config */
-} value_def_t;
-
-static const value_def_t *s_value_def;
-static lv_obj_t *s_value_lbl;
-
-static void value_refresh(void)
-{
-    char buf[24];
-    s_value_def->text(buf, sizeof buf);
-    lv_label_set_text(s_value_lbl, buf);
-}
-
-static void value_step(int dir)
-{
-    s_value_def->step(dir);
-    value_refresh();
-}
-
-static void value_minus_cb(lv_event_t *e) { value_step(-1); }
-static void value_plus_cb(lv_event_t *e)  { value_step(+1); }
-
-static void value_key(screen_t *s, uint8_t key)
-{
-    if (key == 2) value_step(+1);
-    else if (key == 1) value_step(-1);
-    else if (key == 0) pop();
-}
-
-static lv_obj_t *round_button(lv_obj_t *parent, const char *sym, lv_event_cb_t cb)
-{
-    lv_obj_t *b = lv_button_create(parent);
-    lv_obj_set_size(b, 64, 64);
-    lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(b, C_SEL, 0);
-    lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_center(label(b, &lv_font_montserrat_28, C_SEL_FG, sym));
-    return b;
-}
-
-static void value_open(const char *title, const value_def_t *def)
-{
-    screen_t *s = push(title);
-    if (!s) return;
-    s->key_cb = value_key;
-    s_value_def = def;
-
-    s_value_lbl = label(s->root, &lv_font_montserrat_28, C_FG, "");
-    lv_obj_add_style(s_value_lbl, &theme_st_text, 0);
-    lv_obj_align(s_value_lbl, LV_ALIGN_CENTER, 0, -30);
-
-    lv_obj_align(round_button(s->root, LV_SYMBOL_MINUS, value_minus_cb), LV_ALIGN_CENTER, -60, 50);
-    lv_obj_align(round_button(s->root, LV_SYMBOL_PLUS, value_plus_cb), LV_ALIGN_CENTER, 60, 50);
-
-    lv_obj_t *h = label(s->root, &lv_font_montserrat_14, C_GREY, "key 2: +   key 1: -   key 0: back");
-    lv_obj_add_style(h, &theme_st_muted, 0);
-    lv_obj_align(h, LV_ALIGN_BOTTOM_MID, 0, -10);
-
-    value_refresh();
-    update_hl(s);
-}
-
 /* ---- settings root ----------------------------------------------------- */
-
-static void lap_text(char *buf, size_t n)
-{
-    uint16_t m = config_get()->lap_len_m;
-    if (m) snprintf(buf, n, "%u.%u km", m / 1000, m % 1000 / 100);
-    else snprintf(buf, n, "off");
-}
-
-static void lap_step(int dir)
-{
-    int m = config_get()->lap_len_m + dir * CFG_LAP_STEP_M;
-    if (m < 0) m = 0;
-    if (m > CFG_LAP_MAX_M) m = CFG_LAP_MAX_M;
-    config_get()->lap_len_m = m;
-    config_save();
-}
-
-static void tz_text(char *buf, size_t n)
-{
-    int tz = config_get()->tz_min;
-    snprintf(buf, n, "UTC%c%02d:%02d", tz < 0 ? '-' : '+', abs(tz) / 60, abs(tz) % 60);
-}
-
-static void tz_step(int dir)
-{
-    int tz = config_get()->tz_min + dir * 30;
-    if (tz < -12 * 60) tz = -12 * 60;
-    if (tz > 14 * 60) tz = 14 * 60;
-    config_get()->tz_min = tz;
-    config_save();
-}
-
-static void bl_text(char *buf, size_t n)
-{
-    snprintf(buf, n, "%u %%", config_get()->backlight);
-}
-
-static void bl_step(int dir)
-{
-    int v = config_get()->backlight + dir * 10;
-    if (v < 10) v = 10;
-    if (v > 100) v = 100;
-    config_get()->backlight = v;
-    config_save();
-    if (s_action_cb[MENU_ACTION_BACKLIGHT]) s_action_cb[MENU_ACTION_BACKLIGHT]();
-}
-
-static const value_def_t k_lap_value = { lap_text, lap_step };
-static const value_def_t k_tz_value  = { tz_text, tz_step };
-static const value_def_t k_bl_value  = { bl_text, bl_step };
-
-
-enum { ROOT_PAGES, ROOT_LAP, ROOT_AUTOPAUSE, ROOT_BACKLIGHT, ROOT_TZ, ROOT_THEME, ROOT_RESET, ROOT_SYSTEM };
+enum { ROOT_PAGES, ROOT_SENSORS, ROOT_LAP, ROOT_AUTOPAUSE, ROOT_BACKLIGHT, ROOT_TZ, ROOT_THEME, ROOT_RESET, ROOT_SYSTEM };
 
 static void settings_select(screen_t *s, int idx)
 {
     switch (idx) {
     case ROOT_PAGES:
         pages_open();
+        break;
+    case ROOT_SENSORS:
+        sensors_open();
         break;
     case ROOT_LAP:
         value_open("Lap length", &k_lap_value);
@@ -728,6 +940,8 @@ static void timer_cb(lv_timer_t *t)
 {
     if (s_dp_layout.cont) datapage_refresh(&s_dp_layout);
     if (s_dp_fields.cont) datapage_refresh(&s_dp_fields);
+    screen_t *s = top();
+    if (s && s->live && s->refresh_cb) s->refresh_cb(s);
 }
 
 void menu_open(void)
@@ -740,6 +954,7 @@ void menu_open(void)
     make_list(s);
     char buf[16];
     add_item(s, "Pages", ITEM_ARROW, NULL, false);
+    add_item(s, "Sensors", ITEM_ARROW, NULL, false);
     lap_text(buf, sizeof buf);
     add_item(s, "Lap length", ITEM_ARROW, buf, false);
     add_item(s, "Auto pause", ITEM_TOGGLE, NULL, config_get()->auto_pause);
@@ -760,7 +975,9 @@ void menu_close(void)
     datapage_delete(&s_dp_layout);
     datapage_delete(&s_dp_fields);
     while (s_depth) {
-        lv_obj_delete(s_stack[--s_depth].root);
+        screen_t *s = &s_stack[--s_depth];
+        if (s->close_cb) s->close_cb(s);
+        lv_obj_delete(s->root);
     }
     if (s_timer) { lv_timer_delete(s_timer); s_timer = NULL; }
     if (s_close_cb) s_close_cb();
@@ -779,7 +996,11 @@ bool menu_key(uint8_t key, uint8_t evt)
 {
     screen_t *s = top();
     if (!s) return false;
-    if (evt != KEY_EVT_CLICK) return true;   /* holds are handled by main.c before we see them */
+    if (evt == KEY_EVT_LONG_START && s->key_cb == value_key && key != 0) {
+        value_key(s, key);                   /* hold key 1 / 2 to run the value */
+        return true;
+    }
+    if (evt != KEY_EVT_CLICK) return true;   /* other holds are handled by main.c before we see them */
     if (s->key_cb) {
         s->key_cb(s, key);
         return true;
