@@ -42,9 +42,11 @@ This PoC replaces only the ESP32 application. It:
   Map): enable, layout *Map* (map only), *M1* / *M2* (one or two data fields
   in a strip under the map, Speed + Heading by default), fields per cell,
 * **GPX routes**: copy `.gpx` tracks/routes to `c606oss/routes/` on the USB
-  disk, pick one in Settings → Route and it is drawn on the map (magenta,
-  green start / red end); the map page works with a route even without a
-  map file,
+  disk, pick one in Settings → Route — a preview shows the track outline,
+  length, climb / descent (from `<ele>`, when present) and a *Reverse*
+  toggle before it is loaded — and it is drawn on the map (magenta, green
+  start / red end); the map page works with a route even without a map
+  file,
 * developer console on the USB port: inject key/touch events and take
   screenshots from the host (`tools/devcon.py`),
 * idle / riding / paused modes: the idle screen (clock, GPS and sensor state,
@@ -211,11 +213,17 @@ with `esp32_image_parser.py dump_partition`.)
      are skipped before their coordinates are even decoded, so a
      roads-only map renders a little faster, never slower.
    * *Route*: *None* or one of the `.gpx` files in `/sdcard/c606oss/routes/`
-     (shows the route length once loaded). `main/route.c` scans the file for
-     `<trkpt>` / `<rtept>` lat/lon attributes, so GPX 1.0/1.1 tracks and
-     routes from any tool work; points are kept as Web-Mercator pixels in
-     PSRAM (long tracks are thinned to 16k points), the choice persists in
-     the config.
+     (shows the route length once loaded). Picking a file opens a preview:
+     the track outline with start (green) / end (red) markers, length and
+     point count, total climb / descent with the elevation range when the
+     points carry `<ele>` (a 5 m hysteresis keeps GPS noise from adding up;
+     "No elevation data" otherwise), a *Reverse* toggle (ride the track from
+     its end — swaps the markers and the climb / descent) and *Use this
+     route*. `main/route.c` scans the file for `<trkpt>` / `<rtept>` lat/lon
+     attributes and their `<ele>` child, so GPX 1.0/1.1 tracks and routes
+     from any tool work; points are kept as Web-Mercator pixels in PSRAM
+     (long tracks are thinned to 16k points, the preview to 512), the
+     choice and the direction persist in the config.
    * *Reset statistics*.
    * *System* → *USB storage*, *Power off*, *Reset settings* (with a
      confirmation: everything back to the firmware defaults), *About*.

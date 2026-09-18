@@ -41,6 +41,7 @@ typedef struct {
     uint32_t map_layers;                /* bit per mapview layer group, 1 = drawn (version 8) */
     char route[40];                     /* GPX file in /sdcard/c606oss/routes shown on the map, "" = none (version 9) */
     uint8_t theme_auto;                 /* light theme by day, dark after sunset (version 10) */
+    uint8_t route_reverse;              /* ride the route from its end to its start (version 11) */
 } app_cfg_t;
 
 /* Page configs by index; CFG_PAGES = the map page. */

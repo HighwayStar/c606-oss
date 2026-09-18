@@ -312,7 +312,7 @@ void app_main(void)
         const sdcard_info_t *sd = sdcard_info();
         ui_set_sd(true, sd->name, sd->size_mb);
         mapview_init();                                     /* vendor vector maps in MAP/ */
-        route_load(config_get()->route);                    /* GPX route shown on the map */
+        route_load(config_get()->route, config_get()->route_reverse);                    /* GPX route shown on the map */
         ui_maps_changed();
     }
 

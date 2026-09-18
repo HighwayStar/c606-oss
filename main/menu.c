@@ -16,6 +16,8 @@
  *     Auto theme       (toggle: light by day, dark after sunset)
  *     Map layers       (toggle per road class / water / coastline)
  *     Route            -> GPX file drawn on the map (c606oss/routes/, .gpx), or none
+ *       file           -> preview: track outline, length, climb / descent,
+ *                         Reverse toggle, "Use this route"
  *     Reset statistics
  *     System           -> USB storage, Power off, Reset settings (confirm), About
  *
@@ -25,6 +27,7 @@
  */
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include <string.h>
 #include "lvgl.h"
 
@@ -902,15 +905,162 @@ enum { ROOT_PAGES, ROOT_SENSORS, ROOT_LAP, ROOT_AUTOPAUSE, ROOT_BACKLIGHT, ROOT_
 static char s_routes[MAX_ITEMS - 1][ROUTE_NAME_MAX];
 static int s_nroutes;
 
+/* Preview of one file before it becomes the route: the track outline
+ * (thinned to PREVIEW_POINTS), start / end markers, length, climb and
+ * descent from <ele> when present, a Reverse toggle (swaps the markers and
+ * the climb / descent) and "Use this route". */
+#define PREVIEW_POINTS 512
+#define PREVIEW_X 12
+#define PREVIEW_Y (HDR_H + 4)
+#define PREVIEW_W (LCD_H_RES - 2 * PREVIEW_X)
+#define PREVIEW_H 160
+#define PREVIEW_PAD 6
+
+static route_info_t s_prev;
+static char s_prev_name[ROUTE_NAME_MAX];
+static bool s_prev_rev;
+static lv_obj_t *s_prev_start, *s_prev_end, *s_prev_stats;
+static lv_point_precise_t *s_prev_pts;     /* thumbnail points (PSRAM) */
+
+static void preview_close(screen_t *s)
+{
+    route_info_free(&s_prev);
+    free(s_prev_pts);
+    s_prev_pts = NULL;
+}
+
+static void preview_update(void)
+{
+    char buf[96];
+    int n = snprintf(buf, sizeof buf, "%.1f km   %lu points\n", s_prev.len_m / 1000, (unsigned long)s_prev.npoints);
+    if (s_prev.has_ele) {
+        float up = s_prev_rev ? s_prev.descent_m : s_prev.climb_m;
+        float down = s_prev_rev ? s_prev.climb_m : s_prev.descent_m;
+        snprintf(buf + n, sizeof buf - n, LV_SYMBOL_UP " %.0f m   " LV_SYMBOL_DOWN " %.0f m   (%.0f-%.0f m)",
+                 up, down, s_prev.min_ele_m, s_prev.max_ele_m);
+    } else {
+        snprintf(buf + n, sizeof buf - n, "No elevation data");
+    }
+    lv_label_set_text(s_prev_stats, buf);
+    if (s_prev_pts && s_prev.n) {
+        const lv_point_precise_t *a = &s_prev_pts[0], *b = &s_prev_pts[s_prev.n - 1];
+        if (s_prev_rev) { const lv_point_precise_t *t = a; a = b; b = t; }
+        lv_obj_set_pos(s_prev_start, (int32_t)a->x - 4, (int32_t)a->y - 4);
+        lv_obj_set_pos(s_prev_end, (int32_t)b->x - 4, (int32_t)b->y - 4);
+    }
+}
+
+static void preview_select(screen_t *s, int idx)
+{
+    if (idx == 0) {
+        s_prev_rev = !s_prev_rev;
+        set_toggle(s, 0, s_prev_rev);
+        preview_update();
+        return;
+    }
+    app_cfg_t *c = config_get();
+    strncpy(c->route, s_prev_name, sizeof c->route - 1);
+    c->route_reverse = s_prev_rev;
+    config_save();
+    if (route_load(c->route, c->route_reverse) != ESP_OK) { c->route[0] = 0; config_save(); }
+    pop();      /* the preview */
+    pop();      /* the file list: back to the settings root */
+}
+
+static lv_obj_t *marker(lv_obj_t *parent, lv_palette_t p)
+{
+    lv_obj_t *m = lv_obj_create(parent);
+    lv_obj_remove_style_all(m);
+    lv_obj_set_size(m, 9, 9);
+    lv_obj_set_style_radius(m, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(m, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(m, lv_palette_main(p), 0);
+    lv_obj_set_style_border_width(m, 1, 0);
+    lv_obj_set_style_border_color(m, lv_color_white(), 0);
+    return m;
+}
+
+static void route_preview_open(const char *name)
+{
+    route_info_t info;
+    if (route_scan(name, PREVIEW_POINTS, &info) != ESP_OK) return;
+
+    char title[28];
+    snprintf(title, sizeof title, "%.24s%s", name, strlen(name) > 24 ? "..." : "");
+    screen_t *s = push(title);
+    if (!s) { route_info_free(&info); return; }
+    s_prev = info;
+    strncpy(s_prev_name, name, sizeof s_prev_name - 1);
+    s_prev_rev = config_get()->route_reverse && !strcmp(name, config_get()->route);
+    s->select_cb = preview_select;
+    s->close_cb = preview_close;
+
+    /* the outline in a panel */
+    lv_obj_t *box = lv_obj_create(s->root);
+    lv_obj_remove_style_all(box);
+    lv_obj_set_pos(box, PREVIEW_X, PREVIEW_Y);
+    lv_obj_set_size(box, PREVIEW_W, PREVIEW_H);
+    lv_obj_add_style(box, &theme_st_panel, 0);
+    lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(box, 1, 0);
+    lv_obj_set_style_radius(box, 4, 0);
+
+    s_prev_pts = heap_caps_malloc(s_prev.n * sizeof *s_prev_pts, MALLOC_CAP_SPIRAM);
+    if (s_prev_pts) {
+        int32_t minx = s_prev.x20[0], maxx = minx, miny = s_prev.y20[0], maxy = miny;
+        for (size_t i = 1; i < s_prev.n; i++) {
+            if (s_prev.x20[i] < minx) minx = s_prev.x20[i];
+            if (s_prev.x20[i] > maxx) maxx = s_prev.x20[i];
+            if (s_prev.y20[i] < miny) miny = s_prev.y20[i];
+            if (s_prev.y20[i] > maxy) maxy = s_prev.y20[i];
+        }
+        /* fit the bounding box, same scale on both axes, centred */
+        float w = (float)(maxx - minx), h = (float)(maxy - miny);
+        float aw = PREVIEW_W - 2 * PREVIEW_PAD, ah = PREVIEW_H - 2 * PREVIEW_PAD;
+        float sc = 1.0f;
+        if (w > 0 || h > 0) sc = fminf(w > 0 ? aw / w : 1e9f, h > 0 ? ah / h : 1e9f);
+        float ox = PREVIEW_PAD + (aw - w * sc) / 2, oy = PREVIEW_PAD + (ah - h * sc) / 2;
+        for (size_t i = 0; i < s_prev.n; i++) {
+            s_prev_pts[i].x = ox + (s_prev.x20[i] - minx) * sc;
+            s_prev_pts[i].y = oy + (s_prev.y20[i] - miny) * sc;
+        }
+        lv_obj_t *line = lv_line_create(box);
+        lv_line_set_points(line, s_prev_pts, s_prev.n);
+        lv_obj_set_style_line_width(line, 2, 0);
+        lv_obj_set_style_line_color(line, theme_current() == THEME_DARK ? lv_color_make(0xe0, 0x50, 0xd0)
+                                                                          : lv_color_make(0xc0, 0x20, 0xa0), 0);
+        lv_obj_set_style_line_rounded(line, true, 0);
+    }
+    s_prev_start = marker(box, LV_PALETTE_GREEN);
+    s_prev_end = marker(box, LV_PALETTE_RED);
+
+    s_prev_stats = label(s->root, &lv_font_montserrat_14, C_FG, "");
+    lv_obj_add_style(s_prev_stats, &theme_st_text, 0);
+    lv_obj_set_style_text_align(s_prev_stats, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(s_prev_stats, LCD_H_RES);
+    lv_obj_set_pos(s_prev_stats, 0, PREVIEW_Y + PREVIEW_H + 4);
+
+    make_list(s);
+    lv_obj_set_pos(s->list, 0, LCD_V_RES - 2 * ROW_H);
+    lv_obj_set_size(s->list, LCD_H_RES, 2 * ROW_H);
+    add_item(s, "Reverse", ITEM_TOGGLE, NULL, s_prev_rev);
+    add_item(s, LV_SYMBOL_OK "  Use this route", ITEM_PLAIN, NULL, false);
+    s->sel = 1;
+    update_hl(s);
+    preview_update();
+}
+
 static void route_select(screen_t *s, int idx)
 {
     app_cfg_t *c = config_get();
-    if (idx == 0) c->route[0] = 0;
-    else if (idx <= s_nroutes) strncpy(c->route, s_routes[idx - 1], sizeof c->route - 1);
-    else return;
-    config_save();
-    if (route_load(c->route) != ESP_OK) { c->route[0] = 0; config_save(); }
-    pop();
+    if (idx == 0) {
+        c->route[0] = 0;
+        config_save();
+        route_clear();
+        pop();
+    } else if (idx <= s_nroutes) {
+        route_preview_open(s_routes[idx - 1]);
+    }
 }
 
 static void route_open(void)
