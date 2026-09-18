@@ -38,6 +38,7 @@ typedef struct {
     uint8_t sensors_imported;           /* vendor sensor_list.json copied once */
     cfg_sensor_t sensors[CFG_MAX_SENSORS];
     page_cfg_t map_page;                /* map page: enabled, layout Map/M1/M2, strip fields (version 7) */
+    uint32_t map_layers;                /* bit per mapview layer group, 1 = drawn (version 8) */
 } app_cfg_t;
 
 /* Page configs by index; CFG_PAGES = the map page. */

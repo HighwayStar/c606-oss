@@ -14,9 +14,9 @@
 
 static const char *TAG = "config";
 #define CFG_MAGIC   0xC606
-#define CFG_VERSION 7
+#define CFG_VERSION 8
 /* keep k_len_by_version in config_load() in sync when appending fields */
-_Static_assert(sizeof(app_cfg_t) == 132, "app_cfg_t layout changed: add its size to k_len_by_version");
+_Static_assert(sizeof(app_cfg_t) == 136, "app_cfg_t layout changed: add its size to k_len_by_version");
 #define NVS_NS      "c606oss"
 #define NVS_KEY     "cfg"
 
@@ -72,6 +72,7 @@ void config_defaults(app_cfg_t *c)
     set_page(&c->page[4], false, "1", p1, 1);
     static const field_id_t pm[] = { FIELD_STAT(STAT_SPEED, AGG_CUR), FIELD_HEADING };
     set_page(&c->map_page, true, "M2", pm, sizeof pm);
+    c->map_layers = 0xFFFFFFFF;
 }
 
 static void map_page_defaults(app_cfg_t *c)
@@ -126,7 +127,7 @@ void config_load(void)
      * appended) but their length includes the tail padding of that version,
      * so the sizes are listed explicitly. The struct was zeroed before the
      * read; fill in the defaults of the fields the blob does not have. */
-    static const size_t k_len_by_version[] = { 0, 76, 78, 80, 82, 82, 118, 132 };
+    static const size_t k_len_by_version[] = { 0, 76, 78, 80, 82, 82, 118, 132, 136 };
     if (err == ESP_OK && tmp.magic == CFG_MAGIC && tmp.version >= 1 && tmp.version < CFG_VERSION
         && len == k_len_by_version[tmp.version]) {
         if (tmp.version < 2) tmp.theme = 0;
@@ -135,6 +136,7 @@ void config_load(void)
         if (tmp.version < 5) tmp.auto_pause = 1;
         if (tmp.version < 6) { tmp.wheel_mm = 2105; tmp.nsensors = 0; tmp.sensors_imported = 0; }
         if (tmp.version < 7) map_page_defaults(&tmp);
+        if (tmp.version < 8) tmp.map_layers = 0xFFFFFFFF;
         ESP_LOGI(TAG, "config upgraded from version %u", tmp.version);
         tmp.version = CFG_VERSION;
         len = sizeof tmp;

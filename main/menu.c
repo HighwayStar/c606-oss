@@ -13,6 +13,7 @@
  *     Backlight        -> +/- screen (10 % steps)
  *     Time zone        -> +/- screen (30 min steps)
  *     Theme            (tap: dark / light)
+ *     Map layers       (toggle per road class / water / coastline)
  *     Reset statistics
  *     System           -> USB storage, Power off, Reset settings (confirm), About
  *
@@ -33,6 +34,7 @@
 #include "datapage.h"
 #include "stats.h"
 #include "theme.h"
+#include "mapview.h"
 #include "ant.h"
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
@@ -888,7 +890,31 @@ static void system_open(void)
 }
 
 /* ---- settings root ----------------------------------------------------- */
-enum { ROOT_PAGES, ROOT_SENSORS, ROOT_LAP, ROOT_AUTOPAUSE, ROOT_BACKLIGHT, ROOT_TZ, ROOT_THEME, ROOT_RESET, ROOT_SYSTEM };
+enum { ROOT_PAGES, ROOT_SENSORS, ROOT_LAP, ROOT_AUTOPAUSE, ROOT_BACKLIGHT, ROOT_TZ, ROOT_THEME, ROOT_LAYERS,
+       ROOT_RESET, ROOT_SYSTEM };
+
+/* ---- map layers: a toggle per layer group ------------------------------ */
+
+static void layers_select(screen_t *s, int idx)
+{
+    if (idx >= mapview_layer_count()) return;
+    config_get()->map_layers ^= 1u << idx;
+    config_save();
+    set_toggle(s, idx, config_get()->map_layers & (1u << idx));
+}
+
+static void layers_open(void)
+{
+    screen_t *s = push("Map layers");
+    if (!s) return;
+    s->select_cb = layers_select;
+    make_list(s);
+    for (int i = 0; i < mapview_layer_count(); i++) {
+        add_item(s, mapview_layer_name(i), ITEM_TOGGLE, NULL, config_get()->map_layers & (1u << i));
+    }
+    s->sel = 0;
+    update_hl(s);
+}
 
 static void settings_select(screen_t *s, int idx)
 {
@@ -919,6 +945,9 @@ static void settings_select(screen_t *s, int idx)
         theme_set(config_get()->theme);
         set_right(s, idx, theme_name(config_get()->theme), false);
         update_hl(s);   /* rows keep local colours: re-apply for the new theme */
+        break;
+    case ROOT_LAYERS:
+        layers_open();
         break;
     case ROOT_RESET:
         stats_reset();
@@ -970,6 +999,7 @@ void menu_open(void)
     tz_text(buf, sizeof buf);
     add_item(s, "Time zone", ITEM_ARROW, buf, false);
     add_item(s, "Theme", ITEM_VALUE, theme_name(config_get()->theme), false);
+    add_item(s, "Map layers", ITEM_ARROW, NULL, false);
     add_item(s, "Reset statistics", ITEM_PLAIN, NULL, false);
     add_item(s, "System", ITEM_ARROW, NULL, false);
     s->sel = 0;

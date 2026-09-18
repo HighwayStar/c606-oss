@@ -35,5 +35,10 @@ uint8_t mapview_zoom(void);
 void mapview_set_position(double lat, double lon, bool valid);
 void mapview_set_override(double lat, double lon, bool on);
 
+/* Layer groups (Settings -> Map layers): bit i of config_get()->map_layers
+ * enables group i. */
+int mapview_layer_count(void);
+const char *mapview_layer_name(int i);
+
 /* For the header: "z15 1200 ways 87 ms" style status of the last render. */
 const char *mapview_status(void);

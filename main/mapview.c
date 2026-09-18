@@ -18,6 +18,7 @@
 #include "mapview.h"
 #include "ui_port.h"
 #include "theme.h"
+#include "config.h"
 
 static const char *TAG = "mapview";
 
@@ -33,43 +34,54 @@ typedef struct {
     mapfile_t mf;
     bool gcj02;
     char name[48];
+    uint64_t tag_on;      /* bit per way tag id: drawn with the current layer mask */
 } map_t;
 
-/* colour (light theme, dark theme) and width per way tag; the first
- * matching prefix wins */
+/* Layer groups the user can switch off (bit i of app_cfg_t::map_layers). */
+enum { L_MOTORWAY, L_PRIMARY, L_SECONDARY, L_TERTIARY, L_RESIDENTIAL, L_SERVICE, L_PEDESTRIAN,
+       L_FOOTWAY, L_PATH, L_TRACK, L_CYCLEWAY, L_WATER, L_COASTLINE, L_OTHER, L_COUNT };
+static const char *k_layer_names[L_COUNT] = {
+    "Motorway / trunk", "Primary", "Secondary", "Tertiary", "Residential", "Service", "Pedestrian",
+    "Footway", "Path", "Track", "Cycleway", "Water", "Coastline", "Other",
+};
+
+/* colour (light theme, dark theme), width and layer group per way tag; the
+ * first matching prefix wins */
 typedef struct {
     const char *tag;
     uint16_t light, dark; /* RGB565 */
     uint8_t width;
     uint8_t pass;         /* 0 = drawn first (areas, minor roads), 1 = on top */
+    uint8_t layer;
 } style_t;
 
 #define RGB(r, g, b) ((uint16_t)((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3)))
 
 static const style_t k_styles[] = {
-    { "highway=motorway",      RGB(0xe0, 0x80, 0x92), RGB(0xb0, 0x50, 0x60), 5, 1 },
-    { "highway=trunk",         RGB(0xf4, 0xa0, 0x88), RGB(0xc0, 0x70, 0x58), 4, 1 },
-    { "highway=primary",       RGB(0xf6, 0xc8, 0x8c), RGB(0xc8, 0x98, 0x60), 4, 1 },
-    { "highway=secondary",     RGB(0xf0, 0xf0, 0xa0), RGB(0xb0, 0xb0, 0x70), 3, 1 },
-    { "highway=tertiary",      RGB(0xff, 0xff, 0xff), RGB(0xa0, 0xa0, 0xa8), 3, 1 },
-    { "highway=residential",   RGB(0xff, 0xff, 0xff), RGB(0x80, 0x80, 0x88), 2, 0 },
-    { "highway=unclassified",  RGB(0xff, 0xff, 0xff), RGB(0x80, 0x80, 0x88), 2, 0 },
-    { "highway=living_street", RGB(0xf4, 0xf4, 0xf4), RGB(0x70, 0x70, 0x78), 2, 0 },
-    { "highway=pedestrian",    RGB(0xe0, 0xe0, 0xee), RGB(0x68, 0x68, 0x80), 2, 0 },
-    { "highway=service",       RGB(0xf0, 0xf0, 0xf0), RGB(0x60, 0x60, 0x68), 1, 0 },
-    { "highway=road",          RGB(0xf0, 0xf0, 0xf0), RGB(0x60, 0x60, 0x68), 1, 0 },
-    { "highway=cycleway",      RGB(0x40, 0x40, 0xff), RGB(0x60, 0x60, 0xe0), 1, 0 },
-    { "highway=footway",       RGB(0xf0, 0x70, 0x60), RGB(0x98, 0x50, 0x48), 1, 0 },
-    { "highway=path",          RGB(0xa0, 0x60, 0x30), RGB(0x88, 0x60, 0x40), 1, 0 },
-    { "highway=track",         RGB(0x90, 0x60, 0x20), RGB(0x80, 0x60, 0x38), 1, 0 },
-    { "natural=water",         RGB(0x90, 0xc0, 0xd8), RGB(0x30, 0x50, 0x70), 2, 0 },
-    { "natural=coastline",     RGB(0x30, 0x60, 0xa0), RGB(0x40, 0x70, 0xb0), 2, 0 },
+    { "highway=motorway",      RGB(0xe0, 0x80, 0x92), RGB(0xb0, 0x50, 0x60), 5, 1, L_MOTORWAY },
+    { "highway=trunk",         RGB(0xf4, 0xa0, 0x88), RGB(0xc0, 0x70, 0x58), 4, 1, L_MOTORWAY },
+    { "highway=primary",       RGB(0xf6, 0xc8, 0x8c), RGB(0xc8, 0x98, 0x60), 4, 1, L_PRIMARY },
+    { "highway=secondary",     RGB(0xf0, 0xf0, 0xa0), RGB(0xb0, 0xb0, 0x70), 3, 1, L_SECONDARY },
+    { "highway=tertiary",      RGB(0xff, 0xff, 0xff), RGB(0xa0, 0xa0, 0xa8), 3, 1, L_TERTIARY },
+    { "highway=residential",   RGB(0xff, 0xff, 0xff), RGB(0x80, 0x80, 0x88), 2, 0, L_RESIDENTIAL },
+    { "highway=unclassified",  RGB(0xff, 0xff, 0xff), RGB(0x80, 0x80, 0x88), 2, 0, L_RESIDENTIAL },
+    { "highway=living_street", RGB(0xf4, 0xf4, 0xf4), RGB(0x70, 0x70, 0x78), 2, 0, L_RESIDENTIAL },
+    { "highway=pedestrian",    RGB(0xe0, 0xe0, 0xee), RGB(0x68, 0x68, 0x80), 2, 0, L_PEDESTRIAN },
+    { "highway=service",       RGB(0xf0, 0xf0, 0xf0), RGB(0x60, 0x60, 0x68), 1, 0, L_SERVICE },
+    { "highway=road",          RGB(0xf0, 0xf0, 0xf0), RGB(0x60, 0x60, 0x68), 1, 0, L_SERVICE },
+    { "highway=cycleway",      RGB(0x40, 0x40, 0xff), RGB(0x60, 0x60, 0xe0), 1, 0, L_CYCLEWAY },
+    { "highway=footway",       RGB(0xf0, 0x70, 0x60), RGB(0x98, 0x50, 0x48), 1, 0, L_FOOTWAY },
+    { "highway=path",          RGB(0xa0, 0x60, 0x30), RGB(0x88, 0x60, 0x40), 1, 0, L_PATH },
+    { "highway=track",         RGB(0x90, 0x60, 0x20), RGB(0x80, 0x60, 0x38), 1, 0, L_TRACK },
+    { "natural=water",         RGB(0x90, 0xc0, 0xd8), RGB(0x30, 0x50, 0x70), 2, 0, L_WATER },
+    { "natural=coastline",     RGB(0x30, 0x60, 0xa0), RGB(0x40, 0x70, 0xb0), 2, 0, L_COASTLINE },
 };
-static const style_t k_default_style = { "", RGB(0x90, 0x90, 0x90), RGB(0x70, 0x70, 0x70), 1, 0 };
+static const style_t k_default_style = { "", RGB(0x90, 0x90, 0x90), RGB(0x70, 0x70, 0x70), 1, 0, L_OTHER };
 static const uint16_t k_bg_light = RGB(0xe4, 0xe0, 0xd6);   /* a little darker than the page */
 static const uint16_t k_bg_dark  = RGB(0x1c, 0x1e, 0x22);
 static bool s_dark;                    /* palette of the current render */
 static bool s_shown_dark;
+static uint32_t s_shown_layers;
 
 static inline uint16_t style_color(const style_t *st) { return s_dark ? st->dark : st->light; }
 
@@ -183,16 +195,48 @@ static void draw_line(int x0, int y0, int x1, int y1, uint16_t c, int width)
     }
 }
 
-static const style_t *style_for(const map_t *map, const mapfile_way_t *w)
+static const style_t *style_for_tag(const char *tag)
 {
-    for (int t = 0; t < w->tag_count; t++) {
-        const char *tag = map->mf.way_tags[w->tags[t]];
-        for (size_t i = 0; i < sizeof k_styles / sizeof k_styles[0]; i++) {
-            if (strncmp(tag, k_styles[i].tag, strlen(k_styles[i].tag)) == 0) return &k_styles[i];
-        }
+    for (size_t i = 0; i < sizeof k_styles / sizeof k_styles[0]; i++) {
+        if (strncmp(tag, k_styles[i].tag, strlen(k_styles[i].tag)) == 0) return &k_styles[i];
     }
     return &k_default_style;
 }
+
+static const style_t *style_for(const map_t *map, const mapfile_way_t *w)
+{
+    for (int t = 0; t < w->tag_count; t++) {
+        const style_t *st = style_for_tag(map->mf.way_tags[w->tags[t]]);
+        if (st != &k_default_style) return st;
+    }
+    return &k_default_style;
+}
+
+/* Per map: which way tag ids the layer mask allows (the tag table is
+ * small, so the lookup during a render is one bit test per tag). */
+static void map_apply_layers(map_t *map, uint32_t layers)
+{
+    map->tag_on = 0;
+    for (int i = 0; i < map->mf.n_way_tags && i < 64; i++) {
+        const style_t *st = style_for_tag(map->mf.way_tags[i]);
+        if (layers & (1u << st->layer)) map->tag_on |= (uint64_t)1 << i;
+    }
+}
+
+/* mapfile filter: a way is drawn when any of its tags is enabled; ways
+ * without tags count as "Other" */
+static bool way_filter(const uint8_t *tags, int ntags, void *ctx)
+{
+    const map_t *map = ctx;
+    if (!ntags) return map->tag_on & ((uint64_t)1 << 63);
+    for (int i = 0; i < ntags; i++) {
+        if (tags[i] < 64 && (map->tag_on & ((uint64_t)1 << tags[i]))) return true;
+    }
+    return false;
+}
+
+int mapview_layer_count(void) { return L_COUNT; }
+const char *mapview_layer_name(int i) { return i >= 0 && i < L_COUNT ? k_layer_names[i] : ""; }
 
 static inline int16_t clamp16(int v)
 {
@@ -244,8 +288,12 @@ static void draw_deferred(void)
 }
 
 /* Renders one map around (lat, lon) into s_back. Returns the number of base tiles read. */
-static int render_map(map_t *map, double lat, double lon, uint8_t zoom)
+static int render_map(map_t *map, double lat, double lon, uint8_t zoom, uint32_t layers)
 {
+    map_apply_layers(map, layers);
+    if (layers & (1u << L_OTHER)) map->tag_on |= (uint64_t)1 << 63;   /* untagged ways */
+    map->mf.filter = way_filter;
+    map->mf.filter_ctx = map;
     if (map->gcj02) wgs_to_gcj(lat, lon, &lat, &lon);
     if (!mapfile_contains(&map->mf, (int32_t)(lat * 1e6), (int32_t)(lon * 1e6))) return 0;
 
@@ -266,7 +314,7 @@ static int render_map(map_t *map, double lat, double lon, uint8_t zoom)
     if (tx0 < 0) tx0 = 0;
     if (ty0 < 0) ty0 = 0;
     int tiles = 0;
-    map->mf.ways = map->mf.skipped = 0;
+    map->mf.ways = map->mf.skipped = map->mf.filtered = 0;
     int64_t t0 = esp_timer_get_time();
 
     for (double ty = ty0; ty <= ty1; ty++) {
@@ -317,6 +365,7 @@ again:
         uint8_t zoom = s_zoom;
         int32_t w = s_w, h = s_h;
         s_dark = theme_current() == THEME_DARK;
+        uint32_t layers = config_get()->map_layers;
         int64_t t0 = esp_timer_get_time();
 
         uint16_t bg = s_dark ? k_bg_dark : k_bg_light;
@@ -324,8 +373,8 @@ again:
         int tiles = 0;
         uint32_t ways = 0;
         for (int i = 0; i < s_nmaps; i++) {
-            tiles += render_map(&s_maps[i], lat, lon, zoom);
-            ways += s_maps[i].mf.ways;
+            tiles += render_map(&s_maps[i], lat, lon, zoom, layers);
+            ways += s_maps[i].mf.ways - s_maps[i].mf.filtered;   /* drawn ways */
         }
         int ms = (int)((esp_timer_get_time() - t0) / 1000);
         xSemaphoreGive(s_mtx);
@@ -337,6 +386,7 @@ again:
             s_shown_lon = lon;
             s_shown_zoom = zoom;
             s_shown_dark = s_dark;
+            s_shown_layers = layers;
             s_shown = true;
             scale_bar_update(lat, zoom);
             snprintf(s_status, sizeof s_status, "z%u %lu w %d ms%s", zoom, (unsigned long)ways, ms,
@@ -357,7 +407,8 @@ static void refresh_cb(lv_timer_t *t)
 {
     if (!s_visible || !s_task || s_busy) return;
     xSemaphoreTake(s_mtx, portMAX_DELAY);
-    bool need = s_have_pos && (!s_shown || s_shown_zoom != s_zoom || s_shown_dark != (theme_current() == THEME_DARK));
+    bool need = s_have_pos && (!s_shown || s_shown_zoom != s_zoom || s_shown_dark != (theme_current() == THEME_DARK)
+                               || s_shown_layers != config_get()->map_layers);
     if (s_have_pos && !need) {
         double dx = mapfile_lon_to_px(s_lon, s_zoom) - mapfile_lon_to_px(s_shown_lon, s_zoom);
         double dy = mapfile_lat_to_py(s_lat, s_zoom) - mapfile_lat_to_py(s_shown_lat, s_zoom);

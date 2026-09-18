@@ -50,8 +50,12 @@ typedef struct {
     uint8_t *way_buf;
     char *str_buf;
     int32_t *lat, *lon;
+    /* optional: return false to skip a way before its coordinates are
+     * decoded (tags = indices into way_tags) */
+    bool (*filter)(const uint8_t *tags, int ntags, void *ctx);
+    void *filter_ctx;
     /* statistics for the last mapfile_read_tile() */
-    uint32_t ways, skipped;
+    uint32_t ways, skipped, filtered;
 } mapfile_t;
 
 typedef struct {

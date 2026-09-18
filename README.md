@@ -155,6 +155,10 @@ with `esp32_image_parser.py dump_partition`.)
      time of day, which comes from the nRF's RTC (UTC), GPS as fallback.
    * *Theme*: dark (default) or light, applied immediately (`main/theme.c`:
      shared LVGL styles; status colours are darkened on the light background).
+   * *Map layers*: a toggle per road class (motorway/trunk, primary, …,
+     track, cycleway), water, coastline and "other" — switched-off layers
+     are skipped before their coordinates are even decoded, so a
+     roads-only map renders a little faster, never slower.
    * *Reset statistics*.
    * *System* → *USB storage*, *Power off*, *Reset settings* (with a
      confirmation: everything back to the firmware defaults), *About*.

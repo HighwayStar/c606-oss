@@ -410,6 +410,10 @@ static esp_err_t parse_way(mapfile_t *mf, uint8_t *rec, size_t len, int32_t olat
     }
     uint8_t flags = pb_u8(&b);
     if (b.err) return ESP_ERR_INVALID_SIZE;
+    if (mf->filter && !mf->filter(w.tags, w.tag_count, mf->filter_ctx)) {
+        mf->filtered++;
+        return ESP_OK;
+    }
 
     size_t used = 0;
     if (flags & 0x80) w.name = take_str(mf, &b, &used);
@@ -537,7 +541,7 @@ esp_err_t mapfile_read_base_tile(mapfile_t *mf, const mapfile_zoom_interval_t *z
 esp_err_t mapfile_read_tile(mapfile_t *mf, uint8_t zoom, uint32_t tx, uint32_t ty,
                             bool *water, mapfile_way_cb_t cb, void *ctx)
 {
-    mf->ways = mf->skipped = 0;
+    mf->ways = mf->skipped = mf->filtered = 0;
     if (water) *water = false;
     if (!mf->f) return ESP_ERR_INVALID_STATE;
     const mapfile_zoom_interval_t *z = mapfile_interval(mf, zoom);
