@@ -26,6 +26,9 @@ static const char *TAG = "ant";
 
 static ant_channel_t s_ch[MAX_CH];
 static size_t s_nch;
+/* device types the nRF reported in its status broadcasts */
+static uint8_t s_nrf_types[MAX_CH];
+static size_t s_nrf_ntypes;
 static ant_sensors_t s_val;
 static SemaphoreHandle_t s_lock;
 static ant_update_cb_t s_cb;
@@ -105,6 +108,36 @@ esp_err_t ant_connect(uint8_t dev_type, uint16_t dev_num, uint8_t trans_type)
     uint8_t p[8] = {SUB_CHANNEL, dev_type, dev_num & 0xFF, dev_num >> 8, trans_type, 0x00, CONNECT_TIMEOUT_S, 0x00};
     ESP_LOGI(TAG, "connect %s %u-%u", ant_dev_name(dev_type), dev_num, trans_type);
     return nrf_link_send(NRF_TYPE_SET, 0x01, p, sizeof p);
+}
+
+void ant_track(uint8_t dev_type, uint16_t dev_num, uint8_t trans_type)
+{
+    ant_channel_t *c = find_ch(dev_type);
+    if (!c) {
+        if (s_nch == MAX_CH) return;
+        c = &s_ch[s_nch++];
+        c->state = ANT_ST_SEARCHING;
+    }
+    c->dev_type = dev_type;
+    c->dev_num = dev_num;
+    c->trans_type = trans_type;
+    ESP_LOGI(TAG, "tracking %s %u-%u (opened by the nRF)", ant_dev_name(dev_type), dev_num, trans_type);
+}
+
+bool ant_nrf_seen_any(void) { return s_nrf_ntypes > 0; }
+
+bool ant_nrf_has(uint8_t dev_type)
+{
+    for (size_t i = 0; i < s_nrf_ntypes; i++) {
+        if (s_nrf_types[i] == dev_type) return true;
+    }
+    return false;
+}
+
+bool ant_nrf_live(uint8_t dev_type)
+{
+    ant_channel_t *c = find_ch(dev_type);
+    return c && c->state == ANT_ST_CONNECTED;
 }
 
 esp_err_t ant_disconnect(uint8_t dev_type)
@@ -204,9 +237,18 @@ bool ant_handle_frame(const uint8_t *f, size_t len)
          * status report every 5 s - NOT a reason to reconnect), 5 search timeout */
         ant_channel_t *c = find_ch(p[1]);
         uint8_t st = p[5];
+        if (p[1] && !ant_nrf_has(p[1]) && s_nrf_ntypes < MAX_CH) {
+            s_nrf_types[s_nrf_ntypes++] = p[1];
+        }
+        if (!c && st == 3 && s_nch < MAX_CH) {
+            /* channel the nRF opened on its own (kept across ESP resets) */
+            c = &s_ch[s_nch++];
+            c->dev_type = p[1];
+            c->dev_num = p[2];        /* only the low byte is in the event */
+            c->trans_type = p[4];
+        }
         if (st != 4) {
-            ESP_LOGI(TAG, "%s: %s", ant_dev_name(p[1]),
-                     st == 3 ? "connected" : st == 5 ? "search timeout" : "event");
+            ESP_LOGI(TAG, "%s: %s", ant_dev_name(p[1]), st == 3 ? "connected" : st == 5 ? "search timeout" : "event");
         }
         ESP_LOG_BUFFER_HEX_LEVEL(TAG, p, 8, ESP_LOG_DEBUG);
         if (c) {

@@ -59,6 +59,17 @@ void ant_set_scan_cb(ant_scan_cb_t cb, void *ctx);
 bool ant_handle_frame(const uint8_t *frame, size_t len);
 
 esp_err_t ant_connect(uint8_t dev_type, uint16_t dev_num, uint8_t trans_type);
+
+/* Register a channel the nRF already has open (from its status broadcast)
+ * without sending anything. */
+void ant_track(uint8_t dev_type, uint16_t dev_num, uint8_t trans_type);
+
+/* True once the nRF has reported at least one channel status (its ANT
+ * stack is up). ant_nrf_has() tells whether it reported this device type. */
+bool ant_nrf_seen_any(void);
+bool ant_nrf_has(uint8_t dev_type);
+/* True if the nRF reported this device type as connected (status 3). */
+bool ant_nrf_live(uint8_t dev_type);
 esp_err_t ant_disconnect(uint8_t dev_type);
 esp_err_t ant_scan(uint16_t seconds);   /* 0 = stop */
 

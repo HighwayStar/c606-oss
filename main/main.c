@@ -147,13 +147,19 @@ static void on_ant(const ant_sensors_t *v, void *ctx)
     }
 }
 
+/* Called ~8 s after boot. A channel the nRF already reports as connected is
+ * only tracked; everything else gets a connect command. */
 static void connect_paired_sensors(void)
 {
     static sensor_entry_t list[8];
     size_t n = sensor_list_load(list, 8);
     for (size_t i = 0; i < n; i++) {
-        ant_connect(list[i].ant_dev_type, list[i].dev_num, list[i].trans_type);
-        vTaskDelay(pdMS_TO_TICKS(50));
+        if (ant_nrf_live(list[i].ant_dev_type)) {
+            ant_track(list[i].ant_dev_type, list[i].dev_num, list[i].trans_type);
+        } else {
+            ant_connect(list[i].ant_dev_type, list[i].dev_num, list[i].trans_type);
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
     }
     size_t nch;
     const ant_channel_t *ch = ant_channels(&nch);
@@ -243,21 +249,31 @@ void app_main(void)
     bool first = true;
     bool sensors_started = false;
     for (;;) {
-        if (s_nrf_alive && !sensors_started && sdcard_info()->mounted) {
-            sensors_started = true;
-            connect_paired_sensors();   /* vendor: ConnANT right after INIT_QUERY */
-        }
         uint32_t now = esp_timer_get_time() / 1000;
-        /* vendor INIT_QUERY: SendPowerOnCmd every 1 s until acked, then keep-alive */
-        uint32_t period = s_nrf_alive ? 5000 : 1000;
-        if (first || now - last_pwr_ms >= period) {
+
+        /* vendor boot: SendQuerySlaveModeCmd once, then SendPowerOnCmd every
+         * second until the nRF acknowledges (state INIT_QUERY) */
+        if (!s_nrf_alive && (first || now - last_pwr_ms >= 1000)) {
+            if (first) {
+                uint8_t q[8] = {0x24, 0x01, 0xFF, 0xFF, 0x00, 0xFF, 0xFF, 0xFF};
+                nrf_link_send(NRF_TYPE_SET, 0x01, q, sizeof q);
+                vTaskDelay(pdMS_TO_TICKS(50));
+            }
             first = false;
             last_pwr_ms = now;
             nrf_link_send_power_on();
-            if (!s_nrf_alive) {
-                nrf_link_send_gps_power(NRF_GPS_ON);  /* vendor default; harmless if already on */
-            }
+            nrf_link_send_gps_power(NRF_GPS_ON);  /* vendor default; harmless if already on */
         }
+
+        /* The nRF tears its ANT channels down after our power-on command and
+         * reports its device list every 5 s. A connect sent while that is in
+         * progress gets killed at the next 5 s tick, so wait until after the
+         * first tick (~6 s) and connect whatever is not live by then. */
+        if (s_nrf_alive && !sensors_started && sdcard_info()->mounted && now > 8000) {
+            sensors_started = true;
+            connect_paired_sensors();
+        }
+
         ui_tick(now / 1000);
         if (sensors_started) {
             size_t nch;
