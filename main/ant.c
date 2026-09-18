@@ -304,6 +304,18 @@ const ant_channel_t *ant_channels(size_t *count)
     return s_ch;
 }
 
+bool ant_live(uint8_t a, uint8_t b)
+{
+    uint32_t now = esp_timer_get_time() / 1000;
+    for (size_t i = 0; i < s_nch; i++) {
+        if ((s_ch[i].dev_type == a || s_ch[i].dev_type == b) && s_ch[i].state == ANT_ST_CONNECTED &&
+            s_ch[i].pages && now - s_ch[i].last_rx_ms < ANT_LIVE_MS) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void ant_get(ant_sensors_t *out)
 {
     xSemaphoreTake(s_lock, portMAX_DELAY);

@@ -28,6 +28,7 @@
 #include "touch.h"
 #include "ant.h"
 #include "sensor_list.h"
+#include "stats.h"
 #include "esp_system.h"
 #include "tinyusb.h"
 
@@ -58,6 +59,8 @@ static void toggle_recording(void)
         gps_get(&fix);
         if (tracklog_start(&fix) != ESP_OK) {
             ESP_LOGW(TAG, "cannot start recording (SD?)");
+        } else {
+            stats_reset();   /* min/max/avg follow the recording session */
         }
     }
     ui_set_rec(tracklog_active(), tracklog_points());
@@ -126,7 +129,7 @@ static void on_key(const nrf_key_event_t *ev)
         return;
     }
     switch (ev->key) {
-    case 0: ui_toggle_page(); break;
+    case 0: ui_next_page(); break;
     case 1: set_backlight(s_bl_pct - 10); break;
     case 2: set_backlight(s_bl_pct + 10); break;
     default: break;
@@ -139,6 +142,10 @@ static void on_ant(const ant_sensors_t *v, void *ctx)
     size_t n;
     const ant_channel_t *ch = ant_channels(&n);
     ui_set_sensors(v, ch, n);
+    if (ant_live(ANT_DEV_HR, ANT_DEV_HR) && v->hr_bpm) stats_update(STAT_HR, v->hr_bpm);
+    if (ant_live(ANT_DEV_CADENCE, ANT_DEV_SPD_CAD)) stats_update(STAT_CADENCE, v->cadence_rpm);
+    if (ant_live(ANT_DEV_SPEED, ANT_DEV_SPD_CAD)) stats_update(STAT_ANT_SPEED, v->speed_kmh);
+    if (ant_live(ANT_DEV_POWER, ANT_DEV_POWER)) stats_update(STAT_POWER, v->power_w);
     uint32_t now = esp_timer_get_time() / 1000;
     if (now - last_log >= 1000) {
         last_log = now;
@@ -189,10 +196,13 @@ static void on_frame(const uint8_t *f, size_t len, void *ctx)
         ui_set_nrf(s_nrf_alive, s_nrf_reason, s_nrf_fw);
     } else if (cmd == 0x00 && p[0] == 0x52) {
         ui_set_battery(p[6], p[4] | (p[5] << 8));
+        stats_update(STAT_BATTERY, p[4] | (p[5] << 8));
     } else if (cmd == NRF_CMD_SYS && p[0] == 0xF1 && p[1] == 0x03) {
         s_temp_c100 = p[2] | (p[3] << 8);
         s_press_pa100 = p[4] | (p[5] << 8) | (p[6] << 16) | ((uint32_t)p[7] << 24);
         ui_set_env(s_temp_c100, s_press_pa100);
+        stats_update(STAT_TEMP, s_temp_c100 / 100.0f);
+        stats_update(STAT_PRESSURE, s_press_pa100 / 10000.0f);
     } else if (!(cmd == 0x00 && p[0] == 0x53) && !(cmd == NRF_CMD_SYS && (p[0] == 0xF0 || p[0] == 0xF1))) {
         ESP_LOG_BUFFER_HEX_LEVEL(TAG, f, len, ESP_LOG_INFO); /* anything not yet understood */
     }
@@ -202,6 +212,10 @@ static void on_gps(const gps_fix_t *fix, void *ctx)
 {
     static uint32_t last_log;
     ui_set_gps(fix);
+    if (fix->valid) {
+        stats_update(STAT_SPEED, fix->speed_kmh);
+        stats_update(STAT_ALTITUDE, fix->alt_m);
+    }
     if (tracklog_active()) {
         tracklog_point(fix, s_temp_c100, s_press_pa100);
         ui_set_rec(true, tracklog_points());
@@ -228,6 +242,7 @@ void app_main(void)
     ESP_ERROR_CHECK(backlight_init());
     ESP_ERROR_CHECK(lcd_init());
     touch_init();                        /* optional: logs and continues if absent */
+    stats_init();
     ESP_ERROR_CHECK(ui_port_init());
     ui_create();
     ui_set_touch(touch_chip_name());

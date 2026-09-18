@@ -74,5 +74,9 @@ esp_err_t ant_disconnect(uint8_t dev_type);
 esp_err_t ant_scan(uint16_t seconds);   /* 0 = stop */
 
 const ant_channel_t *ant_channels(size_t *count);
+/* True when a channel of device type a or b is connected and delivered a
+ * page in the last ANT_LIVE_MS (i.e. its values are current). */
+#define ANT_LIVE_MS 10000
+bool ant_live(uint8_t dev_type_a, uint8_t dev_type_b);
 void ant_get(ant_sensors_t *out);
 const char *ant_dev_name(uint8_t dev_type);

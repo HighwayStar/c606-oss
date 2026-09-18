@@ -1,5 +1,6 @@
 /* Demo UI: a status page (battery arc, environment, key indicators, event
- * log, heap stats) and a "ride" page with big digits. Key 0 toggles pages. */
+ * log, heap stats), a "ride" page with big digits and data pages built from
+ * min/max/avg widgets (see k_data_pages). Key 0 cycles through the pages. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,10 +11,45 @@
 #include "board.h"
 #include "ui_port.h"
 #include "ui.h"
+#include "stats.h"
+#include "widget.h"
 
 #define LOG_LINES 2
+#define MAX_PAGES 8
+#define MAX_WIDGETS 16
+#define DATA_GRID_Y 30            /* below the 28 px header */
+#define DATA_ROWS 3               /* 3 x 84 + gaps = 294 -> footer at 294..320 */
+
+/* ---- data page layout ---------------------------------------------------
+ * Each entry is one page: a list of widgets placed left-to-right, top-to-
+ * bottom on a 2-column grid; cols = 2 makes a full-width widget. A parameter
+ * may appear on several pages. Edit here to rearrange the pages. */
+typedef struct { stat_id_t id; uint8_t cols; } slot_t;
+typedef struct { const char *title; const slot_t *slots; size_t n; } data_page_def_t;
+
+static const slot_t k_page_ride_data[] = {
+    { STAT_SPEED, 2 },
+    { STAT_HR, 1 }, { STAT_CADENCE, 1 },
+    { STAT_POWER, 1 }, { STAT_ALTITUDE, 1 },
+};
+static const slot_t k_page_env[] = {
+    { STAT_TEMP, 1 }, { STAT_PRESSURE, 1 },
+    { STAT_ANT_SPEED, 1 }, { STAT_SPEED, 1 },
+    { STAT_BATTERY, 2 },
+};
+#define DEF(t, s) { t, s, sizeof s / sizeof s[0] }
+static const data_page_def_t k_data_pages[] = {
+    DEF("Ride", k_page_ride_data),
+    DEF("Environment", k_page_env),
+};
 
 static lv_obj_t *s_page_status, *s_page_ride;
+static lv_obj_t *s_pages[MAX_PAGES];
+static int s_npages, s_page_idx;
+static widget_t s_widgets[MAX_WIDGETS];
+static uint8_t s_widget_page[MAX_WIDGETS];
+static int s_nwidgets;
+static lv_obj_t *s_data_bat[MAX_PAGES], *s_data_since[MAX_PAGES];
 static lv_obj_t *s_hdr_bat, *s_hdr_rec, *s_arc, *s_arc_lbl, *s_env, *s_nrf, *s_gps, *s_sd, *s_log, *s_foot;
 static lv_obj_t *s_key[3];
 static lv_obj_t *s_big, *s_big_caption, *s_ride_env, *s_ride_gps, *s_ride_pos, *s_ride_time, *s_ride_rec;
@@ -196,6 +232,88 @@ static void build_ride(lv_obj_t *scr)
     lv_obj_align(s_btn_usb, LV_ALIGN_BOTTOM_RIGHT, -16, -8);
 }
 
+/* ---- data pages -------------------------------------------------------- */
+
+static void stats_reset_cb(lv_event_t *e)
+{
+    stats_reset();
+    for (int i = 0; i < s_nwidgets; i++) {
+        widget_refresh(&s_widgets[i]);
+    }
+}
+
+static void build_data_page(lv_obj_t *scr, const data_page_def_t *def, int page_idx)
+{
+    lv_obj_t *p = page(scr);
+    lv_obj_set_hidden(p, true);
+    s_pages[page_idx] = p;
+
+    lv_obj_t *hdr = lv_obj_create(p);
+    lv_obj_remove_style_all(hdr);
+    lv_obj_set_size(hdr, LCD_H_RES, 28);
+    lv_obj_set_style_bg_color(hdr, C_HDR, 0);
+    lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
+    lv_obj_t *t = label(hdr, &lv_font_montserrat_14, lv_color_white());
+    lv_label_set_text_fmt(t, "%s  %d/%d", def->title, page_idx + 1, (int)(2 + sizeof k_data_pages / sizeof k_data_pages[0]));
+    lv_obj_align(t, LV_ALIGN_LEFT_MID, 6, 0);
+    s_data_bat[page_idx] = label(hdr, &lv_font_montserrat_14, lv_color_white());
+    lv_label_set_text(s_data_bat[page_idx], "--%");
+    lv_obj_align(s_data_bat[page_idx], LV_ALIGN_RIGHT_MID, -6, 0);
+
+    uint8_t col = 0, row = 0;
+    for (size_t i = 0; i < def->n; i++) {
+        uint8_t cols = def->slots[i].cols == 2 ? 2 : 1;
+        if (col + cols > WIDGET_COLS) { col = 0; row++; }
+        if (row >= DATA_ROWS || s_nwidgets >= MAX_WIDGETS) {
+            break;   /* layout table asks for more than fits */
+        }
+        widget_create(&s_widgets[s_nwidgets], p, def->slots[i].id, cols, col, row, DATA_GRID_Y);
+        s_widget_page[s_nwidgets++] = page_idx;
+        col += cols;
+        if (col >= WIDGET_COLS) { col = 0; row++; }
+    }
+
+    /* footer: session length + reset */
+    s_data_since[page_idx] = label(p, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_GREY));
+    lv_label_set_text(s_data_since[page_idx], "session 0:00:00");
+    lv_obj_align(s_data_since[page_idx], LV_ALIGN_BOTTOM_LEFT, 8, -6);
+    lv_obj_t *b = lv_button_create(p);
+    lv_obj_set_size(b, 64, 24);
+    lv_obj_set_style_bg_color(b, C_IDLE, 0);
+    lv_obj_align(b, LV_ALIGN_BOTTOM_RIGHT, -6, -2);
+    lv_obj_t *l = label(b, &lv_font_montserrat_14, lv_color_white());
+    lv_label_set_text(l, LV_SYMBOL_REFRESH " reset");
+    lv_obj_center(l);
+    lv_obj_add_event_cb(b, stats_reset_cb, LV_EVENT_CLICKED, NULL);
+}
+
+/* Refreshes the widgets of the visible data page (LVGL task). */
+static void data_refresh_cb(lv_timer_t *t)
+{
+    if (s_page_idx < 2 || !s_pages[s_page_idx] || lv_obj_is_hidden(s_pages[s_page_idx])) {
+        return;
+    }
+    for (int i = 0; i < s_nwidgets; i++) {
+        if (s_widget_page[i] == s_page_idx) {
+            widget_refresh(&s_widgets[i]);
+        }
+    }
+    uint32_t s = stats_session_ms() / 1000;
+    lv_label_set_text_fmt(s_data_since[s_page_idx], "session %lu:%02lu:%02lu",
+                          (unsigned long)(s / 3600), (unsigned long)(s / 60 % 60), (unsigned long)(s % 60));
+}
+
+static void show_page(int idx)
+{
+    for (int i = 0; i < s_npages; i++) {
+        lv_obj_set_hidden(s_pages[i], i != idx);
+    }
+    s_page_idx = idx;
+    if (idx >= 2) {
+        data_refresh_cb(NULL);   /* don't wait for the timer */
+    }
+}
+
 static void rec_btn_cb(lv_event_t *e) { if (s_on_rec) s_on_rec(); }
 static void usb_btn_cb(lv_event_t *e) { if (s_on_usb) s_on_usb(); }
 
@@ -293,6 +411,13 @@ void ui_create(void)
     lv_obj_set_style_bg_color(scr, C_BG, 0);
     build_status(scr);
     build_ride(scr);
+    s_pages[0] = s_page_status;
+    s_pages[1] = s_page_ride;
+    s_npages = 2;
+    for (size_t i = 0; i < sizeof k_data_pages / sizeof k_data_pages[0] && s_npages < MAX_PAGES; i++) {
+        build_data_page(scr, &k_data_pages[i], s_npages++);
+    }
+    lv_timer_create(data_refresh_cb, 500, NULL);
 
     s_cursor = lv_obj_create(scr);
     lv_obj_remove_style_all(s_cursor);
@@ -312,6 +437,9 @@ void ui_set_battery(uint8_t pct, uint16_t mv)
     lv_arc_set_value(s_arc, pct);
     lv_label_set_text_fmt(s_arc_lbl, "%u%%\n%u mV", pct, mv);
     lv_label_set_text_fmt(s_hdr_bat, "%u%%", pct);
+    for (int i = 2; i < s_npages; i++) {
+        lv_label_set_text_fmt(s_data_bat[i], "%u%%", pct);
+    }
     ui_unlock();
 }
 
@@ -423,27 +551,15 @@ void ui_set_gps(const gps_fix_t *g)
     ui_unlock();
 }
 
-/* A channel counts as live when it is connected and delivered a page in
- * the last 10 s; otherwise its values are shown as "--". */
-static bool ch_live(const ant_channel_t *ch, size_t nch, uint8_t a, uint8_t b, uint32_t now)
-{
-    for (size_t i = 0; i < nch; i++) {
-        if ((ch[i].dev_type == a || ch[i].dev_type == b) && ch[i].state == ANT_ST_CONNECTED &&
-            ch[i].pages && now - ch[i].last_rx_ms < 10000) {
-            return true;
-        }
-    }
-    return false;
-}
-
+/* A channel's values are shown as "--" unless it is live (see ant_live). */
 void ui_set_sensors(const ant_sensors_t *v, const ant_channel_t *ch, size_t nch)
 {
     char line[96], hr[8], cad[8], spd[12], pwr[8];
     uint32_t now = esp_timer_get_time() / 1000;
-    bool have_hr  = ch_live(ch, nch, ANT_DEV_HR, ANT_DEV_HR, now) && v->hr_bpm;
-    bool have_cad = ch_live(ch, nch, ANT_DEV_CADENCE, ANT_DEV_SPD_CAD, now);
-    bool have_spd = ch_live(ch, nch, ANT_DEV_SPEED, ANT_DEV_SPD_CAD, now);
-    bool have_pwr = ch_live(ch, nch, ANT_DEV_POWER, ANT_DEV_POWER, now);
+    bool have_hr  = ant_live(ANT_DEV_HR, ANT_DEV_HR) && v->hr_bpm;
+    bool have_cad = ant_live(ANT_DEV_CADENCE, ANT_DEV_SPD_CAD);
+    bool have_spd = ant_live(ANT_DEV_SPEED, ANT_DEV_SPD_CAD);
+    bool have_pwr = ant_live(ANT_DEV_POWER, ANT_DEV_POWER);
 
     snprintf(hr, sizeof hr, have_hr ? "%u" : "--", v->hr_bpm);
     snprintf(cad, sizeof cad, have_cad ? "%.0f" : "--", v->cadence_rpm);
@@ -465,7 +581,7 @@ void ui_set_sensors(const ant_sensors_t *v, const ant_channel_t *ch, size_t nch)
         const char *name = ch[i].dev_type == ANT_DEV_HR ? "HR" : ch[i].dev_type == ANT_DEV_CADENCE ? "cad"
                          : ch[i].dev_type == ANT_DEV_SPEED ? "spd" : ch[i].dev_type == ANT_DEV_POWER ? "pwr"
                          : ant_dev_name(ch[i].dev_type);
-        bool live = ch[i].state == ANT_ST_CONNECTED && ch[i].pages && now - ch[i].last_rx_ms < 10000;
+        bool live = ch[i].state == ANT_ST_CONNECTED && ch[i].pages && now - ch[i].last_rx_ms < ANT_LIVE_MS;
         const char *st = live ? "ok" : ch[i].state == ANT_ST_SEARCHING ? ".." : "--";
         n += snprintf(line + n, sizeof line - n, "  %s %s", name, st);
     }
@@ -502,8 +618,7 @@ void ui_set_rec(bool active, uint32_t points)
 void ui_show_usb_mode(void)
 {
     ui_lock();
-    lv_obj_set_hidden(s_page_status, true);
-    lv_obj_set_hidden(s_page_ride, true);
+    show_page(-1);
     lv_obj_t *p = page(lv_screen_active());
     lv_obj_t *icon = label(p, &lv_font_montserrat_48, lv_palette_main(LV_PALETTE_BLUE));
     lv_label_set_text(icon, LV_SYMBOL_USB);
@@ -518,12 +633,10 @@ void ui_show_usb_mode(void)
     ui_unlock();
 }
 
-void ui_toggle_page(void)
+void ui_next_page(void)
 {
     ui_lock();
-    bool show_ride = lv_obj_is_hidden(s_page_ride);
-    lv_obj_set_hidden(s_page_status, show_ride);
-    lv_obj_set_hidden(s_page_ride, !show_ride);
+    show_page((s_page_idx + 1) % s_npages);
     ui_unlock();
 }
 

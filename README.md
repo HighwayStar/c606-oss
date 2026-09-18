@@ -16,7 +16,11 @@ This PoC replaces only the ESP32 application. It:
 * touchscreen (FT6336 over I2C) as an LVGL pointer: on-screen REC / USB buttons,
 * ANT+ sensors through the nRF: auto-connects to the sensors paired in the vendor's
   `CONFIG/sensor_list.json` (HR, speed, cadence, power decoded; shows on the ride page),
-* keys: 0 = switch page, 1/2 = backlight down/up, hold 2 = start/stop recording,
+* session statistics (current / min / max / avg) for every measured parameter —
+  GPS speed and altitude, HR, cadence, sensor speed, power, temperature,
+  pressure, battery — shown as widgets on data pages (`k_data_pages` in
+  `main/ui.c`; any parameter can be placed on any number of pages),
+* keys: 0 = next page, 1/2 = backlight down/up, hold 2 = start/stop recording,
   hold 1 = USB storage mode (hold 1 again to reboot out of it), hold 0 = power-off popup.
 
 Everything hardware-specific lives in `main/board.h`; the analysis behind it
@@ -79,11 +83,21 @@ with `esp32_image_parser.py dump_partition`.)
    (position, altitude, speed, course, sats, HDOP, temperature, pressure). A key box flashes green on a
    click and stays red while long-pressed (event 4), clears on release (5).
 
-3. Hold key 1: the eMMC appears on the host as a 3.7 GB USB disk
+3. Key 0 again: the data pages ("Ride 3/4", "Environment 4/4"). Each widget
+   shows the parameter's current value in big digits (grey `--` when no fresh
+   reading arrived within a few seconds) and its session min / max / avg.
+   The average is time-weighted, so it does not depend on how often a sensor
+   reports; cadence and HR ignore zero samples. The session starts at boot,
+   restarts when a recording is started, and can be restarted by tapping
+   `reset` in the page footer (which also shows the session length).
+   Page layout is a table in `main/ui.c` (`k_data_pages`): a list of
+   `{parameter, columns}` per page on a 2-column, 3-row grid; a 2-column
+   widget gets larger digits and a stacked min/max/avg column.
+4. Hold key 1: the eMMC appears on the host as a 3.7 GB USB disk
    (`303a:4002 c606-oss C606 eMMC`, auto-mounted by most desktops). The S3
    has a single USB PHY, so the console and esptool auto-reset are gone
    while in this mode — eject the disk and hold key 1 again to reboot.
-4. Hold key 0: "Power off?" popup — key 0 again (or tap Off) powers off via
+5. Hold key 0: "Power off?" popup — key 0 again (or tap Off) powers off via
    the nRF, any other key (or Cancel, or 8 s) dismisses it. Press key 0 to
    power on again.
 
@@ -127,7 +141,9 @@ works. If colours are swapped (red <-> blue) build with
 main/board.h       pins, bus settings, protocol constants (from RE)
 main/lcd.c         i80 bus + ST7789 init + async bitmap push
 main/ui_port.c     LVGL 9 display driver, tick, render task, lock
-main/ui.c          demo pages (status / ride)
+main/ui.c          pages: status / ride / data pages (widget layout table)
+main/widget.c      data-field widget: current + min/max/avg of one parameter
+main/stats.c       session statistics (min/max/time-weighted avg, staleness)
 main/backlight.c   LEDC PWM
 main/nrf_link.c    UART framing, CRC16, TX helpers, key decoding
 main/gps.c         UART0 NMEA reader with baud probing
