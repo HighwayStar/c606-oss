@@ -14,7 +14,7 @@
 
 static const char *TAG = "config";
 #define CFG_MAGIC   0xC606
-#define CFG_VERSION 3
+#define CFG_VERSION 4
 #define NVS_NS      "c606oss"
 #define NVS_KEY     "cfg"
 
@@ -38,6 +38,7 @@ void config_defaults(app_cfg_t *c)
     c->version = CFG_VERSION;
     c->tz_min = 0;
     c->lap_len_m = 1000;
+    c->backlight = 70;
 
     static const field_id_t p1[] = {
         FIELD_TIME_OF_DAY, FIELD_STAT(STAT_SPEED, AGG_CUR), FIELD_STAT(STAT_SPEED, AGG_AVG),
@@ -72,6 +73,7 @@ static bool valid(const app_cfg_t *c)
     if (c->magic != CFG_MAGIC || c->version != CFG_VERSION) return false;
     if (c->theme > 1) return false;
     if (c->lap_len_m > CFG_LAP_MAX_M) return false;
+    if (c->backlight < 10 || c->backlight > 100) return false;
     for (int p = 0; p < CFG_PAGES; p++) {
         if (c->page[p].layout >= layout_count()) return false;
         for (int i = 0; i < LAYOUT_MAX_CELLS; i++) {
@@ -112,6 +114,11 @@ void config_load(void)
         if (tmp.version == 2 && len == offsetof(app_cfg_t, lap_len_m)) {
             tmp.version = 3;
             tmp.lap_len_m = 1000;
+            len = offsetof(app_cfg_t, backlight);
+        }
+        if (tmp.version == 3 && len == offsetof(app_cfg_t, backlight)) {
+            tmp.version = 4;
+            tmp.backlight = 70;
             len = sizeof tmp;
         }
     }

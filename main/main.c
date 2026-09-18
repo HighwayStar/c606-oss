@@ -4,10 +4,11 @@
  * Brings up the ST7789 over the i80 bus, LVGL 9 with draw buffers in internal
  * RAM and objects in PSRAM, the backlight, and the UART link to the nRF
  * co-processor, and the GNSS receiver on UART0.
- * Keys: 0 = next page, 1 = backlight level, 2 = start ride / pause / resume,
+ * Keys: 0 = next page, 1 = manual lap, 2 = start ride / pause / resume,
  * hold 2 = end ride (dialog), hold 1 = USB mass storage mode (hold again:
  * reboot), hold 0 = power off (nRF cuts power; next power-on is a full POR).
  */
+#include <stdio.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -60,13 +61,19 @@ static void on_ride_mode(ride_mode_t mode)
     ui_set_mode(mode);
 }
 
-/* key 1 click: step the backlight down, wrapping back to full */
-static void cycle_backlight(void)
+static void apply_backlight(void)
 {
-    static const uint8_t levels[] = { 100, 70, 40, 15 };
-    size_t i = 0;
-    while (i < sizeof levels && levels[i] > s_bl_pct - 5) i++;   /* first level below the current */
-    set_backlight(levels[i % sizeof levels]);
+    set_backlight(config_get()->backlight);
+}
+
+/* key 1 during a ride: manual lap */
+static void manual_lap(void)
+{
+    char msg[16];
+    if (ride_mode() == RIDE_IDLE) return;
+    uint32_t n = trip_lap_manual();
+    snprintf(msg, sizeof msg, "LAP %lu", (unsigned long)n);
+    ui_toast(msg);
 }
 
 static void enter_usb_mode(void)
@@ -136,7 +143,7 @@ static void on_key(const nrf_key_event_t *ev)
     }
     switch (ev->key) {
     case 0: ui_next_page(); break;
-    case 1: cycle_backlight(); break;
+    case 1: manual_lap(); break;
     case 2: ride_toggle(); break;   /* start / pause / resume */
     default: break;
     }
@@ -265,12 +272,12 @@ void app_main(void)
     ESP_ERROR_CHECK(ui_port_init());
     ui_create();
     ui_set_touch(touch_chip_name());
-    ui_set_actions(ride_start, enter_usb_mode);
+    ui_set_actions(ride_start, enter_usb_mode, apply_backlight);
     ui_set_power_off_cb(power_off);
     ui_set_end_ride_cb(ride_end);
     ride_init(on_ride_mode);
     vTaskDelay(pdMS_TO_TICKS(100));      /* let the first frame render */
-    set_backlight(s_bl_pct);
+    apply_backlight();
 
     ant_init(on_ant, NULL);
     ESP_ERROR_CHECK(nrf_link_init(on_frame, NULL));

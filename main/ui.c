@@ -217,7 +217,7 @@ static void build_idle(lv_obj_t *scr)
     lv_obj_add_event_cb(s_btn_start, start_btn_cb, LV_EVENT_CLICKED, NULL);
 
     s_idle_hint = tlabel(s_page_idle, &lv_font_montserrat_14, &theme_st_muted);
-    lv_label_set_text(s_idle_hint, "key 2: start   key 0: status");
+    lv_label_set_text(s_idle_hint, "key 2: start ride   key 0: status");
     lv_obj_align(s_idle_hint, LV_ALIGN_BOTTOM_MID, 0, -6);
 }
 
@@ -366,12 +366,13 @@ void ui_set_mode(ride_mode_t mode)
 
 static void menu_usb_cb(void) { if (s_on_usb) s_on_usb(); }
 
-void ui_set_actions(ui_action_cb_t on_start, ui_action_cb_t on_usb)
+void ui_set_actions(ui_action_cb_t on_start, ui_action_cb_t on_usb, ui_action_cb_t on_backlight)
 {
     s_on_start = on_start;
     s_on_usb = on_usb;
     menu_set_action_cb(MENU_ACTION_USB, menu_usb_cb);
     menu_set_action_cb(MENU_ACTION_POWER_OFF, ui_show_power_popup);
+    menu_set_action_cb(MENU_ACTION_BACKLIGHT, on_backlight);
 }
 
 /* ---- confirmation popups ------------------------------------------------ */
@@ -435,6 +436,38 @@ static void show_popup(ui_popup_t kind, const char *title, const char *hint, con
     lv_obj_add_event_cb(b, popup_cancel_cb, LV_EVENT_CLICKED, NULL);
     s_popup_timer = lv_timer_create(popup_timeout_cb, 8000, NULL);
     lv_timer_set_repeat_count(s_popup_timer, 1);
+    ui_unlock();
+}
+
+/* ---- toast ------------------------------------------------------------- */
+
+static lv_obj_t *s_toast;
+static lv_timer_t *s_toast_timer;
+
+static void toast_timeout_cb(lv_timer_t *t)
+{
+    s_toast_timer = NULL;
+    if (s_toast) { lv_obj_delete(s_toast); s_toast = NULL; }
+}
+
+void ui_toast(const char *text)
+{
+    ui_lock();
+    if (s_toast_timer) { lv_timer_delete(s_toast_timer); s_toast_timer = NULL; }
+    if (s_toast) { lv_obj_delete(s_toast); s_toast = NULL; }
+    s_toast = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(s_toast);
+    lv_obj_set_size(s_toast, 180, 60);
+    lv_obj_center(s_toast);
+    lv_obj_set_style_bg_color(s_toast, theme_colors()->sel, 0);
+    lv_obj_set_style_bg_opa(s_toast, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(s_toast, 8, 0);
+    lv_obj_set_clickable(s_toast, false);
+    lv_obj_t *l = label(s_toast, &lv_font_montserrat_28, theme_colors()->sel_fg);
+    lv_label_set_text(l, text);
+    lv_obj_center(l);
+    s_toast_timer = lv_timer_create(toast_timeout_cb, 1500, NULL);
+    lv_timer_set_repeat_count(s_toast_timer, 1);
     ui_unlock();
 }
 

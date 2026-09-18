@@ -28,7 +28,7 @@ This PoC replaces only the ESP32 application. It:
 * idle / riding / paused modes: the idle screen (clock, GPS and sensor state,
   START button) is shown until a ride is started; the data pages, the track
   recording and the statistics only run during a ride,
-* keys: 0 = next page, 1 = backlight level, 2 = start ride / pause / resume,
+* keys: 0 = next page, 1 = manual lap, 2 = start ride / pause / resume,
   hold 2 = "End ride?" dialog, hold 1 = USB storage mode (hold 1 again to reboot
   out of it), hold 0 = power-off popup.
 
@@ -99,7 +99,8 @@ with `esp32_image_parser.py dump_partition`.)
    Dist), time of day, session time, battery % and satellites. Distance comes
    from the ANT+ wheel sensor when it is live (revs × `ANT_WHEEL_CIRC_M`),
    otherwise from consecutive GPS fixes (moving faster than 2 km/h); a lap
-   ends automatically every *Lap length*. The average is time-weighted, so it
+   ends automatically every *Lap length*; key 1 ends the current lap by hand
+   (a "LAP n" toast confirms it). The average is time-weighted, so it
    does not depend on how often a sensor reports; cadence and HR ignore zero
    samples. *Reset statistics* in the menu restarts the session by hand.
 
@@ -112,6 +113,7 @@ with `esp32_image_parser.py dump_partition`.)
      category and a field).
    * *Lap length*: +/− screen, 0.5 km steps, 0 = off (touch the buttons or
      key 2 / key 1, key 0 goes back).
+   * *Backlight*: +/− screen, 10 % steps, applied live and remembered.
    * *Time zone*: same +/− screen in 30 min steps (UTC-12 … UTC+14) for the
      time of day, which comes from the nRF's RTC (UTC), GPS as fallback.
    * *Theme*: dark (default) or light, applied immediately (`main/theme.c`:

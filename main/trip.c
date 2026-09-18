@@ -41,6 +41,18 @@ static void add_distance(float m)
     }
 }
 
+uint32_t trip_lap_manual(void)
+{
+    uint32_t now = stats_session_ms();
+    s_laps++;
+    s_prev_lap_m = s_dist_m - s_lap_start_m;
+    s_prev_lap_ms = now - s_lap_start_ms;
+    s_lap_start_m = s_dist_m;
+    s_lap_start_ms = now;
+    ESP_LOGI(TAG, "manual lap %lu: %.0f m, %lu ms", (unsigned long)s_laps, s_prev_lap_m, (unsigned long)s_prev_lap_ms);
+    return s_laps;
+}
+
 static float haversine_m(double lat1, double lon1, double lat2, double lon2)
 {
     const double R = 6371000.0, d2r = M_PI / 180.0;

@@ -8,6 +8,7 @@
  *         Fields       -> page preview, tap a cell (or move with keys) ->
  *           category   -> field list -> assigned, back to the preview
  *     Lap length       -> +/- screen (0.5 km steps, 0 = off)
+ *     Backlight        -> +/- screen (10 % steps)
  *     Time zone        -> +/- screen (30 min steps)
  *     Theme            (tap: dark / light)
  *     Reset statistics
@@ -617,11 +618,27 @@ static void tz_step(int dir)
     config_save();
 }
 
+static void bl_text(char *buf, size_t n)
+{
+    snprintf(buf, n, "%u %%", config_get()->backlight);
+}
+
+static void bl_step(int dir)
+{
+    int v = config_get()->backlight + dir * 10;
+    if (v < 10) v = 10;
+    if (v > 100) v = 100;
+    config_get()->backlight = v;
+    config_save();
+    if (s_action_cb[MENU_ACTION_BACKLIGHT]) s_action_cb[MENU_ACTION_BACKLIGHT]();
+}
+
 static const value_def_t k_lap_value = { lap_text, lap_step };
 static const value_def_t k_tz_value  = { tz_text, tz_step };
+static const value_def_t k_bl_value  = { bl_text, bl_step };
 
 
-enum { ROOT_PAGES, ROOT_LAP, ROOT_TZ, ROOT_THEME, ROOT_RESET, ROOT_SYSTEM };
+enum { ROOT_PAGES, ROOT_LAP, ROOT_BACKLIGHT, ROOT_TZ, ROOT_THEME, ROOT_RESET, ROOT_SYSTEM };
 
 static void settings_select(screen_t *s, int idx)
 {
@@ -631,6 +648,9 @@ static void settings_select(screen_t *s, int idx)
         break;
     case ROOT_LAP:
         value_open("Lap length", &k_lap_value);
+        break;
+    case ROOT_BACKLIGHT:
+        value_open("Backlight", &k_bl_value);
         break;
     case ROOT_TZ:
         value_open("Time zone", &k_tz_value);
@@ -659,6 +679,8 @@ static void settings_refresh(screen_t *s)
     char buf[16];
     lap_text(buf, sizeof buf);
     set_right(s, ROOT_LAP, buf, true);
+    bl_text(buf, sizeof buf);
+    set_right(s, ROOT_BACKLIGHT, buf, true);
     tz_text(buf, sizeof buf);
     set_right(s, ROOT_TZ, buf, true);
 }
@@ -681,6 +703,8 @@ void menu_open(void)
     add_item(s, "Pages", ITEM_ARROW, NULL, false);
     lap_text(buf, sizeof buf);
     add_item(s, "Lap length", ITEM_ARROW, buf, false);
+    bl_text(buf, sizeof buf);
+    add_item(s, "Backlight", ITEM_ARROW, buf, false);
     tz_text(buf, sizeof buf);
     add_item(s, "Time zone", ITEM_ARROW, buf, false);
     add_item(s, "Theme", ITEM_VALUE, theme_name(config_get()->theme), false);

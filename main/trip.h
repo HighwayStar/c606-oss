@@ -9,6 +9,7 @@
  * Accumulation stops while the statistics are paused (ride paused / idle). */
 
 void trip_reset(void);                    /* at ride start */
+uint32_t trip_lap_manual(void);           /* end the current lap now; returns the new lap number */
 void trip_gps(const gps_fix_t *fix);      /* every GPS update */
 void trip_wheel(uint32_t revs, bool live);/* every ANT update */
 

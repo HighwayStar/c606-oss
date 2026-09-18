@@ -15,5 +15,7 @@ bool menu_key(uint8_t key, uint8_t evt);
 /* Called after the menu closes; the configuration may have changed. */
 void menu_set_close_cb(void (*cb)(void));
 /* System actions (the menu closes first, then the callback runs). */
-typedef enum { MENU_ACTION_USB, MENU_ACTION_POWER_OFF, MENU_ACTION_COUNT } menu_action_t;
+/* MENU_ACTION_BACKLIGHT runs on every step of the backlight screen (read
+ * config_get()->backlight), the others after the menu has closed. */
+typedef enum { MENU_ACTION_USB, MENU_ACTION_POWER_OFF, MENU_ACTION_BACKLIGHT, MENU_ACTION_COUNT } menu_action_t;
 void menu_set_action_cb(menu_action_t a, void (*cb)(void));
