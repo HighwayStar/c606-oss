@@ -228,7 +228,10 @@ saves a screenshot, `... ls` lists the ride files and `... get
 /sdcard/c606oss/<name>.fit` copies one to the host (no need for USB storage
 mode), `... mv a b` renames a file on the card, `... pos 55.03 82.92` centres
 the map page on a position without a GPS fix (`pos` alone: back to the GPS),
-`... zoom 13` sets the map zoom, and `... script "key 0 1" "sleep 0.5" "shot
+`... zoom 13` sets the map zoom, `... sim 55.03 82.92 45 30 60` simulates a
+GPS receiver riding from that position on heading 45° at 30 km/h for 60 s
+(real RMC/GGA sentences through the real parser; `... nmea off` hands the
+GPS back to the receiver), and `... script "key 0 1" "sleep 0.5" "shot
 a.png"` chains them (the device log keeps printing during `sleep`). Useful for
 exercising the UI without touching the device.
 

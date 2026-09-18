@@ -25,6 +25,7 @@ static gps_fix_t s_fix;
 static SemaphoreHandle_t s_lock;
 static gps_update_cb_t s_cb;
 static void *s_cb_ctx;
+static volatile bool s_simulated;   /* devcon feeds sentences, UART ignored */
 
 /* vendor baud first, then the usual GNSS defaults */
 static const uint32_t k_bauds[] = {921600, 115200, 9600, 460800, 230400, 38400, 57600};
@@ -170,7 +171,7 @@ static void gps_task(void *arg)
                             raw_logged++;
                             ESP_LOGI(TAG, "%s", line);
                         }
-                        parse(line, fill);
+                        if (!s_simulated) parse(line, fill);
                     } else if (line[0] == '$' && s_fix.baud) {
                         s_fix.bad_checksum++;
                     }
@@ -210,6 +211,20 @@ esp_err_t gps_init(gps_update_cb_t cb, void *ctx)
     ESP_LOGI(TAG, "UART%d tx=%d rx=%d, probing from %d baud", GPS_UART_NUM, GPS_UART_TX, GPS_UART_RX, GPS_UART_BAUD);
     return ESP_OK;
 }
+
+bool gps_inject(const char *sentence)
+{
+    char line[128];
+    size_t n = strlen(sentence);
+    if (n < 8 || n >= sizeof line || sentence[0] != '$' || !nmea_checksum_ok(sentence, n)) return false;
+    memcpy(line, sentence, n + 1);
+    s_simulated = true;
+    if (s_fix.baud == 0) s_fix.baud = 1;   /* "data seen" for the UI */
+    parse(line, n);
+    return true;
+}
+
+void gps_simulate(bool on) { s_simulated = on; }
 
 void gps_get(gps_fix_t *out)
 {

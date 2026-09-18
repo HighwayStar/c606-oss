@@ -13,6 +13,7 @@
  *   mv <old> <new>    rename a file
  *   pos <lat> <lon>   centre the map page on this position instead of the GPS ("pos" alone: back to GPS)
  *   zoom <z>          map zoom level (10..17)
+ *   nmea <sentence>   feed a NMEA sentence to the GPS parser (the receiver is muted until "nmea off")
  *   heap              print free heap
  * tools/devcon.py drives it from the host. */
 

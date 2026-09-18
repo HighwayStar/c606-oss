@@ -29,3 +29,9 @@ esp_err_t gps_init(gps_update_cb_t cb, void *ctx);
 
 /* Copy of the latest state. */
 void gps_get(gps_fix_t *out);
+
+/* Developer console: feed one NMEA sentence ("$GPRMC,...*hh") through the
+ * parser as if it came from the receiver; the UART is ignored while
+ * simulating. gps_simulate(false) hands control back to the receiver. */
+bool gps_inject(const char *sentence);
+void gps_simulate(bool on);

@@ -10,6 +10,8 @@
   tools/devcon.py PORT mv /sdcard/a /sdcard/b   rename a file on the card
   tools/devcon.py PORT pos 55.03 82.92  centre the map page on a position ("pos" alone: back to GPS)
   tools/devcon.py PORT zoom 14          map zoom level
+  tools/devcon.py PORT sim 55.03 82.92 45 25 30   simulated GPS: from lat,lon heading 45 deg at 25 km/h for 30 s
+  tools/devcon.py PORT nmea off         back to the real receiver
   tools/devcon.py PORT script "key 0 1" "sleep 0.5" "shot a.png" ...
 
 Needs pyserial. Log lines from the device are printed as they arrive."""
@@ -110,6 +112,37 @@ def get(p, path, out):
         f.write(b"".join(chunks))
     print(f"saved {out} ({size} bytes)")
 
+def nmea(fields):
+    body = ",".join(fields)
+    cs = 0
+    for c in body.encode():
+        cs ^= c
+    return f"${body}*{cs:02X}"
+
+def sim(p, lat, lon, course, kmh, seconds):
+    """Feeds one RMC + GGA pair per second, moving along `course`."""
+    import math
+    def dm(v, w):
+        d = int(abs(v)); m = (abs(v) - d) * 60
+        return f"{d:0{w}d}{m:07.4f}"
+    step_m = kmh / 3.6
+    for i in range(int(seconds)):
+        t = time.gmtime()
+        hms = time.strftime("%H%M%S", t) + ".00"
+        rmc = nmea(["GPRMC", hms, "A", dm(lat, 2), "N" if lat >= 0 else "S", dm(lon, 3), "E" if lon >= 0 else "W",
+                    f"{kmh / 1.852:.1f}", f"{course:.1f}", time.strftime("%d%m%y", t), "", "", "A"])
+        gga = nmea(["GPGGA", hms, dm(lat, 2), "N" if lat >= 0 else "S", dm(lon, 3), "E" if lon >= 0 else "W",
+                    "1", "08", "1.0", "150.0", "M", "0.0", "M", "", ""])
+        simple(p, "nmea " + rmc)
+        simple(p, "nmea " + gga)
+        lat += step_m * math.cos(math.radians(course)) / 111320.0
+        lon += step_m * math.sin(math.radians(course)) / (111320.0 * math.cos(math.radians(lat)))
+        end = time.time() + 1.0
+        while time.time() < end:
+            line = read_line(p, 0.2)
+            if line:
+                sys.stdout.write(line)
+
 def simple(p, cmd):
     p.reset_input_buffer()
     p.write((cmd + "\n").encode())
@@ -134,6 +167,8 @@ def run(p, args):
                 sys.stdout.write(line)
     elif args[0] == "ls":
         ls(p, args[1] if len(args) > 1 else "")
+    elif args[0] == "sim":
+        sim(p, *[float(a) for a in args[1:6]])
     elif args[0] == "get":
         get(p, args[1], args[2] if len(args) > 2 else os.path.basename(args[1]))
     else:

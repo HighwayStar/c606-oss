@@ -22,6 +22,7 @@
 #include "ui_port.h"
 #include "ride.h"
 #include "mapview.h"
+#include "gps.h"
 
 static const char *TAG = "devcon";
 
@@ -149,6 +150,10 @@ static void handle(char *cmd)
         char *a = strtok_r(NULL, " ", &save), *b = strtok_r(NULL, " ", &save);
         if (a && b) printf(rename(a, b) == 0 ? "ok\n" : "mv failed\n");
         else printf("mv failed\n");
+    } else if (!strcmp(w, "nmea")) {  /* simulated GPS: one sentence, or "nmea off" */
+        char *a = strtok_r(NULL, " ", &save);
+        if (a && !strcmp(a, "off")) { gps_simulate(false); printf("ok\n"); }
+        else printf(a && gps_inject(a) ? "ok\n" : "nmea failed\n");
     } else if (!strcmp(w, "pos")) {   /* centre the map page on a fixed position */
         char *a = strtok_r(NULL, " ", &save), *b = strtok_r(NULL, " ", &save);
         if (a && b) mapview_set_override(atof(a), atof(b), true);
@@ -196,6 +201,6 @@ esp_err_t devcon_init(devcon_key_cb_t key_cb)
     usb_serial_jtag_vfs_use_driver();
     usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_CRLF);
     xTaskCreate(devcon_task, "devcon", 4096, NULL, 3, NULL);
-    ESP_LOGI(TAG, "ready: key/tap/spd/shot/ls/get/mv/pos/zoom/heap");
+    ESP_LOGI(TAG, "ready: key/tap/spd/shot/ls/get/mv/pos/zoom/nmea/heap");
     return ESP_OK;
 }
