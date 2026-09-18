@@ -310,6 +310,22 @@ other hardware revisions.
   * `FITS/FIT/<unix time>.fit` — ride recordings (Garmin FIT).
   * `CONFIG/sensor_list.json` (paired sensors), `ProductInfo.config`, `FileVer.info`.
   * `EPHEMERIS/<unix time>_agnss.bin` — AGNSS/EPO data for the Airoha GNSS.
+  * `MAP/*.map` — **vector maps in the plain [Mapsforge binary map format](https://github.com/mapsforge/mapsforge/blob/master/docs/Specification-Binary-Map-File.md), version 3**
+    (magic `mapsforge binary OSM`, "created by mapsforge-map-writer-0.18.0" / "-0.23.0"). The vendor
+    generates them with `osmosis --read-pbf-fast … --bounding-polygon … --mw file=… tag-conf-file=tm.igsport.xml
+    zoom-interval-conf=5,0,7,10,8,11,14,12,15 threads=6 type=hd`, i.e. three zoom intervals with base
+    zooms 5 (levels 0–7), 10 (8–11) and 14 (12–15), tile size 256, no POIs at all, 17–21 way tags
+    (`highway=*`, `natural=water`, `natural=coastline`, `lock=yes`), street names and refs present, no
+    debug signatures. The 0–7 interval holds only coastlines (China) or nothing (Siberia); water
+    appears from zoom 12. Largest records seen: base-10 tile 407 KB, base-14 tile 174 KB, single way
+    3 KB / 1031 nodes (China). Coordinates: `mars_china_*.map` is GCJ-02 shifted (the Forbidden
+    City moat lands ~700 m NW of its WGS-84 position), `mars_russia_siberian-fed-district_*.map` is
+    plain WGS-84 (verified against OSM: площадь Калинина, Novosibirsk). `map.trans` is a plain text
+    region-name translation table. `*.etu` (e.g. `bg_china_big_v….101.etu`) are encrypted/compressed
+    background files, format unknown. The reader is `main/mapfile.c` (verified against a Python
+    reference decoder on both files, `tools/mapdump/` on the host). Reading needs
+    `CONFIG_FATFS_USE_FASTSEEK`: without the cluster link map every backward `fseek` in a 180 MB file
+    walks the FAT chain (a 9-tile view took 2.4 s, 80 ms with it).
   The open firmware writes only under `/sdcard/c606oss/`. A copy of everything except
   `MAP/` and `FONT/` lives in `~/devel/magene/emmc/` (outside this repo).
 

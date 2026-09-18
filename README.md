@@ -28,12 +28,17 @@ This PoC replaces only the ESP32 application. It:
   one of 18 cell layouts ("fences" 1, 2, 3A … 12) and every cell shows one
   data field (Speed, Max Speed, Avg HR, Time of Day, …). Configured on the
   device in the settings menu (gear icon), saved in NVS,
+* **map page**: reads the vendor's vector maps (`MAP/*.map` on the eMMC —
+  plain Mapsforge binary files, see `docs/HARDWARE.md`) and draws the roads
+  around the GPS position; +/− zoom buttons (zoom 10–17), rendered in its own
+  task in well under 100 ms per view,
 * developer console on the USB port: inject key/touch events and take
   screenshots from the host (`tools/devcon.py`),
 * idle / riding / paused modes: the idle screen (clock, GPS and sensor state,
   START button) is shown until a ride is started; the data pages, the track
   recording and the statistics only run during a ride,
-* keys: 0 = next page, 1 = manual lap, 2 = start ride / pause / resume,
+* keys: 0 = next page (idle ↔ status ↔ map when idle; the data pages and
+  the map during a ride), 1 = manual lap, 2 = start ride / pause / resume,
   hold 2 = "End ride?" dialog, hold 0 = power-off popup. USB storage mode is
   in Settings → System (tap *Reboot* or hold key 1 to leave it).
 
@@ -180,8 +185,21 @@ Developer console (same port, `main/devcon.c`): `tools/devcon.py /dev/ttyACM0
 key 0 1` clicks key 0, `... tap 120 160` touches the screen, `... shot out.png`
 saves a screenshot, `... ls` lists the ride files and `... get
 /sdcard/c606oss/<name>.fit` copies one to the host (no need for USB storage
-mode), and `... script "key 0 1" "sleep 0.5" "shot a.png"` chains them. Useful
-for exercising the UI without touching the device.
+mode), `... mv a b` renames a file on the card, `... pos 55.03 82.92` centres
+the map page on a position without a GPS fix (`pos` alone: back to the GPS),
+`... zoom 13` sets the map zoom, and `... script "key 0 1" "sleep 0.5" "shot
+a.png"` chains them (the device log keeps printing during `sleep`). Useful for
+exercising the UI without touching the device.
+
+**Maps.** The map page lists `/sdcard/MAP/*.map` at boot (the vendor's
+Mapsforge files; the encrypted `.etu` files are ignored). Without a `.map`
+file the page is not in the key-0 ring. Vendor maps for other regions are
+produced with the mapsforge map-writer, so any Mapsforge v3 map works —
+`tools/mapdump/` builds the same reader on the host (`build.sh`, then
+`mapdump file.map lat lon zoom out.ppm`) for checking a file without the
+device. File names containing "china" are treated as GCJ-02 (the fix is
+shifted to match); the Siberia map is plain WGS-84 despite its "mars_"
+prefix.
 
 If the screen stays dark: check the backlight (GPIO45) first — the bars are
 drawn before it is enabled, so a dark-but-flickering panel means the i80 bus
@@ -228,6 +246,9 @@ main/tracklog.c    ride recorder: FIT activity file (records, laps, session)
 main/fit.c         minimal FIT encoder (definitions, data messages, CRC)
 main/utc.c         wall clock from the nRF RTC or the GPS date
 main/ride.c        idle / riding / paused state machine
+main/mapfile.c     Mapsforge binary map reader (header, tile index, way decoding)
+main/mapview.c     map page: render task, rasteriser, canvas, zoom buttons
+tools/mapdump/     host build of mapfile.c: dump or render a tile of a .map file
 main/trip.c        distance (wheel sensor or GPS) and auto laps
 main/usb_msc.c     TinyUSB mass storage over the eMMC (esp_tinyusb)
 main/touch.c       FT6336 / CST328 touch controller over I2C

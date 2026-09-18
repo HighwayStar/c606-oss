@@ -10,6 +10,9 @@
  *   spd <kmh>         feed one speed sample to the auto-pause logic
  *   ls [dir]          list a directory (default /sdcard/c606oss): "name size" .. "LS_END"
  *   get <path>        dump a file as hex rows ("FILE <size>", 'F'.., "FILE_END")
+ *   mv <old> <new>    rename a file
+ *   pos <lat> <lon>   centre the map page on this position instead of the GPS ("pos" alone: back to GPS)
+ *   zoom <z>          map zoom level (10..17)
  *   heap              print free heap
  * tools/devcon.py drives it from the host. */
 

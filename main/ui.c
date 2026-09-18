@@ -19,14 +19,17 @@
 #include "datapage.h"
 #include "menu.h"
 #include "theme.h"
+#include "mapview.h"
 
 #define LOG_LINES 2
-#define MAX_PAGES (2 + CFG_PAGES)   /* idle, status, data pages */
+#define MAX_PAGES (3 + CFG_PAGES)   /* idle, status, map, data pages */
 #define HDR_H 28
 #define PAGE_IDLE 0
 #define PAGE_STATUS 1
+#define PAGE_MAP 2
+#define PAGE_FIRST_DATA 3
 
-static lv_obj_t *s_page_idle, *s_page_status;
+static lv_obj_t *s_page_idle, *s_page_status, *s_page_map, *s_map_status;
 static lv_obj_t *s_pages[MAX_PAGES];
 static int s_npages, s_page_idx;
 static int s_ring[MAX_PAGES], s_ring_n;  /* pages reachable with key 0 in the current mode */
@@ -237,19 +240,42 @@ static void gear_button(lv_obj_t *hdr)
     lv_obj_center(l);
 }
 
+/* Map page: header with the render status, the map canvas below (mapview.c). */
+static void build_map(lv_obj_t *scr)
+{
+    s_page_map = page(scr);
+    lv_obj_set_hidden(s_page_map, true);
+    lv_obj_t *hdr = lv_obj_create(s_page_map);
+    lv_obj_remove_style_all(hdr);
+    lv_obj_set_size(hdr, LCD_H_RES, HDR_H);
+    lv_obj_set_style_bg_color(hdr, C_HDR, 0);
+    lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
+    lv_obj_t *t = label(hdr, &lv_font_montserrat_14, lv_color_white());
+    lv_label_set_text(t, "Map");
+    lv_obj_align(t, LV_ALIGN_LEFT_MID, 6, 0);
+    s_map_status = label(hdr, &lv_font_montserrat_14, lv_color_white());
+    lv_label_set_text(s_map_status, "");
+    lv_obj_align(s_map_status, LV_ALIGN_LEFT_MID, 44, 0);
+    s_data_bat[PAGE_MAP] = label(hdr, &lv_font_montserrat_14, lv_color_white());
+    lv_label_set_text(s_data_bat[PAGE_MAP], "--%");
+    lv_obj_align(s_data_bat[PAGE_MAP], LV_ALIGN_RIGHT_MID, -6, 0);
+    gear_button(hdr);
+    mapview_create(s_page_map, HDR_H, LCD_H_RES, LCD_V_RES - HDR_H);
+}
+
 /* (Re)creates the enabled data pages from the configuration. */
 static void build_data_pages(lv_obj_t *scr)
 {
     for (int p = 0; p < CFG_PAGES; p++) {
         if (s_dp[p].cont) datapage_delete(&s_dp[p]);
     }
-    for (int i = 2; i < s_npages; i++) {
+    for (int i = PAGE_FIRST_DATA; i < s_npages; i++) {
         lv_obj_delete(s_pages[i]);
         s_pages[i] = NULL;
         s_data_bat[i] = NULL;
         s_mode_lbl[i] = NULL;
     }
-    s_npages = 2;
+    s_npages = PAGE_FIRST_DATA;
 
     const app_cfg_t *cfg = config_get();
     for (int p = 0; p < CFG_PAGES; p++) {
@@ -297,7 +323,9 @@ static void data_refresh_cb(lv_timer_t *t)
     if (s_page_idx == PAGE_IDLE) {
         field_value(FIELD_TIME_OF_DAY, buf, sizeof buf);
         lv_label_set_text(s_idle_clock, buf);
-    } else if (s_page_idx >= 2 && s_page_idx < s_npages) {
+    } else if (s_page_idx == PAGE_MAP) {
+        lv_label_set_text(s_map_status, mapview_status());
+    } else if (s_page_idx >= PAGE_FIRST_DATA && s_page_idx < s_npages) {
         datapage_refresh(&s_dp[s_dp_of_page[s_page_idx]]);
         char ses[16];
         fmt_session(ses, sizeof ses);
@@ -317,11 +345,13 @@ static void show_page(int idx)
         lv_obj_set_hidden(s_pages[i], i != idx);
     }
     s_page_idx = idx;
+    mapview_set_visible(idx == PAGE_MAP);
     data_refresh_cb(NULL);   /* don't wait for the timer */
 }
 
 /* Pages reachable with key 0: idle <-> status when idle, the data pages
- * during a ride (status page as a fallback when none is enabled). */
+ * during a ride (status page as a fallback when none is enabled); the map
+ * page in both modes when a map file was found. */
 static void set_ring(bool keep_page)
 {
     s_ring_n = 0;
@@ -329,9 +359,10 @@ static void set_ring(bool keep_page)
         s_ring[s_ring_n++] = PAGE_IDLE;
         s_ring[s_ring_n++] = PAGE_STATUS;
     } else {
-        for (int i = 2; i < s_npages; i++) s_ring[s_ring_n++] = i;
+        for (int i = PAGE_FIRST_DATA; i < s_npages; i++) s_ring[s_ring_n++] = i;
         if (!s_ring_n) s_ring[s_ring_n++] = PAGE_STATUS;
     }
+    if (mapview_available()) s_ring[s_ring_n++] = PAGE_MAP;
     int pos = 0;
     if (keep_page) {
         for (int i = 0; i < s_ring_n; i++) if (s_ring[i] == s_page_idx) pos = i;
@@ -360,7 +391,14 @@ void ui_set_mode(ride_mode_t mode)
 {
     ui_lock();
     s_mode = mode;
-    set_ring(mode != RIDE_IDLE && s_page_idx >= 2);   /* stay on the page when pausing/resuming */
+    set_ring(mode != RIDE_IDLE && s_page_idx >= PAGE_MAP);   /* stay on the page when pausing/resuming */
+    ui_unlock();
+}
+
+void ui_maps_changed(void)
+{
+    ui_lock();
+    set_ring(true);
     ui_unlock();
 }
 
@@ -573,9 +611,11 @@ void ui_create(void)
     lv_obj_add_style(scr, &theme_st_bg, 0);
     build_idle(scr);
     build_status(scr);
+    build_map(scr);
     s_pages[PAGE_IDLE] = s_page_idle;
     s_pages[PAGE_STATUS] = s_page_status;
-    s_npages = 2;
+    s_pages[PAGE_MAP] = s_page_map;
+    s_npages = PAGE_FIRST_DATA;
     lv_obj_set_hidden(s_page_status, true);
 
     s_cursor = lv_obj_create(scr);
@@ -688,6 +728,7 @@ void ui_key_event(uint8_t key, uint8_t evt)
 void ui_set_gps(const gps_fix_t *g)
 {
     char buf[64];
+    mapview_set_position(g->lat, g->lon, g->valid);
     ui_lock();
     if (g->baud == 0) {
         lv_label_set_text(s_gps, "GPS: probing baud");

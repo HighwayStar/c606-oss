@@ -27,6 +27,7 @@
 #include "sdcard.h"
 #include "tracklog.h"
 #include "usb_msc.h"
+#include "mapview.h"
 #include "touch.h"
 #include "ant.h"
 #include "sensor_list.h"
@@ -306,6 +307,7 @@ void app_main(void)
     if (sdcard_mount() == ESP_OK) {
         const sdcard_info_t *sd = sdcard_info();
         ui_set_sd(true, sd->name, sd->size_mb);
+        if (mapview_init() == ESP_OK) ui_maps_changed();   /* vendor vector maps in MAP/ */
     }
 
     uint32_t last_pwr_ms = 0;

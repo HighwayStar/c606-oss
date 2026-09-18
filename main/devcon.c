@@ -21,6 +21,7 @@
 #include "devcon.h"
 #include "ui_port.h"
 #include "ride.h"
+#include "mapview.h"
 
 static const char *TAG = "devcon";
 
@@ -144,6 +145,19 @@ static void handle(char *cmd)
     } else if (!strcmp(w, "get")) {
         char *a = strtok_r(NULL, " ", &save);
         if (a) cmd_get(a);
+    } else if (!strcmp(w, "mv")) {    /* rename a file on the card */
+        char *a = strtok_r(NULL, " ", &save), *b = strtok_r(NULL, " ", &save);
+        if (a && b) printf(rename(a, b) == 0 ? "ok\n" : "mv failed\n");
+        else printf("mv failed\n");
+    } else if (!strcmp(w, "pos")) {   /* centre the map page on a fixed position */
+        char *a = strtok_r(NULL, " ", &save), *b = strtok_r(NULL, " ", &save);
+        if (a && b) mapview_set_override(atof(a), atof(b), true);
+        else mapview_set_override(0, 0, false);
+        printf("ok\n");
+    } else if (!strcmp(w, "zoom")) {
+        char *a = strtok_r(NULL, " ", &save);
+        if (a) mapview_zoom_by(atoi(a) - mapview_zoom());
+        printf("zoom %u\n", mapview_zoom());
     } else if (!strcmp(w, "heap")) {
         printf("heap int %u psram %u\n", (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
@@ -154,7 +168,7 @@ static void handle(char *cmd)
 
 static void devcon_task(void *arg)
 {
-    char line[128];
+    char line[320];
     for (;;) {
         if (fgets(line, sizeof line, stdin)) {
             line[strcspn(line, "\r\n")] = 0;
@@ -173,7 +187,7 @@ esp_err_t devcon_init(devcon_key_cb_t key_cb)
 
     usb_serial_jtag_driver_config_t cfg = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
     cfg.tx_buffer_size = 4096;   /* one hex row per write */
-    cfg.rx_buffer_size = 256;
+    cfg.rx_buffer_size = 512;
     esp_err_t err = usb_serial_jtag_driver_install(&cfg);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "usb_serial_jtag driver: %s", esp_err_to_name(err));
@@ -182,6 +196,6 @@ esp_err_t devcon_init(devcon_key_cb_t key_cb)
     usb_serial_jtag_vfs_use_driver();
     usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_CRLF);
     xTaskCreate(devcon_task, "devcon", 4096, NULL, 3, NULL);
-    ESP_LOGI(TAG, "ready: key/tap/spd/shot/ls/get/heap");
+    ESP_LOGI(TAG, "ready: key/tap/spd/shot/ls/get/mv/pos/zoom/heap");
     return ESP_OK;
 }

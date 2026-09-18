@@ -20,6 +20,7 @@ void ui_set_sd(bool mounted, const char *name, uint32_t size_mb);
 void ui_key_event(uint8_t key, uint8_t evt);
 void ui_next_page(void);   /* key 0: idle <-> status, or the enabled data pages during a ride */
 void ui_set_mode(ride_mode_t mode);
+void ui_maps_changed(void);   /* after mapview_init(): adds the map page to the key-0 ring */
 void ui_show_usb_mode(void);
 void ui_set_usb_reboot_cb(ui_action_cb_t cb);   /* "Reboot" button of the USB page */
 /* Settings menu (opened with the gear icon): route key events to it while

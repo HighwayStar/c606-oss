@@ -59,3 +59,8 @@ CONFIG_TINYUSB_CDC_ENABLED=n
 CONFIG_TINYUSB_DESC_MANUFACTURER_STRING="c606-oss"
 CONFIG_TINYUSB_DESC_PRODUCT_STRING="C606 eMMC"
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# Map files are 100+ MB and read with random seeks: the cluster link map
+# makes f_lseek O(1) instead of walking the FAT chain from the file start.
+CONFIG_FATFS_USE_FASTSEEK=y
+CONFIG_FATFS_FAST_SEEK_BUFFER_SIZE=512

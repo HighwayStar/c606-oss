@@ -8,6 +8,7 @@
 
 #include "sdcard.h"
 #include "tracklog.h"
+#include "mapview.h"
 #include "usb_msc.h"
 
 static const char *TAG = "usb";
@@ -26,6 +27,7 @@ esp_err_t usb_msc_enter(void)
     if (s_active) return ESP_OK;
 
     tracklog_stop();
+    mapview_close();
     ESP_RETURN_ON_ERROR(sdcard_unmount(), TAG, "unmount");
 
     /* re-open the card for TinyUSB's block-level access */

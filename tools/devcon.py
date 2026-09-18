@@ -7,6 +7,9 @@
   tools/devcon.py PORT heap
   tools/devcon.py PORT ls [/sdcard/dir]  list the ride files (default /sdcard/c606oss)
   tools/devcon.py PORT get /sdcard/c606oss/x.fit [out.fit]   copy a file to the host
+  tools/devcon.py PORT mv /sdcard/a /sdcard/b   rename a file on the card
+  tools/devcon.py PORT pos 55.03 82.92  centre the map page on a position ("pos" alone: back to GPS)
+  tools/devcon.py PORT zoom 14          map zoom level
   tools/devcon.py PORT script "key 0 1" "sleep 0.5" "shot a.png" ...
 
 Needs pyserial. Log lines from the device are printed as they arrive."""
@@ -115,7 +118,7 @@ def simple(p, cmd):
         line = read_line(p, 0.3)
         if line:
             sys.stdout.write(line)
-            if line.strip() in ("ok",) or line.startswith("heap "):
+            if line.strip() in ("ok", "mv failed") or line.startswith(("heap ", "zoom ")):
                 break
 
 def run(p, args):
@@ -123,8 +126,12 @@ def run(p, args):
         return
     if args[0] == "shot":
         shot(p, args[1] if len(args) > 1 else "shot.png")
-    elif args[0] == "sleep":
-        time.sleep(float(args[1]))
+    elif args[0] == "sleep":   # keeps printing the device log meanwhile
+        end = time.time() + float(args[1])
+        while time.time() < end:
+            line = read_line(p, min(0.3, max(0.01, end - time.time())))
+            if line:
+                sys.stdout.write(line)
     elif args[0] == "ls":
         ls(p, args[1] if len(args) > 1 else "")
     elif args[0] == "get":
