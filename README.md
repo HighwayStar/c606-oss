@@ -71,6 +71,10 @@ tools/flash_poc.py -p /dev/ttyACM0            # backs up ota_0 + otadata first (
 tools/flash_poc.py -p /dev/ttyACM0 --dry-run  # just show the partition table
 ```
 
+To hand a build to someone else: `tools/make_release.sh` zips the binary,
+the flash helper and [`docs/FLASHING.md`](docs/FLASHING.md) (short
+instructions for the recipient: `pip install esptool`, run the helper).
+
 Restore the vendor app:
 
 ```sh
