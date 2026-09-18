@@ -80,7 +80,7 @@ with `esp32_image_parser.py dump_partition`.)
 ## What to expect on boot (verified on hardware)
 
 1. Idle screen: clock (nRF RTC + time zone), GPS fix / satellites, paired
-   sensor values, a *START RIDE* button and a *USB* button. Key 0 switches to the
+   sensor values and a *START RIDE* button. Key 0 switches to the
    status page (battery arc with mV, temperature and pressure, `nRF ok reason 4
    fw 0.2.19`, GPS and eMMC state, three key boxes, event log, heap footer) and
    back. A key box flashes green on a click and stays red while long-pressed.
@@ -94,8 +94,12 @@ with `esp32_image_parser.py dump_partition`.)
    and returns to the idle screen, anything else cancels.
 3. Data page cells show a field's name and value (font sized to the cell;
    grey `--` when no fresh reading arrived within a few seconds). Fields are
-   the current / min / max / avg of every measured parameter plus time of day,
-   session time, battery % and satellites. The average is time-weighted, so it
+   the current / min / max / avg of every measured parameter, distance and
+   laps (Distance, Laps, Lap Dist, Lap Time, Lap Speed, PreLap Time, PreLap
+   Dist), time of day, session time, battery % and satellites. Distance comes
+   from the ANT+ wheel sensor when it is live (revs × `ANT_WHEEL_CIRC_M`),
+   otherwise from consecutive GPS fixes (moving faster than 2 km/h); a lap
+   ends automatically every *Lap length*. The average is time-weighted, so it
    does not depend on how often a sensor reports; cadence and HR ignore zero
    samples. *Reset statistics* in the menu restarts the session by hand.
 
@@ -106,11 +110,13 @@ with `esp32_image_parser.py dump_partition`.)
      up/down selector, tick applies), *Fields* (preview of the page: tap a cell,
      or move the yellow frame with the keys and press key 0, then pick a
      category and a field).
+   * *Lap length* (tap: +0.5 km, 0.5 … 10 km, then off).
    * *Time zone* (tap: +1 h, wraps at UTC+14 → UTC-12) for the time of day,
      which comes from the nRF's RTC (UTC), GPS as fallback.
    * *Theme*: dark (default) or light, applied immediately (`main/theme.c`:
      shared LVGL styles; status colours are darkened on the light background).
    * *Reset statistics*.
+   * *System* → *USB storage* (same as holding key 1), *Power off*, *About*.
    The configuration lives in the NVS partition, namespace `c606oss` (the
    vendor's entries are untouched); defaults are in `config_defaults()`.
    Layouts are the table in `main/layouts.c`.
@@ -184,6 +190,7 @@ main/gps.c         UART0 NMEA reader with baud probing
 main/sdcard.c      eMMC mount (SDMMC 4-bit)
 main/tracklog.c    CSV track recorder
 main/ride.c        idle / riding / paused state machine
+main/trip.c        distance (wheel sensor or GPS) and auto laps
 main/usb_msc.c     TinyUSB mass storage over the eMMC (esp_tinyusb)
 main/touch.c       FT6336 / CST328 touch controller over I2C
 main/ant.c         ANT+ channel control + HR/speed/cadence/power page decoding

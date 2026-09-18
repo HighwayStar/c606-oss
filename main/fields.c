@@ -9,6 +9,7 @@
 #include "fields.h"
 #include "gps.h"
 #include "config.h"
+#include "trip.h"
 
 static char s_name[FIELD_COUNT][24];
 static uint8_t s_batt_pct;
@@ -23,8 +24,20 @@ static const struct { field_id_t id; const char *name, *unit; } k_other[] = {
     { FIELD_SESSION_TIME, "Session Time", "" },
     { FIELD_BATTERY_PCT,  "Battery",      "%" },
     { FIELD_SATS,         "Satellites",   "" },
+    { FIELD_DISTANCE,     "Distance",     "km" },
+    { FIELD_LAPS,         "Laps",         "" },
+    { FIELD_LAP_DIST,     "Lap Dist",     "km" },
+    { FIELD_LAP_TIME,     "Lap Time",     "" },
+    { FIELD_LAP_SPEED,    "Lap Speed",    "km/h" },
+    { FIELD_PRELAP_TIME,  "PreLap Time",  "" },
+    { FIELD_PRELAP_DIST,  "PreLap Dist",  "km" },
 };
 #define N_OTHER (sizeof k_other / sizeof k_other[0])
+
+/* chooser categories after the statistics */
+static const field_id_t k_cat_distance[] = { FIELD_DISTANCE, FIELD_LAP_DIST, FIELD_PRELAP_DIST };
+static const field_id_t k_cat_lap[]      = { FIELD_LAPS, FIELD_LAP_TIME, FIELD_LAP_SPEED, FIELD_PRELAP_TIME };
+static const field_id_t k_cat_other[]    = { FIELD_TIME_OF_DAY, FIELD_SESSION_TIME, FIELD_BATTERY_PCT, FIELD_SATS, FIELD_NONE };
 
 static int other_idx(field_id_t id)
 {
@@ -53,7 +66,7 @@ const char *field_name(field_id_t id)
 
 const char *field_unit(field_id_t id)
 {
-    if (id >= FIELD_STAT_BASE && id < FIELD_COUNT) {
+    if (id >= FIELD_STAT_BASE && id < FIELD_STAT_END) {
         return stats_info((id - FIELD_STAT_BASE) / AGG_COUNT)->unit;
     }
     int i = other_idx(id);
@@ -102,7 +115,7 @@ static void fmt_time_of_day(char *buf, size_t n)
 
 void field_value(field_id_t id, char *buf, size_t n)
 {
-    if (id >= FIELD_STAT_BASE && id < FIELD_COUNT) {
+    if (id >= FIELD_STAT_BASE && id < FIELD_STAT_END) {
         stat_id_t st = (id - FIELD_STAT_BASE) / AGG_COUNT;
         field_agg_t agg = (id - FIELD_STAT_BASE) % AGG_COUNT;
         stat_values_t v;
@@ -130,6 +143,19 @@ void field_value(field_id_t id, char *buf, size_t n)
         else snprintf(buf, n, "--");
         break;
     }
+    case FIELD_DISTANCE:    snprintf(buf, n, "%.2f", trip_distance_m() / 1000); break;
+    case FIELD_LAP_DIST:    snprintf(buf, n, "%.2f", trip_lap_distance_m() / 1000); break;
+    case FIELD_LAPS:        snprintf(buf, n, "%lu", (unsigned long)trip_laps()); break;
+    case FIELD_LAP_TIME:    fmt_hms(buf, n, trip_lap_time_ms() / 1000); break;
+    case FIELD_LAP_SPEED:   snprintf(buf, n, "%.1f", trip_lap_avg_kmh()); break;
+    case FIELD_PRELAP_TIME:
+        if (trip_laps()) fmt_hms(buf, n, trip_prev_lap_time_ms() / 1000);
+        else snprintf(buf, n, "--");
+        break;
+    case FIELD_PRELAP_DIST:
+        if (trip_laps()) snprintf(buf, n, "%.2f", trip_prev_lap_distance_m() / 1000);
+        else snprintf(buf, n, "--");
+        break;
     default:
         buf[0] = 0;
         break;
@@ -140,13 +166,17 @@ void field_value(field_id_t id, char *buf, size_t n)
 
 int field_category_count(void)
 {
-    return STAT_COUNT + 1;
+    return STAT_COUNT + 3;
 }
 
 const char *field_category_name(int cat)
 {
     if (cat < STAT_COUNT) return stats_info(cat)->name;
-    return "Other";
+    switch (cat - STAT_COUNT) {
+    case 0: return "Distance";
+    case 1: return "Lap";
+    default: return "Other";
+    }
 }
 
 int field_category_items(int cat, field_id_t *out, int max)
@@ -154,10 +184,15 @@ int field_category_items(int cat, field_id_t *out, int max)
     int n = 0;
     if (cat < STAT_COUNT) {
         for (int a = 0; a < AGG_COUNT && n < max; a++) out[n++] = FIELD_STAT(cat, a);
-    } else {
-        /* "Other": time of day first, (empty) last */
-        for (size_t i = 1; i < N_OTHER && n < max; i++) out[n++] = k_other[i].id;
-        if (n < max) out[n++] = FIELD_NONE;
+        return n;
     }
+    const field_id_t *list;
+    int cnt;
+    switch (cat - STAT_COUNT) {
+    case 0:  list = k_cat_distance; cnt = sizeof k_cat_distance; break;
+    case 1:  list = k_cat_lap;      cnt = sizeof k_cat_lap; break;
+    default: list = k_cat_other;    cnt = sizeof k_cat_other; break;
+    }
+    for (int i = 0; i < cnt && n < max; i++) out[n++] = list[i];
     return n;
 }

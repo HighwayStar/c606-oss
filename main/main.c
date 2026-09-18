@@ -33,6 +33,7 @@
 #include "config.h"
 #include "devcon.h"
 #include "ride.h"
+#include "trip.h"
 #include "esp_system.h"
 #include "tinyusb.h"
 
@@ -157,6 +158,7 @@ static void on_ant(const ant_sensors_t *v, void *ctx)
     if (ant_live(ANT_DEV_CADENCE, ANT_DEV_SPD_CAD)) stats_update(STAT_CADENCE, v->cadence_rpm);
     if (ant_live(ANT_DEV_SPEED, ANT_DEV_SPD_CAD)) stats_update(STAT_ANT_SPEED, v->speed_kmh);
     if (ant_live(ANT_DEV_POWER, ANT_DEV_POWER)) stats_update(STAT_POWER, v->power_w);
+    trip_wheel(v->wheel_revs, ant_live(ANT_DEV_SPEED, ANT_DEV_SPD_CAD));
     uint32_t now = esp_timer_get_time() / 1000;
     if (now - last_log >= 1000) {
         last_log = now;
@@ -230,6 +232,7 @@ static void on_gps(const gps_fix_t *fix, void *ctx)
         stats_update(STAT_SPEED, fix->speed_kmh);
         stats_update(STAT_ALTITUDE, fix->alt_m);
     }
+    trip_gps(fix);
     if (ride_recording()) {
         tracklog_point(fix, s_temp_c100, s_press_pa100);
     }

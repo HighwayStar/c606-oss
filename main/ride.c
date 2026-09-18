@@ -3,6 +3,7 @@
 #include "stats.h"
 #include "tracklog.h"
 #include "gps.h"
+#include "trip.h"
 
 static const char *TAG = "ride";
 static ride_mode_t s_mode = RIDE_IDLE;
@@ -29,6 +30,7 @@ void ride_start(void)
 {
     if (s_mode != RIDE_IDLE) return;
     stats_reset();
+    trip_reset();
     gps_fix_t fix;
     gps_get(&fix);
     if (tracklog_start(&fix) != ESP_OK) {

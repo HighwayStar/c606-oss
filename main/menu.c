@@ -7,9 +7,11 @@
  *         Layout       -> page preview + up/down selector, tick = apply
  *         Fields       -> page preview, tap a cell (or move with keys) ->
  *           category   -> field list -> assigned, back to the preview
+ *     Lap length       (tap: +0.5 km, off after 10 km)
  *     Time zone        (tap: +1 h, wraps)
  *     Theme            (tap: dark / light)
  *     Reset statistics
+ *     System           -> USB storage, Power off, About
  *
  * Screens are stacked; each one is a full-screen object on the top layer
  * with a header (back arrow + title). List screens share one implementation
@@ -28,6 +30,9 @@
 #include "datapage.h"
 #include "stats.h"
 #include "theme.h"
+#include "esp_app_desc.h"
+#include "esp_heap_caps.h"
+#include "esp_timer.h"
 
 #define MAX_DEPTH 8
 #define MAX_ITEMS 16
@@ -56,6 +61,7 @@ struct screen {
 static screen_t s_stack[MAX_DEPTH];
 static int s_depth;
 static void (*s_close_cb)(void);
+static void (*s_action_cb[MENU_ACTION_COUNT])(void);
 static lv_timer_t *s_timer;
 
 /* previews */
@@ -467,7 +473,60 @@ static void pages_open(void)
     update_hl(s);
 }
 
+/* ---- system ------------------------------------------------------------ */
+
+static void about_open(void)
+{
+    screen_t *s = push("About");
+    if (!s) return;
+    const esp_app_desc_t *d = esp_app_get_description();
+    lv_obj_t *l = label(s->root, &lv_font_montserrat_14, C_FG, "");
+    lv_obj_add_style(l, &theme_st_text, 0);
+    lv_label_set_text_fmt(l, "C606 open firmware\n%s\n\nESP-IDF %s\nbuilt %s\n\nheap %u KB  psram %u KB\nup %lu s",
+                          d->version, d->idf_ver, d->date,
+                          (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+                          (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024),
+                          (unsigned long)(esp_timer_get_time() / 1000000));
+    lv_obj_set_width(l, LCD_H_RES - 20);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 10, HDR_H + 10);
+    update_hl(s);
+}
+
+static void system_select(screen_t *s, int idx)
+{
+    void (*cb)(void) = NULL;
+    switch (idx) {
+    case 0: cb = s_action_cb[MENU_ACTION_USB]; break;
+    case 1: cb = s_action_cb[MENU_ACTION_POWER_OFF]; break;
+    case 2: about_open(); return;
+    default: return;
+    }
+    menu_close();
+    if (cb) cb();
+}
+
+static void system_open(void)
+{
+    screen_t *s = push("System");
+    if (!s) return;
+    s->select_cb = system_select;
+    make_list(s);
+    add_item(s, LV_SYMBOL_USB "  USB storage", ITEM_PLAIN, NULL, false);
+    add_item(s, LV_SYMBOL_POWER "  Power off", ITEM_PLAIN, NULL, false);
+    add_item(s, "About", ITEM_ARROW, NULL, false);
+    s->sel = 0;
+    update_hl(s);
+}
+
 /* ---- settings root ----------------------------------------------------- */
+
+static void lap_text(char *buf, size_t n)
+{
+    uint16_t m = config_get()->lap_len_m;
+    if (m) snprintf(buf, n, "%u.%u km", m / 1000, m % 1000 / 100);
+    else snprintf(buf, n, "off");
+}
+
 
 static void tz_text(char *buf, size_t n)
 {
@@ -475,32 +534,46 @@ static void tz_text(char *buf, size_t n)
     snprintf(buf, n, "UTC%c%02d:%02d", tz < 0 ? '-' : '+', abs(tz) / 60, abs(tz) % 60);
 }
 
+enum { ROOT_PAGES, ROOT_LAP, ROOT_TZ, ROOT_THEME, ROOT_RESET, ROOT_SYSTEM };
+
 static void settings_select(screen_t *s, int idx)
 {
     char buf[16];
     switch (idx) {
-    case 0:
+    case ROOT_PAGES:
         pages_open();
         break;
-    case 1: {
+    case ROOT_LAP: {
+        int m = config_get()->lap_len_m + CFG_LAP_STEP_M;
+        if (m > CFG_LAP_MAX_M) m = 0;   /* ... 9.5, 10.0, off, 0.5 ... */
+        config_get()->lap_len_m = m;
+        config_save();
+        lap_text(buf, sizeof buf);
+        set_right(s, idx, buf, false);
+        break;
+    }
+    case ROOT_TZ: {
         int tz = config_get()->tz_min + 60;
         if (tz > 14 * 60) tz = -12 * 60;
         config_get()->tz_min = tz;
         config_save();
         tz_text(buf, sizeof buf);
-        set_right(s, 1, buf, false);
+        set_right(s, idx, buf, false);
         break;
     }
-    case 2:
+    case ROOT_THEME:
         config_get()->theme = config_get()->theme == THEME_LIGHT ? THEME_DARK : THEME_LIGHT;
         config_save();
         theme_set(config_get()->theme);
-        set_right(s, 2, theme_name(config_get()->theme), false);
+        set_right(s, idx, theme_name(config_get()->theme), false);
         update_hl(s);   /* rows keep local colours: re-apply for the new theme */
         break;
-    case 3:
+    case ROOT_RESET:
         stats_reset();
         menu_close();
+        break;
+    case ROOT_SYSTEM:
+        system_open();
         break;
     default:
         break;
@@ -521,11 +594,14 @@ void menu_open(void)
     s->select_cb = settings_select;
     make_list(s);
     char buf[16];
-    tz_text(buf, sizeof buf);
     add_item(s, "Pages", ITEM_ARROW, NULL, false);
+    lap_text(buf, sizeof buf);
+    add_item(s, "Lap length", ITEM_VALUE, buf, false);
+    tz_text(buf, sizeof buf);
     add_item(s, "Time zone", ITEM_VALUE, buf, false);
     add_item(s, "Theme", ITEM_VALUE, theme_name(config_get()->theme), false);
     add_item(s, "Reset statistics", ITEM_PLAIN, NULL, false);
+    add_item(s, "System", ITEM_ARROW, NULL, false);
     s->sel = 0;
     update_hl(s);
     s_timer = lv_timer_create(timer_cb, 500, NULL);
@@ -545,6 +621,11 @@ void menu_close(void)
 bool menu_active(void) { return s_depth > 0; }
 
 void menu_set_close_cb(void (*cb)(void)) { s_close_cb = cb; }
+
+void menu_set_action_cb(menu_action_t a, void (*cb)(void))
+{
+    if (a < MENU_ACTION_COUNT) s_action_cb[a] = cb;
+}
 
 bool menu_key(uint8_t key, uint8_t evt)
 {

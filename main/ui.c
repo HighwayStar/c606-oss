@@ -38,7 +38,7 @@ static uint8_t s_bat_pct;
 static lv_obj_t *s_hdr_bat, *s_arc, *s_arc_lbl, *s_env, *s_nrf, *s_gps, *s_sd, *s_log, *s_foot;
 static lv_obj_t *s_key[3];
 static lv_obj_t *s_idle_clock, *s_idle_gps, *s_idle_sens, *s_idle_hint;
-static lv_obj_t *s_cursor, *s_touch_lbl, *s_btn_start, *s_btn_usb, *s_ant;
+static lv_obj_t *s_cursor, *s_touch_lbl, *s_btn_start, *s_ant;
 static ui_action_cb_t s_on_start, s_on_usb, s_on_power_off, s_on_end_ride;
 static lv_obj_t *s_popup;
 static ui_popup_t s_popup_kind;
@@ -182,7 +182,6 @@ static lv_obj_t *button(lv_obj_t *parent, const char *txt, lv_color_t color, int
 }
 
 static void start_btn_cb(lv_event_t *e) { if (s_on_start) s_on_start(); }
-static void usb_btn_cb(lv_event_t *e) { if (s_on_usb) s_on_usb(); }
 
 static void build_idle(lv_obj_t *scr)
 {
@@ -213,13 +212,9 @@ static void build_idle(lv_obj_t *scr)
     lv_label_set_text(s_idle_sens, "HR --  cad --  --.- km/h");
     lv_obj_align(s_idle_sens, LV_ALIGN_TOP_MID, 0, 150);
 
-    s_btn_start = button(s_page_idle, LV_SYMBOL_PLAY "  START RIDE", lv_palette_main(LV_PALETTE_GREEN), 200, 52);
-    lv_obj_align(s_btn_start, LV_ALIGN_TOP_MID, 0, 186);
+    s_btn_start = button(s_page_idle, LV_SYMBOL_PLAY "  START RIDE", lv_palette_main(LV_PALETTE_GREEN), 200, 56);
+    lv_obj_align(s_btn_start, LV_ALIGN_TOP_MID, 0, 200);
     lv_obj_add_event_cb(s_btn_start, start_btn_cb, LV_EVENT_CLICKED, NULL);
-
-    s_btn_usb = button(s_page_idle, LV_SYMBOL_USB "  USB", lv_palette_main(LV_PALETTE_BLUE), 120, 36);
-    lv_obj_align(s_btn_usb, LV_ALIGN_TOP_MID, 0, 250);
-    lv_obj_add_event_cb(s_btn_usb, usb_btn_cb, LV_EVENT_CLICKED, NULL);
 
     s_idle_hint = tlabel(s_page_idle, &lv_font_montserrat_14, &theme_st_muted);
     lv_label_set_text(s_idle_hint, "key 2: start   key 0: status");
@@ -369,10 +364,14 @@ void ui_set_mode(ride_mode_t mode)
     ui_unlock();
 }
 
+static void menu_usb_cb(void) { if (s_on_usb) s_on_usb(); }
+
 void ui_set_actions(ui_action_cb_t on_start, ui_action_cb_t on_usb)
 {
     s_on_start = on_start;
     s_on_usb = on_usb;
+    menu_set_action_cb(MENU_ACTION_USB, menu_usb_cb);
+    menu_set_action_cb(MENU_ACTION_POWER_OFF, ui_show_power_popup);
 }
 
 /* ---- confirmation popups ------------------------------------------------ */

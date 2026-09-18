@@ -22,7 +22,11 @@ typedef struct {
     int16_t tz_min;                     /* local time = UTC + tz_min */
     page_cfg_t page[CFG_PAGES];
     uint8_t theme;                      /* theme_id_t (added in version 2) */
+    uint16_t lap_len_m;                 /* auto lap every N metres, 0 = off (version 3) */
 } app_cfg_t;
+
+#define CFG_LAP_STEP_M 500
+#define CFG_LAP_MAX_M  10000
 
 app_cfg_t *config_get(void);
 void config_defaults(app_cfg_t *c);

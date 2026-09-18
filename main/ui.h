@@ -24,8 +24,8 @@ void ui_show_usb_mode(void);
 bool ui_menu_active(void);
 bool ui_menu_key(uint8_t key, uint8_t evt);
 
-/* Touch: chip name for the status page; callbacks for the idle page's
- * START / USB buttons. */
+/* Touch: chip name for the status page; callbacks for the idle page's START
+ * button and the menu's System -> USB storage entry. */
 void ui_set_touch(const char *chip_name);
 typedef void (*ui_action_cb_t)(void);
 void ui_set_actions(ui_action_cb_t on_start, ui_action_cb_t on_usb);

@@ -14,7 +14,7 @@
 
 static const char *TAG = "config";
 #define CFG_MAGIC   0xC606
-#define CFG_VERSION 2
+#define CFG_VERSION 3
 #define NVS_NS      "c606oss"
 #define NVS_KEY     "cfg"
 
@@ -37,11 +37,12 @@ void config_defaults(app_cfg_t *c)
     c->magic = CFG_MAGIC;
     c->version = CFG_VERSION;
     c->tz_min = 0;
+    c->lap_len_m = 1000;
 
     static const field_id_t p1[] = {
         FIELD_TIME_OF_DAY, FIELD_STAT(STAT_SPEED, AGG_CUR), FIELD_STAT(STAT_SPEED, AGG_AVG),
         FIELD_STAT(STAT_HR, AGG_CUR), FIELD_STAT(STAT_CADENCE, AGG_CUR),
-        FIELD_SESSION_TIME, FIELD_BATTERY_PCT,
+        FIELD_DISTANCE, FIELD_SESSION_TIME,
     };
     static const field_id_t p2[] = {
         FIELD_TIME_OF_DAY, FIELD_STAT(STAT_ALTITUDE, AGG_CUR),
@@ -57,13 +58,12 @@ void config_defaults(app_cfg_t *c)
         FIELD_STAT(STAT_ANT_SPEED, AGG_CUR), FIELD_SATS,
     };
     static const field_id_t p4[] = {
-        FIELD_TIME_OF_DAY, FIELD_STAT(STAT_TEMP, AGG_MIN), FIELD_STAT(STAT_TEMP, AGG_MAX),
-        FIELD_STAT(STAT_ALTITUDE, AGG_MAX),
+        FIELD_LAPS, FIELD_LAP_DIST, FIELD_LAP_TIME, FIELD_LAP_SPEED, FIELD_PRELAP_TIME, FIELD_DISTANCE,
     };
     set_page(&c->page[0], true, "7A", p1, sizeof p1);
     set_page(&c->page[1], true, "6C", p2, sizeof p2);
     set_page(&c->page[2], true, "12", p3, sizeof p3);
-    set_page(&c->page[3], false, "4A", p4, sizeof p4);
+    set_page(&c->page[3], false, "6A", p4, sizeof p4);
     set_page(&c->page[4], false, "1", p1, 1);
 }
 
@@ -71,6 +71,7 @@ static bool valid(const app_cfg_t *c)
 {
     if (c->magic != CFG_MAGIC || c->version != CFG_VERSION) return false;
     if (c->theme > 1) return false;
+    if (c->lap_len_m > CFG_LAP_MAX_M) return false;
     for (int p = 0; p < CFG_PAGES; p++) {
         if (c->page[p].layout >= layout_count()) return false;
         for (int i = 0; i < LAYOUT_MAX_CELLS; i++) {
@@ -101,11 +102,18 @@ void config_load(void)
     size_t len = sizeof tmp;
     err = nvs_get_blob(h, NVS_KEY, &tmp, &len);
     nvs_close(h);
-    /* version 1 blobs end right before `theme`: upgrade in place */
-    if (err == ESP_OK && tmp.magic == CFG_MAGIC && tmp.version == 1 && len == offsetof(app_cfg_t, theme)) {
-        tmp.version = 2;
-        tmp.theme = 0;
-        len = sizeof tmp;
+    /* older blobs are prefixes of the current struct (fields are only ever
+     * appended); the struct was zeroed, so upgrade in place */
+    if (err == ESP_OK && tmp.magic == CFG_MAGIC) {
+        if (tmp.version == 1 && len == offsetof(app_cfg_t, theme)) {
+            tmp.version = 2;
+            len = offsetof(app_cfg_t, lap_len_m);
+        }
+        if (tmp.version == 2 && len == offsetof(app_cfg_t, lap_len_m)) {
+            tmp.version = 3;
+            tmp.lap_len_m = 1000;
+            len = sizeof tmp;
+        }
     }
     if (err == ESP_OK && len == sizeof tmp && valid(&tmp)) {
         s_cfg = tmp;
