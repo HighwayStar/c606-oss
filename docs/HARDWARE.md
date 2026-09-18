@@ -217,14 +217,21 @@ In reply to `SendPowerOnCmd`:
 Every second (repeated 5x):
 * `A5 0C 6F F1 04 00 53 FF ss mm hh dd MM yy` — cmd 0 `'S'`: RTC, `sec, min, hour, day&0x1f, month-1, year-1900` (observed `.. 3A 0C 91 08 7E` = 2026-09-17 12:58 UTC, correct).
 
-Sensor stream `cmd 0x10, F1 <sub>`, ~5 Hz, starts some time after boot
-(not seen in the first 45 s; possibly motion-triggered). Interpretation of
-the values is a hypothesis from the vendor's math and plausibility:
+Sensor stream `cmd 0x10, F1 <sub>`, 5 Hz, together with the RTC frames
+(`00 53`, 5 Hz). **The nRF starts it only after a long press of the power
+key** (key 0) — that is part of its own power-on gesture, so on the vendor
+it is always running; after an ESP-only reset (esptool, `esp_restart`) it is
+off until the key is held again. Nothing the ESP32 can send starts it
+(tested: power-on repeats, `E2 01 18/19`, the `24 01` slave-mode query,
+GPS power, motion, ANT activity — none matter). Once started it runs
+until the nRF is power-cycled. Interpretation of the values, from the
+vendor's math (ImuDataInit / FUN_4221f530 / FUN_4221f708 / SetMagnOtpData):
 
 | sub | payload[2..7] | reading |
 |---|---|---|
-| 01 | 3 x int16 | accelerometer raw, ~4096 LSB/g (`3C 06 F0 04 1A 0E` -> magnitude ≈ 1.01 g at rest) |
-| 02 | 3 x int16 | gyro raw (`ED FF F7 FF 1B 00` = -19, -9, 27 at rest) |
+| 00 | u8 @8, u8 @9, u32 @2, u16 @6 | magnetometer OTP calibration (`SetMagnOtpData`) |
+| 01 | 3 x int16 | accelerometer, value/32768 * 8 g (32 g on HW variant `Res1Page11`); ≈ 1 g at rest |
+| 02 | 3 x int16 | gyro, value/32768 * 2000 dps |
 | 03 | int16 @2, u32 @4 | temperature in 0.01 °C (`AD 0B` = 29.89 °C), pressure in 0.01 Pa (`BC 2B 92 00` = 957.9 hPa). Vendor feeds these into the barometric altitude formula (44330 * (1 - (p/1013.25)^0.19)). |
 | 04 | u32 @2, u16 @6 | unknown (`32 00 00 00 77 00`), queued as type 9 |
 | 0A | int16 @2 | unknown float source (`F6 0C` = 3318) |
@@ -244,8 +251,9 @@ down on its own (tested for several minutes with only `SendPowerOnCmd` every 5 s
 | `E2 02 08 00 00 01 00 00` | factory init |
 | `E2 01 XX 00 00 00 00 00` | LED/misc, XX < 0x1c (0x17, 0x13, 0x18/0x19 seen) |
 
-Power-off (vendor): long press on key 0 -> `_KeyFunc_PowerOffPopUp` -> after
-confirmation `SYS_EVENT_POWER_OFF` -> `SendPowerOffCmd` (`E2 02 00 00 00 00 00 00`)
+Power-off (vendor): long press on key 0 -> `_KeyFunc_PowerOffPopUp` (the
+open firmware shows the same kind of popup: key 0 / "Off" confirms, anything
+else cancels, 8 s timeout) -> after confirmation `SYS_EVENT_POWER_OFF` -> `SendPowerOffCmd` (`E2 02 00 00 00 00 00 00`)
 -> the nRF cuts the ESP32's power. The nRF never powers off from the key alone.
 **Hardware reset: holding all three buttons makes the nRF reset/power-cycle the
 ESP32** (found empirically; a real power-on reset, clears RTC registers).

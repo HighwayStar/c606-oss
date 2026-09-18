@@ -17,7 +17,9 @@ static lv_obj_t *s_hdr_bat, *s_hdr_rec, *s_arc, *s_arc_lbl, *s_env, *s_nrf, *s_g
 static lv_obj_t *s_key[3];
 static lv_obj_t *s_big, *s_big_caption, *s_ride_env, *s_ride_gps, *s_ride_pos, *s_ride_time, *s_ride_rec;
 static lv_obj_t *s_cursor, *s_touch_lbl, *s_btn_rec, *s_btn_usb, *s_ride_sens, *s_ant;
-static ui_action_cb_t s_on_rec, s_on_usb;
+static ui_action_cb_t s_on_rec, s_on_usb, s_on_power_off;
+static lv_obj_t *s_popup;
+static lv_timer_t *s_popup_timer;
 
 static char s_log_buf[LOG_LINES][32];
 static int s_log_n;
@@ -203,6 +205,62 @@ void ui_set_actions(ui_action_cb_t on_rec, ui_action_cb_t on_usb)
     ui_lock();
     lv_obj_add_event_cb(s_btn_rec, rec_btn_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(s_btn_usb, usb_btn_cb, LV_EVENT_CLICKED, NULL);
+    ui_unlock();
+}
+
+static void popup_timeout_cb(lv_timer_t *t)
+{
+    s_popup_timer = NULL;
+    ui_hide_power_popup();
+}
+
+static void popup_off_cb(lv_event_t *e) { if (s_on_power_off) s_on_power_off(); }
+static void popup_cancel_cb(lv_event_t *e) { ui_hide_power_popup(); }
+
+void ui_set_power_off_cb(ui_action_cb_t cb) { s_on_power_off = cb; }
+
+bool ui_power_popup_active(void) { return s_popup != NULL; }
+
+void ui_hide_power_popup(void)
+{
+    ui_lock();
+    if (s_popup_timer) { lv_timer_delete(s_popup_timer); s_popup_timer = NULL; }
+    if (s_popup) { lv_obj_delete(s_popup); s_popup = NULL; }
+    ui_unlock();
+}
+
+void ui_show_power_popup(void)
+{
+    ui_lock();
+    if (!s_popup) {
+        s_popup = lv_obj_create(lv_layer_top());
+        lv_obj_set_size(s_popup, 200, 130);
+        lv_obj_center(s_popup);
+        lv_obj_set_style_bg_color(s_popup, lv_color_hex(0x202020), 0);
+        lv_obj_set_style_border_color(s_popup, lv_palette_main(LV_PALETTE_RED), 0);
+        lv_obj_set_style_border_width(s_popup, 2, 0);
+        lv_obj_t *t = label(s_popup, &lv_font_montserrat_20, lv_color_white());
+        lv_label_set_text(t, "Power off?");
+        lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 4);
+        lv_obj_t *h = label(s_popup, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_GREY));
+        lv_label_set_text(h, "key0: off   other: cancel");
+        lv_obj_align(h, LV_ALIGN_TOP_MID, 0, 34);
+        lv_obj_t *b = lv_button_create(s_popup);
+        lv_obj_set_size(b, 80, 34);
+        lv_obj_set_style_bg_color(b, lv_palette_main(LV_PALETTE_RED), 0);
+        lv_obj_align(b, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+        lv_obj_t *l = label(b, &lv_font_montserrat_14, lv_color_white());
+        lv_label_set_text(l, "Off"); lv_obj_center(l);
+        lv_obj_add_event_cb(b, popup_off_cb, LV_EVENT_CLICKED, NULL);
+        b = lv_button_create(s_popup);
+        lv_obj_set_size(b, 80, 34);
+        lv_obj_align(b, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+        l = label(b, &lv_font_montserrat_14, lv_color_white());
+        lv_label_set_text(l, "Cancel"); lv_obj_center(l);
+        lv_obj_add_event_cb(b, popup_cancel_cb, LV_EVENT_CLICKED, NULL);
+        s_popup_timer = lv_timer_create(popup_timeout_cb, 8000, NULL);
+        lv_timer_set_repeat_count(s_popup_timer, 1);
+    }
     ui_unlock();
 }
 

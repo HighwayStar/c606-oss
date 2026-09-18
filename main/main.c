@@ -75,6 +75,17 @@ static void enter_usb_mode(void)
     }
 }
 
+static void power_off(void)
+{
+    ESP_LOGI(TAG, "power off");
+    tracklog_stop();
+    if (usb_msc_active()) {
+        tinyusb_driver_uninstall();
+    }
+    usb_phy_route_to_serial_jtag();
+    nrf_link_send_power_off();
+}
+
 static void on_key(const nrf_key_event_t *ev)
 {
     ESP_LOGI(TAG, "KEY idx=%u event=%u aux=%u", ev->key, ev->event, ev->aux);
@@ -87,15 +98,21 @@ static void on_key(const nrf_key_event_t *ev)
         return;
     }
     if (ev->key == 0 && ev->event == KEY_EVT_LONG_RELEASE) {
-        /* vendor behaviour: long press on the power key -> ask the nRF to cut
-         * power. Coming back is a true power-on reset. */
-        ESP_LOGI(TAG, "power off requested");
-        tracklog_stop();
-        if (usb_msc_active()) {
-            tinyusb_driver_uninstall();
+        /* vendor behaviour: long press on the power key -> confirmation popup.
+         * Holding the key also makes the nRF start its IMU/baro/RTC stream
+         * (it does that as part of its own power-on gesture), so after a
+         * USB/software reset one hold + cancel re-enables temperature. */
+        ui_show_power_popup();
+        return;
+    }
+    if (ui_power_popup_active()) {
+        if (ev->event == KEY_EVT_CLICK) {
+            if (ev->key == 0) {
+                power_off();
+            } else {
+                ui_hide_power_popup();
+            }
         }
-        usb_phy_route_to_serial_jtag();
-        nrf_link_send_power_off();
         return;
     }
     if (usb_msc_active()) {
@@ -209,6 +226,7 @@ void app_main(void)
     ui_create();
     ui_set_touch(touch_chip_name());
     ui_set_actions(toggle_recording, enter_usb_mode);
+    ui_set_power_off_cb(power_off);
     vTaskDelay(pdMS_TO_TICKS(100));      /* let the first frame render */
     set_backlight(s_bl_pct);
 

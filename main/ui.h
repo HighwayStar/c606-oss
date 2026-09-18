@@ -23,4 +23,11 @@ void ui_show_usb_mode(void);
 void ui_set_touch(const char *chip_name);
 typedef void (*ui_action_cb_t)(void);
 void ui_set_actions(ui_action_cb_t on_rec, ui_action_cb_t on_usb);
+
+/* Power-off confirmation (hold key 0). Key 0 click / "Off" confirms,
+ * any other key / "Cancel" / 8 s timeout dismisses. */
+void ui_set_power_off_cb(ui_action_cb_t cb);
+void ui_show_power_popup(void);
+void ui_hide_power_popup(void);
+bool ui_power_popup_active(void);
 void ui_tick(uint32_t uptime_s);   /* call ~1x per second */

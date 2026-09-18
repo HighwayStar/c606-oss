@@ -17,7 +17,7 @@ This PoC replaces only the ESP32 application. It:
 * ANT+ sensors through the nRF: auto-connects to the sensors paired in the vendor's
   `CONFIG/sensor_list.json` (HR, speed, cadence, power decoded; shows on the ride page),
 * keys: 0 = switch page, 1/2 = backlight down/up, hold 2 = start/stop recording,
-  hold 1 = USB storage mode (hold 1 again to reboot out of it), hold 0 = power off.
+  hold 1 = USB storage mode (hold 1 again to reboot out of it), hold 0 = power-off popup.
 
 Everything hardware-specific lives in `main/board.h`; the analysis behind it
 is in [`docs/HARDWARE.md`](docs/HARDWARE.md).
@@ -83,8 +83,14 @@ with `esp32_image_parser.py dump_partition`.)
    (`303a:4002 c606-oss C606 eMMC`, auto-mounted by most desktops). The S3
    has a single USB PHY, so the console and esptool auto-reset are gone
    while in this mode — eject the disk and hold key 1 again to reboot.
-4. Hold key 0: power off (the nRF cuts the ESP32's power, like the vendor
-   firmware after its confirmation popup). Press key 0 to power on again.
+4. Hold key 0: "Power off?" popup — key 0 again (or tap Off) powers off via
+   the nRF, any other key (or Cancel, or 8 s) dismisses it. Press key 0 to
+   power on again.
+
+**Temperature / pressure show `--.-` after flashing?** The nRF only streams
+its IMU/baro data after the power key has been *held* (its power-on gesture).
+An esptool or software reset skips that, so hold key 0 once and cancel the
+popup; a normal button power-on doesn't need it.
 
 **If the ESP32 is ever unreachable** (no USB device, screen frozen): hold all
 three buttons for a few seconds — the nRF performs a hardware reset / power
