@@ -18,8 +18,13 @@ This PoC replaces only the ESP32 application. It:
   `CONFIG/sensor_list.json` (HR, speed, cadence, power decoded; shows on the ride page),
 * session statistics (current / min / max / avg) for every measured parameter —
   GPS speed and altitude, HR, cadence, sensor speed, power, temperature,
-  pressure, battery — shown as widgets on data pages (`k_data_pages` in
-  `main/ui.c`; any parameter can be placed on any number of pages),
+  pressure, battery,
+* up to 5 user-configurable data pages, Bryton/Magene style: each page has
+  one of 18 cell layouts ("fences" 1, 2, 3A … 12) and every cell shows one
+  data field (Speed, Max Speed, Avg HR, Time of Day, …). Configured on the
+  device in the settings menu (gear icon), saved in NVS,
+* developer console on the USB port: inject key/touch events and take
+  screenshots from the host (`tools/devcon.py`),
 * keys: 0 = next page, 1/2 = backlight down/up, hold 2 = start/stop recording,
   hold 1 = USB storage mode (hold 1 again to reboot out of it), hold 0 = power-off popup.
 
@@ -83,16 +88,29 @@ with `esp32_image_parser.py dump_partition`.)
    (position, altitude, speed, course, sats, HDOP, temperature, pressure). A key box flashes green on a
    click and stays red while long-pressed (event 4), clears on release (5).
 
-3. Key 0 again: the data pages ("Ride 3/4", "Environment 4/4"). Each widget
-   shows the parameter's current value in big digits (grey `--` when no fresh
-   reading arrived within a few seconds) and its session min / max / avg.
-   The average is time-weighted, so it does not depend on how often a sensor
-   reports; cadence and HR ignore zero samples. The session starts at boot,
-   restarts when a recording is started, and can be restarted by tapping
-   `reset` in the page footer (which also shows the session length).
-   Page layout is a table in `main/ui.c` (`k_data_pages`): a list of
-   `{parameter, columns}` per page on a 2-column, 3-row grid; a 2-column
-   widget gets larger digits and a stacked min/max/avg column.
+3. Key 0 again: the data pages ("Page 1" … "Page 5", only the enabled ones).
+   Each cell shows a field's name and value (font sized to the cell; grey `--`
+   when no fresh reading arrived within a few seconds). Fields are the
+   current / min / max / avg of every measured parameter plus time of day,
+   session time, battery % and satellites. The average is time-weighted, so it
+   does not depend on how often a sensor reports; cadence and HR ignore zero
+   samples. The session starts at boot, restarts when a recording is started
+   or with *Reset statistics* in the menu.
+
+   **Settings menu** — tap the gear icon in a page header. Touch or keys work
+   (key 2 = up, key 1 = down, key 0 = select; selecting the back arrow goes
+   back):
+   * *Pages* → *Page n* → *Enable*, *Layout* (preview of the page with an
+     up/down selector, tick applies), *Fields* (preview of the page: tap a cell,
+     or move the yellow frame with the keys and press key 0, then pick a
+     category and a field).
+   * *Time zone* (tap: +1 h, wraps at UTC+14 → UTC-12) for the time of day,
+     which comes from the nRF's RTC (UTC), GPS as fallback.
+   * *Reset statistics*.
+   The configuration lives in the NVS partition, namespace `c606oss` (the
+   vendor's entries are untouched); defaults are in `config_defaults()`.
+   Layouts are the table in `main/layouts.c`.
+
 4. Hold key 1: the eMMC appears on the host as a 3.7 GB USB disk
    (`303a:4002 c606-oss C606 eMMC`, auto-mounted by most desktops). The S3
    has a single USB PHY, so the console and esptool auto-reset are gone
@@ -113,6 +131,11 @@ cycle of the ESP32 regardless of what the firmware is doing.
 Console: `tools/serial_log.py /dev/ttyACM0 20 --reset` (inside the IDF
 container, or anywhere with pyserial) prints the boot log and every non-periodic
 nRF frame.
+
+Developer console (same port, `main/devcon.c`): `tools/devcon.py /dev/ttyACM0
+key 0 1` clicks key 0, `... tap 120 160` touches the screen, `... shot out.png`
+saves a screenshot, and `... script "key 0 1" "sleep 0.5" "shot a.png"` chains
+them. Useful for exercising the UI without touching the device.
 
 If the screen stays dark: check the backlight (GPIO45) first — the bars are
 drawn before it is enabled, so a dark-but-flickering panel means the i80 bus
@@ -141,9 +164,15 @@ works. If colours are swapped (red <-> blue) build with
 main/board.h       pins, bus settings, protocol constants (from RE)
 main/lcd.c         i80 bus + ST7789 init + async bitmap push
 main/ui_port.c     LVGL 9 display driver, tick, render task, lock
-main/ui.c          pages: status / ride / data pages (widget layout table)
-main/widget.c      data-field widget: current + min/max/avg of one parameter
+main/ui.c          pages: status / ride / configured data pages, menu hook
+main/datapage.c    renders one configured page (cells, auto font size)
+main/layouts.c     the cell layouts ("fences" 1 … 12)
+main/fields.c      data field catalogue (name, unit, current text)
+main/config.c      page configuration + settings, persisted in NVS
+main/menu.c        settings menu (pages, layout picker, field editor, ...)
 main/stats.c       session statistics (min/max/time-weighted avg, staleness)
+main/devcon.c      developer console: key/tap injection, screenshots
+tools/devcon.py    host side of the developer console
 main/backlight.c   LEDC PWM
 main/nrf_link.c    UART framing, CRC16, TX helpers, key decoding
 main/gps.c         UART0 NMEA reader with baud probing

@@ -1,6 +1,7 @@
-/* Demo UI: a status page (battery arc, environment, key indicators, event
- * log, heap stats), a "ride" page with big digits and data pages built from
- * min/max/avg widgets (see k_data_pages). Key 0 cycles through the pages. */
+/* UI: a status page (battery arc, environment, key indicators, event log,
+ * heap stats), a "ride" page with big digits and the user-configurable data
+ * pages (config.c: layout + field per cell, edited in the settings menu).
+ * Key 0 cycles through the pages; the gear icon opens the menu. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,44 +13,21 @@
 #include "ui_port.h"
 #include "ui.h"
 #include "stats.h"
-#include "widget.h"
+#include "config.h"
+#include "datapage.h"
+#include "menu.h"
 
 #define LOG_LINES 2
-#define MAX_PAGES 8
-#define MAX_WIDGETS 16
-#define DATA_GRID_Y 30            /* below the 28 px header */
-#define DATA_ROWS 3               /* 3 x 84 + gaps = 294 -> footer at 294..320 */
-
-/* ---- data page layout ---------------------------------------------------
- * Each entry is one page: a list of widgets placed left-to-right, top-to-
- * bottom on a 2-column grid; cols = 2 makes a full-width widget. A parameter
- * may appear on several pages. Edit here to rearrange the pages. */
-typedef struct { stat_id_t id; uint8_t cols; } slot_t;
-typedef struct { const char *title; const slot_t *slots; size_t n; } data_page_def_t;
-
-static const slot_t k_page_ride_data[] = {
-    { STAT_SPEED, 2 },
-    { STAT_HR, 1 }, { STAT_CADENCE, 1 },
-    { STAT_POWER, 1 }, { STAT_ALTITUDE, 1 },
-};
-static const slot_t k_page_env[] = {
-    { STAT_TEMP, 1 }, { STAT_PRESSURE, 1 },
-    { STAT_ANT_SPEED, 1 }, { STAT_SPEED, 1 },
-    { STAT_BATTERY, 2 },
-};
-#define DEF(t, s) { t, s, sizeof s / sizeof s[0] }
-static const data_page_def_t k_data_pages[] = {
-    DEF("Ride", k_page_ride_data),
-    DEF("Environment", k_page_env),
-};
+#define MAX_PAGES (2 + CFG_PAGES)
+#define HDR_H 28
 
 static lv_obj_t *s_page_status, *s_page_ride;
 static lv_obj_t *s_pages[MAX_PAGES];
 static int s_npages, s_page_idx;
-static widget_t s_widgets[MAX_WIDGETS];
-static uint8_t s_widget_page[MAX_WIDGETS];
-static int s_nwidgets;
-static lv_obj_t *s_data_bat[MAX_PAGES], *s_data_since[MAX_PAGES];
+static datapage_t s_dp[CFG_PAGES];          /* one per configured page */
+static int s_dp_of_page[MAX_PAGES];         /* page index -> config page */
+static lv_obj_t *s_data_bat[MAX_PAGES];
+static uint8_t s_bat_pct;
 static lv_obj_t *s_hdr_bat, *s_hdr_rec, *s_arc, *s_arc_lbl, *s_env, *s_nrf, *s_gps, *s_sd, *s_log, *s_foot;
 static lv_obj_t *s_key[3];
 static lv_obj_t *s_big, *s_big_caption, *s_ride_env, *s_ride_gps, *s_ride_pos, *s_ride_time, *s_ride_rec;
@@ -68,6 +46,8 @@ static const lv_color_t C_HDR  = LV_COLOR_MAKE(0x10, 0x40, 0xa0);
 static const lv_color_t C_IDLE = LV_COLOR_MAKE(0x30, 0x30, 0x30);
 static const lv_color_t C_HOLD = LV_COLOR_MAKE(0xd0, 0x20, 0x20);
 static const lv_color_t C_CLK  = LV_COLOR_MAKE(0x20, 0xa0, 0x30);
+
+static void gear_button(lv_obj_t *hdr);
 
 static lv_obj_t *label(lv_obj_t *parent, const lv_font_t *font, lv_color_t color)
 {
@@ -105,7 +85,8 @@ static void build_status(lv_obj_t *scr)
     lv_obj_align(s_hdr_bat, LV_ALIGN_RIGHT_MID, -6, 0);
     s_hdr_rec = label(hdr, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_RED));
     lv_label_set_text(s_hdr_rec, "");
-    lv_obj_align(s_hdr_rec, LV_ALIGN_CENTER, 20, 0);
+    lv_obj_align(s_hdr_rec, LV_ALIGN_CENTER, 0, 0);
+    gear_button(hdr);
 
     /* battery arc */
     s_arc = lv_arc_create(s_page_status);
@@ -234,73 +215,66 @@ static void build_ride(lv_obj_t *scr)
 
 /* ---- data pages -------------------------------------------------------- */
 
-static void stats_reset_cb(lv_event_t *e)
+static void gear_cb(lv_event_t *e) { menu_open(); }
+
+static void gear_button(lv_obj_t *hdr)
 {
-    stats_reset();
-    for (int i = 0; i < s_nwidgets; i++) {
-        widget_refresh(&s_widgets[i]);
-    }
-}
-
-static void build_data_page(lv_obj_t *scr, const data_page_def_t *def, int page_idx)
-{
-    lv_obj_t *p = page(scr);
-    lv_obj_set_hidden(p, true);
-    s_pages[page_idx] = p;
-
-    lv_obj_t *hdr = lv_obj_create(p);
-    lv_obj_remove_style_all(hdr);
-    lv_obj_set_size(hdr, LCD_H_RES, 28);
-    lv_obj_set_style_bg_color(hdr, C_HDR, 0);
-    lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
-    lv_obj_t *t = label(hdr, &lv_font_montserrat_14, lv_color_white());
-    lv_label_set_text_fmt(t, "%s  %d/%d", def->title, page_idx + 1, (int)(2 + sizeof k_data_pages / sizeof k_data_pages[0]));
-    lv_obj_align(t, LV_ALIGN_LEFT_MID, 6, 0);
-    s_data_bat[page_idx] = label(hdr, &lv_font_montserrat_14, lv_color_white());
-    lv_label_set_text(s_data_bat[page_idx], "--%");
-    lv_obj_align(s_data_bat[page_idx], LV_ALIGN_RIGHT_MID, -6, 0);
-
-    uint8_t col = 0, row = 0;
-    for (size_t i = 0; i < def->n; i++) {
-        uint8_t cols = def->slots[i].cols == 2 ? 2 : 1;
-        if (col + cols > WIDGET_COLS) { col = 0; row++; }
-        if (row >= DATA_ROWS || s_nwidgets >= MAX_WIDGETS) {
-            break;   /* layout table asks for more than fits */
-        }
-        widget_create(&s_widgets[s_nwidgets], p, def->slots[i].id, cols, col, row, DATA_GRID_Y);
-        s_widget_page[s_nwidgets++] = page_idx;
-        col += cols;
-        if (col >= WIDGET_COLS) { col = 0; row++; }
-    }
-
-    /* footer: session length + reset */
-    s_data_since[page_idx] = label(p, &lv_font_montserrat_14, lv_palette_main(LV_PALETTE_GREY));
-    lv_label_set_text(s_data_since[page_idx], "session 0:00:00");
-    lv_obj_align(s_data_since[page_idx], LV_ALIGN_BOTTOM_LEFT, 8, -6);
-    lv_obj_t *b = lv_button_create(p);
-    lv_obj_set_size(b, 64, 24);
-    lv_obj_set_style_bg_color(b, C_IDLE, 0);
-    lv_obj_align(b, LV_ALIGN_BOTTOM_RIGHT, -6, -2);
-    lv_obj_t *l = label(b, &lv_font_montserrat_14, lv_color_white());
-    lv_label_set_text(l, LV_SYMBOL_REFRESH " reset");
+    lv_obj_t *b = lv_obj_create(hdr);
+    lv_obj_remove_style_all(b);
+    lv_obj_set_size(b, 40, HDR_H);
+    lv_obj_align(b, LV_ALIGN_RIGHT_MID, -44, 0);
+    lv_obj_add_event_cb(b, gear_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *l = label(b, &lv_font_montserrat_20, lv_color_white());
+    lv_label_set_text(l, LV_SYMBOL_SETTINGS);
     lv_obj_center(l);
-    lv_obj_add_event_cb(b, stats_reset_cb, LV_EVENT_CLICKED, NULL);
 }
 
-/* Refreshes the widgets of the visible data page (LVGL task). */
+/* (Re)creates the enabled data pages from the configuration. */
+static void build_data_pages(lv_obj_t *scr)
+{
+    for (int p = 0; p < CFG_PAGES; p++) {
+        if (s_dp[p].cont) datapage_delete(&s_dp[p]);
+    }
+    for (int i = 2; i < s_npages; i++) {
+        lv_obj_delete(s_pages[i]);
+        s_pages[i] = NULL;
+        s_data_bat[i] = NULL;
+    }
+    s_npages = 2;
+
+    const app_cfg_t *cfg = config_get();
+    for (int p = 0; p < CFG_PAGES; p++) {
+        if (!cfg->page[p].enabled) continue;
+        int idx = s_npages++;
+        lv_obj_t *pg = page(scr);
+        lv_obj_set_hidden(pg, true);
+        s_pages[idx] = pg;
+        s_dp_of_page[idx] = p;
+
+        lv_obj_t *hdr = lv_obj_create(pg);
+        lv_obj_remove_style_all(hdr);
+        lv_obj_set_size(hdr, LCD_H_RES, HDR_H);
+        lv_obj_set_style_bg_color(hdr, C_HDR, 0);
+        lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
+        lv_obj_t *t = label(hdr, &lv_font_montserrat_14, lv_color_white());
+        lv_label_set_text_fmt(t, "Page %d", p + 1);
+        lv_obj_align(t, LV_ALIGN_LEFT_MID, 6, 0);
+        s_data_bat[idx] = label(hdr, &lv_font_montserrat_14, lv_color_white());
+        lv_label_set_text_fmt(s_data_bat[idx], "%u%%", s_bat_pct);
+        lv_obj_align(s_data_bat[idx], LV_ALIGN_RIGHT_MID, -6, 0);
+        gear_button(hdr);
+
+        datapage_build(&s_dp[p], pg, &cfg->page[p], 0, HDR_H, LCD_H_RES, LCD_V_RES - HDR_H);
+    }
+    /* keep the cursor ring above the new pages */
+    if (s_cursor) lv_obj_move_foreground(s_cursor);
+}
+
+/* Refreshes the visible data page (LVGL task). */
 static void data_refresh_cb(lv_timer_t *t)
 {
-    if (s_page_idx < 2 || !s_pages[s_page_idx] || lv_obj_is_hidden(s_pages[s_page_idx])) {
-        return;
-    }
-    for (int i = 0; i < s_nwidgets; i++) {
-        if (s_widget_page[i] == s_page_idx) {
-            widget_refresh(&s_widgets[i]);
-        }
-    }
-    uint32_t s = stats_session_ms() / 1000;
-    lv_label_set_text_fmt(s_data_since[s_page_idx], "session %lu:%02lu:%02lu",
-                          (unsigned long)(s / 3600), (unsigned long)(s / 60 % 60), (unsigned long)(s % 60));
+    if (s_page_idx < 2 || s_page_idx >= s_npages || menu_active()) return;
+    datapage_refresh(&s_dp[s_dp_of_page[s_page_idx]]);
 }
 
 static void show_page(int idx)
@@ -312,6 +286,14 @@ static void show_page(int idx)
     if (idx >= 2) {
         data_refresh_cb(NULL);   /* don't wait for the timer */
     }
+}
+
+/* The configuration may have changed while the menu was open. */
+static void on_menu_closed(void)
+{
+    build_data_pages(lv_screen_active());
+    if (s_page_idx >= s_npages) s_page_idx = 0;
+    show_page(s_page_idx);
 }
 
 static void rec_btn_cb(lv_event_t *e) { if (s_on_rec) s_on_rec(); }
@@ -414,10 +396,6 @@ void ui_create(void)
     s_pages[0] = s_page_status;
     s_pages[1] = s_page_ride;
     s_npages = 2;
-    for (size_t i = 0; i < sizeof k_data_pages / sizeof k_data_pages[0] && s_npages < MAX_PAGES; i++) {
-        build_data_page(scr, &k_data_pages[i], s_npages++);
-    }
-    lv_timer_create(data_refresh_cb, 500, NULL);
 
     s_cursor = lv_obj_create(scr);
     lv_obj_remove_style_all(s_cursor);
@@ -428,6 +406,10 @@ void ui_create(void)
     lv_obj_set_clickable(s_cursor, false);
     lv_obj_set_hidden(s_cursor, true);
     lv_timer_create(cursor_timer_cb, 30, NULL);
+
+    build_data_pages(scr);
+    menu_set_close_cb(on_menu_closed);
+    lv_timer_create(data_refresh_cb, 500, NULL);
     ui_unlock();
 }
 
@@ -437,8 +419,9 @@ void ui_set_battery(uint8_t pct, uint16_t mv)
     lv_arc_set_value(s_arc, pct);
     lv_label_set_text_fmt(s_arc_lbl, "%u%%\n%u mV", pct, mv);
     lv_label_set_text_fmt(s_hdr_bat, "%u%%", pct);
+    s_bat_pct = pct;
     for (int i = 2; i < s_npages; i++) {
-        lv_label_set_text_fmt(s_data_bat[i], "%u%%", pct);
+        if (s_data_bat[i]) lv_label_set_text_fmt(s_data_bat[i], "%u%%", pct);
     }
     ui_unlock();
 }
@@ -638,6 +621,19 @@ void ui_next_page(void)
     ui_lock();
     show_page((s_page_idx + 1) % s_npages);
     ui_unlock();
+}
+
+bool ui_menu_active(void)
+{
+    return menu_active();
+}
+
+bool ui_menu_key(uint8_t key, uint8_t evt)
+{
+    ui_lock();
+    bool used = menu_key(key, evt);
+    ui_unlock();
+    return used;
 }
 
 void ui_tick(uint32_t uptime_s)

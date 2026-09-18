@@ -16,7 +16,11 @@ void ui_set_sensors(const ant_sensors_t *s, const ant_channel_t *ch, size_t nch)
 void ui_set_sd(bool mounted, const char *name, uint32_t size_mb);
 void ui_set_rec(bool active, uint32_t points);
 void ui_key_event(uint8_t key, uint8_t evt);
-void ui_next_page(void);   /* status -> ride -> data pages -> ... */
+void ui_next_page(void);   /* status -> ride -> enabled data pages -> ... */
+/* Settings menu (opened with the gear icon): route key events to it while
+ * it is open. */
+bool ui_menu_active(void);
+bool ui_menu_key(uint8_t key, uint8_t evt);
 void ui_show_usb_mode(void);
 
 /* Touch: chip name for the status page; callbacks for the on-screen buttons. */

@@ -18,6 +18,7 @@
 #include "lcd.h"
 #include "touch.h"
 #include "ui_port.h"
+#include "devcon.h"
 
 static const char *TAG = "ui_port";
 
@@ -39,9 +40,29 @@ static bool s_pressed;
 #define TOUCH_MIRROR_Y 0
 #endif
 
+/* injected touch (developer console) */
+static int16_t s_inj_x, s_inj_y;
+static uint32_t s_inj_until_ms;
+
+void ui_port_inject_touch(int16_t x, int16_t y, uint32_t hold_ms)
+{
+    s_inj_x = x;
+    s_inj_y = y;
+    s_inj_until_ms = esp_timer_get_time() / 1000 + hold_ms;
+}
+
 static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
 {
     uint16_t x, y;
+    if (esp_timer_get_time() / 1000 < s_inj_until_ms) {
+        s_last_x = s_inj_x;
+        s_last_y = s_inj_y;
+        s_pressed = true;
+        data->state = LV_INDEV_STATE_PRESSED;
+        data->point.x = s_last_x;
+        data->point.y = s_last_y;
+        return;
+    }
     if (touch_read(&x, &y)) {
         if (TOUCH_SWAP_XY) { uint16_t t = x; x = y; y = t; }
         if (TOUCH_MIRROR_X) x = LCD_H_RES - 1 - x;
@@ -69,6 +90,7 @@ bool ui_port_touch_state(int16_t *x, int16_t *y)
 
 static void flush_cb(lv_display_t *disp, const lv_area_t *a, uint8_t *px)
 {
+    devcon_mirror(a->x1, a->y1, a->x2 + 1, a->y2 + 1, px);
     lcd_draw_bitmap(a->x1, a->y1, a->x2 + 1, a->y2 + 1, px);
     /* lv_display_flush_ready() is called from the DMA-done ISR */
 }

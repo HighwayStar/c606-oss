@@ -213,6 +213,10 @@ esp_err_t gps_init(gps_update_cb_t cb, void *ctx)
 
 void gps_get(gps_fix_t *out)
 {
+    if (!s_lock) {            /* before gps_init(): nothing received yet */
+        memset(out, 0, sizeof *out);
+        return;
+    }
     xSemaphoreTake(s_lock, portMAX_DELAY);
     *out = s_fix;
     xSemaphoreGive(s_lock);

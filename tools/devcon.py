@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""Drive the firmware's developer console (main/devcon.c) over the USB port.
+
+  tools/devcon.py PORT key 0 1          click key 0 (evt 1 click, 4 hold, 5 release)
+  tools/devcon.py PORT tap 120 160      touch at x,y
+  tools/devcon.py PORT shot out.png     screenshot
+  tools/devcon.py PORT heap
+  tools/devcon.py PORT script "key 0 1" "sleep 0.5" "shot a.png" ...
+
+Needs pyserial. Log lines from the device are printed as they arrive."""
+import re, struct, sys, time, zlib
+import serial
+
+def png_from_rgb565(w, h, rows, path):
+    raw = bytearray()
+    for r in rows:
+        raw.append(0)   # filter none
+        for i in range(0, len(r), 2):
+            v = r[i] | (r[i + 1] << 8)
+            raw += bytes(((v >> 11) * 255 // 31, ((v >> 5) & 0x3f) * 255 // 63, (v & 0x1f) * 255 // 31))
+    def chunk(t, d):
+        c = struct.pack(">I", len(d)) + t + d
+        return c + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(bytes(raw), 6)) + chunk(b"IEND", b""))
+
+def read_line(p, timeout):
+    p.timeout = timeout
+    return p.readline().decode("utf-8", "replace")
+
+def shot(p, path):
+    p.reset_input_buffer()
+    p.write(b"shot\n")
+    w = h = None
+    rows = []
+    end = time.time() + 20
+    while time.time() < end:
+        line = read_line(p, 2)
+        if not line:
+            continue
+        m = re.search(r"SHOT (\d+) (\d+)", line)
+        if m:
+            w, h = int(m.group(1)), int(m.group(2))
+            continue
+        # a row is written atomically but log output from other tasks may
+        # precede it on the same line
+        m = re.search(r"R([0-9a-f]{%d})" % (w * 4), line) if w else None
+        if m:
+            rows.append(bytes.fromhex(m.group(1)))
+        elif "SHOT_END" in line:
+            break
+        else:
+            sys.stdout.write(line)
+    if not w or len(rows) != h:
+        sys.exit(f"incomplete screenshot ({len(rows)} rows)")
+    png_from_rgb565(w, h, rows, path)
+    print(f"saved {path} ({w}x{h})")
+
+def simple(p, cmd):
+    p.reset_input_buffer()
+    p.write((cmd + "\n").encode())
+    end = time.time() + 1.0
+    while time.time() < end:
+        line = read_line(p, 0.3)
+        if line:
+            sys.stdout.write(line)
+            if line.strip() in ("ok",) or line.startswith("heap "):
+                break
+
+def run(p, args):
+    if not args:
+        return
+    if args[0] == "shot":
+        shot(p, args[1] if len(args) > 1 else "shot.png")
+    elif args[0] == "sleep":
+        time.sleep(float(args[1]))
+    else:
+        simple(p, " ".join(args))
+
+def main():
+    if len(sys.argv) < 3:
+        sys.exit(__doc__)
+    p = serial.Serial(sys.argv[1], 115200, timeout=0.5)
+    if sys.argv[2] == "script":
+        for step in sys.argv[3:]:
+            run(p, step.split())
+    else:
+        run(p, sys.argv[2:])
+
+if __name__ == "__main__":
+    main()

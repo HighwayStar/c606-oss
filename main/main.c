@@ -29,6 +29,9 @@
 #include "ant.h"
 #include "sensor_list.h"
 #include "stats.h"
+#include "fields.h"
+#include "config.h"
+#include "devcon.h"
 #include "esp_system.h"
 #include "tinyusb.h"
 
@@ -121,6 +124,9 @@ static void on_key(const nrf_key_event_t *ev)
     if (usb_msc_active()) {
         return;   /* only the holds above are meaningful in USB mode */
     }
+    if (ui_menu_active() && ui_menu_key(ev->key, ev->event)) {
+        return;   /* settings menu: 2 = up, 1 = down, 0 = select */
+    }
     if (ev->key == 2 && ev->event == KEY_EVT_LONG_RELEASE) {
         toggle_recording();
         return;
@@ -134,6 +140,12 @@ static void on_key(const nrf_key_event_t *ev)
     case 2: set_backlight(s_bl_pct + 10); break;
     default: break;
     }
+}
+
+static void inject_key(uint8_t key, uint8_t evt)
+{
+    nrf_key_event_t ev = { .key = key, .event = evt };
+    on_key(&ev);
 }
 
 static void on_ant(const ant_sensors_t *v, void *ctx)
@@ -197,13 +209,16 @@ static void on_frame(const uint8_t *f, size_t len, void *ctx)
     } else if (cmd == 0x00 && p[0] == 0x52) {
         ui_set_battery(p[6], p[4] | (p[5] << 8));
         stats_update(STAT_BATTERY, p[4] | (p[5] << 8));
+        fields_set_battery_pct(p[6]);
+    } else if (cmd == 0x00 && p[0] == 0x53) {
+        fields_set_rtc(p[4], p[3], p[2]);   /* nRF RTC: ss mm hh dd MM yy, UTC */
     } else if (cmd == NRF_CMD_SYS && p[0] == 0xF1 && p[1] == 0x03) {
         s_temp_c100 = p[2] | (p[3] << 8);
         s_press_pa100 = p[4] | (p[5] << 8) | (p[6] << 16) | ((uint32_t)p[7] << 24);
         ui_set_env(s_temp_c100, s_press_pa100);
         stats_update(STAT_TEMP, s_temp_c100 / 100.0f);
         stats_update(STAT_PRESSURE, s_press_pa100 / 10000.0f);
-    } else if (!(cmd == 0x00 && p[0] == 0x53) && !(cmd == NRF_CMD_SYS && (p[0] == 0xF0 || p[0] == 0xF1))) {
+    } else if (!(cmd == NRF_CMD_SYS && (p[0] == 0xF0 || p[0] == 0xF1))) {
         ESP_LOG_BUFFER_HEX_LEVEL(TAG, f, len, ESP_LOG_INFO); /* anything not yet understood */
     }
 }
@@ -243,6 +258,8 @@ void app_main(void)
     ESP_ERROR_CHECK(lcd_init());
     touch_init();                        /* optional: logs and continues if absent */
     stats_init();
+    fields_init();
+    config_load();                       /* NVS; defaults if nothing saved */
     ESP_ERROR_CHECK(ui_port_init());
     ui_create();
     ui_set_touch(touch_chip_name());
@@ -251,6 +268,7 @@ void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(100));      /* let the first frame render */
     set_backlight(s_bl_pct);
 
+    devcon_init(inject_key);             /* dev console on the USB port */
     ant_init(on_ant, NULL);
     ESP_ERROR_CHECK(nrf_link_init(on_frame, NULL));
     ESP_ERROR_CHECK(gps_init(on_gps, NULL));

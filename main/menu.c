@@ -1,0 +1,557 @@
+/*
+ * Settings menu, modelled on the reference device:
+ *
+ *   Settings
+ *     Pages            -> Page 1..5 (layout name / off)
+ *       Page n         -> Enable, Layout (picker with live preview), Fields
+ *         Layout       -> page preview + up/down selector, tick = apply
+ *         Fields       -> page preview, tap a cell (or move with keys) ->
+ *           category   -> field list -> assigned, back to the preview
+ *     Time zone        (tap: +1 h, wraps)
+ *     Reset statistics
+ *
+ * Screens are stacked; each one is a full-screen object on the top layer
+ * with a header (back arrow + title). List screens share one implementation
+ * with key navigation; the layout picker and field editor are custom.
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "lvgl.h"
+
+#include "board.h"
+#include "menu.h"
+#include "config.h"
+#include "fields.h"
+#include "layouts.h"
+#include "datapage.h"
+#include "stats.h"
+
+#define MAX_DEPTH 8
+#define MAX_ITEMS 16
+#define HDR_H 28
+#define ROW_H 40
+
+static const lv_color_t C_BG    = LV_COLOR_MAKE(0x00, 0x00, 0x00);
+static const lv_color_t C_HDR   = LV_COLOR_MAKE(0x18, 0x18, 0x18);
+static const lv_color_t C_ROW   = LV_COLOR_MAKE(0x20, 0x20, 0x20);
+static const lv_color_t C_LINE  = LV_COLOR_MAKE(0x38, 0x38, 0x38);
+static const lv_color_t C_SEL   = LV_COLOR_MAKE(0xff, 0xd4, 0x00);
+static const lv_color_t C_GREY  = LV_COLOR_MAKE(0xa0, 0xa0, 0xa0);
+
+typedef struct screen screen_t;
+struct screen {
+    lv_obj_t *root, *back, *list;
+    lv_obj_t *rows[MAX_ITEMS], *lbl[MAX_ITEMS], *right[MAX_ITEMS], *sw[MAX_ITEMS];
+    int n, sel;
+    void (*select_cb)(screen_t *s, int idx);   /* list screens */
+    void (*key_cb)(screen_t *s, uint8_t key);  /* custom screens */
+    void (*refresh_cb)(screen_t *s);           /* when a child screen is popped */
+    int page, cell, cat;                       /* context */
+};
+
+static screen_t s_stack[MAX_DEPTH];
+static int s_depth;
+static void (*s_close_cb)(void);
+static lv_timer_t *s_timer;
+
+/* previews */
+static datapage_t s_dp_layout, s_dp_fields;
+static page_cfg_t s_tmp_page;       /* layout picker edits a copy */
+static lv_obj_t *s_layout_name;
+
+static void pop(void);
+
+/* ---- generic screen ---------------------------------------------------- */
+
+static lv_obj_t *label(lv_obj_t *parent, const lv_font_t *font, lv_color_t color, const char *txt)
+{
+    lv_obj_t *l = lv_label_create(parent);
+    lv_obj_set_style_text_font(l, font, 0);
+    lv_obj_set_style_text_color(l, color, 0);
+    lv_label_set_text(l, txt);
+    return l;
+}
+
+static void back_cb(lv_event_t *e) { pop(); }
+
+static screen_t *top(void) { return s_depth ? &s_stack[s_depth - 1] : NULL; }
+
+static screen_t *push(const char *title)
+{
+    if (s_depth >= MAX_DEPTH) return NULL;
+    screen_t *s = &s_stack[s_depth++];
+    memset(s, 0, sizeof *s);
+    s->sel = -1;
+
+    s->root = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(s->root);
+    lv_obj_set_size(s->root, LCD_H_RES, LCD_V_RES);
+    lv_obj_set_style_bg_color(s->root, C_BG, 0);
+    lv_obj_set_style_bg_opa(s->root, LV_OPA_COVER, 0);
+
+    lv_obj_t *hdr = lv_obj_create(s->root);
+    lv_obj_remove_style_all(hdr);
+    lv_obj_set_size(hdr, LCD_H_RES, HDR_H);
+    lv_obj_set_style_bg_color(hdr, C_HDR, 0);
+    lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
+    lv_obj_t *t = label(hdr, &lv_font_montserrat_14, lv_color_white(), title);
+    lv_obj_align(t, LV_ALIGN_CENTER, 0, 0);
+
+    s->back = lv_obj_create(hdr);
+    lv_obj_remove_style_all(s->back);
+    lv_obj_set_size(s->back, 44, HDR_H);
+    lv_obj_set_style_bg_opa(s->back, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(s->back, C_HDR, 0);
+    lv_obj_add_event_cb(s->back, back_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *a = label(s->back, &lv_font_montserrat_20, lv_color_white(), LV_SYMBOL_LEFT);
+    lv_obj_center(a);
+    return s;
+}
+
+static void update_hl(screen_t *s)
+{
+    lv_obj_set_style_bg_color(s->back, s->sel == -1 ? C_SEL : C_HDR, 0);
+    lv_obj_set_style_text_color(lv_obj_get_child(s->back, 0), s->sel == -1 ? lv_color_black() : lv_color_white(), 0);
+    for (int i = 0; i < s->n; i++) {
+        bool on = i == s->sel;
+        lv_obj_set_style_bg_color(s->rows[i], on ? C_SEL : C_ROW, 0);
+        lv_obj_set_style_text_color(s->lbl[i], on ? lv_color_black() : lv_color_white(), 0);
+        if (s->right[i]) lv_obj_set_style_text_color(s->right[i], on ? lv_color_black() : C_GREY, 0);
+        if (on && s->list) lv_obj_scroll_to_view(s->rows[i], LV_ANIM_OFF);
+    }
+}
+
+static void row_cb(lv_event_t *e)
+{
+    screen_t *s = top();
+    int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    if (!s || idx >= s->n) return;
+    s->sel = idx;
+    update_hl(s);
+    if (s->select_cb) s->select_cb(s, idx);
+}
+
+static lv_obj_t *make_list(screen_t *s)
+{
+    s->list = lv_obj_create(s->root);
+    lv_obj_remove_style_all(s->list);
+    lv_obj_set_pos(s->list, 0, HDR_H);
+    lv_obj_set_size(s->list, LCD_H_RES, LCD_V_RES - HDR_H);
+    lv_obj_set_flex_flow(s->list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_scroll_dir(s->list, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(s->list, LV_SCROLLBAR_MODE_AUTO);
+    return s->list;
+}
+
+typedef enum { ITEM_PLAIN, ITEM_ARROW, ITEM_VALUE, ITEM_TOGGLE } item_kind_t;
+
+static int add_item(screen_t *s, const char *text, item_kind_t kind, const char *right, bool on)
+{
+    if (s->n >= MAX_ITEMS) return -1;
+    int i = s->n++;
+    lv_obj_t *r = lv_obj_create(s->list);
+    lv_obj_remove_style_all(r);
+    lv_obj_set_size(r, LCD_H_RES, ROW_H);
+    lv_obj_set_style_bg_color(r, C_ROW, 0);
+    lv_obj_set_style_bg_opa(r, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_side(r, LV_BORDER_SIDE_BOTTOM, 0);
+    lv_obj_set_style_border_width(r, 1, 0);
+    lv_obj_set_style_border_color(r, C_LINE, 0);
+    lv_obj_add_event_cb(r, row_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+    s->rows[i] = r;
+
+    s->lbl[i] = label(r, &lv_font_montserrat_14, lv_color_white(), text);
+    lv_obj_align(s->lbl[i], LV_ALIGN_LEFT_MID, 10, 0);
+
+    if (kind == ITEM_TOGGLE) {
+        s->sw[i] = lv_switch_create(r);
+        lv_obj_set_size(s->sw[i], 44, 22);
+        lv_obj_align(s->sw[i], LV_ALIGN_RIGHT_MID, -10, 0);
+        lv_obj_set_clickable(s->sw[i], false);
+        lv_obj_set_style_bg_color(s->sw[i], lv_palette_main(LV_PALETTE_GREEN), LV_PART_INDICATOR | LV_STATE_CHECKED);
+        if (on) lv_obj_add_state(s->sw[i], LV_STATE_CHECKED);
+    } else if (kind == ITEM_ARROW || kind == ITEM_VALUE) {
+        char buf[40];
+        snprintf(buf, sizeof buf, "%s%s%s", right ? right : "", right && kind == ITEM_ARROW ? "  " : "",
+                 kind == ITEM_ARROW ? LV_SYMBOL_RIGHT : "");
+        s->right[i] = label(r, &lv_font_montserrat_14, C_GREY, buf);
+        lv_obj_align(s->right[i], LV_ALIGN_RIGHT_MID, -10, 0);
+    }
+    return i;
+}
+
+static void set_right(screen_t *s, int i, const char *right, bool arrow)
+{
+    if (!s->right[i]) return;
+    char buf[40];
+    snprintf(buf, sizeof buf, "%s%s%s", right, arrow ? "  " : "", arrow ? LV_SYMBOL_RIGHT : "");
+    lv_label_set_text(s->right[i], buf);
+}
+
+static void set_toggle(screen_t *s, int i, bool on)
+{
+    if (!s->sw[i]) return;
+    if (on) lv_obj_add_state(s->sw[i], LV_STATE_CHECKED);
+    else lv_obj_remove_state(s->sw[i], LV_STATE_CHECKED);
+}
+
+static void pop(void)
+{
+    if (!s_depth) return;
+    screen_t *s = top();
+    /* previews are children of the screen: forget them before the root goes */
+    if (s_dp_layout.cont && lv_obj_get_parent(s_dp_layout.cont) == s->root) datapage_delete(&s_dp_layout);
+    if (s_dp_fields.cont && lv_obj_get_parent(s_dp_fields.cont) == s->root) datapage_delete(&s_dp_fields);
+    lv_obj_delete(s->root);
+    memset(s, 0, sizeof *s);
+    s_depth--;
+    if (s_depth == 0) {
+        menu_close();
+    } else if (top()->refresh_cb) {
+        top()->refresh_cb(top());
+    }
+}
+
+/* ---- field chooser ----------------------------------------------------- */
+
+static void fieldlist_select(screen_t *s, int idx)
+{
+    field_id_t ids[AGG_COUNT + 8];
+    int n = field_category_items(s->cat, ids, sizeof ids / sizeof ids[0]);
+    if (idx >= n) return;
+    config_get()->page[s->page].field[s->cell] = ids[idx];
+    config_save();
+    pop();   /* field list */
+    pop();   /* category list -> back at the field editor */
+}
+
+static void fieldlist_open(int page, int cell, int cat)
+{
+    screen_t *s = push(field_category_name(cat));
+    if (!s) return;
+    s->page = page; s->cell = cell; s->cat = cat;
+    s->select_cb = fieldlist_select;
+    make_list(s);
+    field_id_t ids[AGG_COUNT + 8];
+    int n = field_category_items(cat, ids, sizeof ids / sizeof ids[0]);
+    field_id_t current = config_get()->page[page].field[cell];
+    s->sel = 0;
+    for (int i = 0; i < n; i++) {
+        add_item(s, field_name(ids[i]), ITEM_PLAIN, NULL, false);
+        if (ids[i] == current) s->sel = i;
+    }
+    update_hl(s);
+}
+
+static void category_select(screen_t *s, int idx)
+{
+    fieldlist_open(s->page, s->cell, idx);
+}
+
+static void category_open(int page, int cell)
+{
+    char title[24];
+    snprintf(title, sizeof title, "Cell %d", cell + 1);
+    screen_t *s = push(title);
+    if (!s) return;
+    s->page = page; s->cell = cell;
+    s->select_cb = category_select;
+    make_list(s);
+    field_id_t current = config_get()->page[page].field[cell];
+    s->sel = 0;
+    for (int c = 0; c < field_category_count(); c++) {
+        add_item(s, field_category_name(c), ITEM_ARROW, NULL, false);
+        if (current >= FIELD_STAT_BASE && (current - FIELD_STAT_BASE) / AGG_COUNT == c) s->sel = c;
+        if (current < FIELD_STAT_BASE && c == field_category_count() - 1) s->sel = c;
+    }
+    update_hl(s);
+}
+
+/* ---- field editor: page preview, tap/select a cell ----------------------- */
+
+static void fields_cell_cb(datapage_t *dp, int cell, void *ctx)
+{
+    screen_t *s = top();
+    s->sel = cell;
+    datapage_highlight(dp, cell);
+    update_hl(s);
+    category_open(s->page, cell);
+}
+
+static void fields_key(screen_t *s, uint8_t key)
+{
+    if (key == 2 && s->sel > -1) s->sel--;
+    if (key == 1 && s->sel < s_dp_fields.ncells - 1) s->sel++;
+    if (key == 0) {
+        if (s->sel < 0) { pop(); return; }
+        category_open(s->page, s->sel);
+        return;
+    }
+    datapage_highlight(&s_dp_fields, s->sel);
+    update_hl(s);
+}
+
+static void fields_refresh(screen_t *s)
+{
+    /* a field may have changed: rebuild the preview */
+    datapage_build(&s_dp_fields, s->root, &config_get()->page[s->page], 0, HDR_H, LCD_H_RES, LCD_V_RES - HDR_H);
+    datapage_highlight(&s_dp_fields, s->sel);
+}
+
+static void fields_open(int page)
+{
+    char title[24];
+    snprintf(title, sizeof title, "Page %d fields", page + 1);
+    screen_t *s = push(title);
+    if (!s) return;
+    s->page = page;
+    s->key_cb = fields_key;
+    s->refresh_cb = fields_refresh;
+    s->sel = 0;
+    datapage_set_click_cb(&s_dp_fields, fields_cell_cb, NULL);
+    fields_refresh(s);
+    update_hl(s);
+}
+
+/* ---- layout picker ----------------------------------------------------- */
+
+static void layout_preview(screen_t *s)
+{
+    datapage_build(&s_dp_layout, s->root, &s_tmp_page, 0, HDR_H, LCD_H_RES, LCD_V_RES - HDR_H);
+    lv_obj_move_background(s_dp_layout.cont);   /* selector + tick stay on top */
+    lv_label_set_text(s_layout_name, layout_get(s_tmp_page.layout)->name);
+}
+
+static void layout_step(screen_t *s, int dir)
+{
+    int n = layout_count();
+    s_tmp_page.layout = (s_tmp_page.layout + n + dir) % n;
+    layout_preview(s);
+}
+
+static void layout_apply(screen_t *s)
+{
+    config_get()->page[s->page] = s_tmp_page;
+    config_save();
+    pop();
+}
+
+static void layout_up_cb(lv_event_t *e)   { layout_step(top(), -1); }
+static void layout_down_cb(lv_event_t *e) { layout_step(top(), +1); }
+static void layout_ok_cb(lv_event_t *e)   { layout_apply(top()); }
+
+static void layout_key(screen_t *s, uint8_t key)
+{
+    if (key == 2) layout_step(s, -1);
+    else if (key == 1) layout_step(s, +1);
+    else if (key == 0) layout_apply(s);
+}
+
+static void layout_open(int page)
+{
+    char title[24];
+    snprintf(title, sizeof title, "Page %d layout", page + 1);
+    screen_t *s = push(title);
+    if (!s) return;
+    s->page = page;
+    s->key_cb = layout_key;
+    s_tmp_page = config_get()->page[page];
+
+    /* selector: up / name / down, like the reference device */
+    lv_obj_t *sel = lv_obj_create(s->root);
+    lv_obj_remove_style_all(sel);
+    lv_obj_set_size(sel, 56, 120);
+    lv_obj_align(sel, LV_ALIGN_RIGHT_MID, -8, 10);
+    lv_obj_set_style_bg_color(sel, C_SEL, 0);
+    lv_obj_set_style_bg_opa(sel, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(sel, 6, 0);
+    lv_obj_t *up = lv_obj_create(sel);
+    lv_obj_remove_style_all(up);
+    lv_obj_set_size(up, 56, 40);
+    lv_obj_align(up, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_add_event_cb(up, layout_up_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_center(label(up, &lv_font_montserrat_20, lv_color_white(), LV_SYMBOL_UP));
+    lv_obj_t *dn = lv_obj_create(sel);
+    lv_obj_remove_style_all(dn);
+    lv_obj_set_size(dn, 56, 40);
+    lv_obj_align(dn, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_add_event_cb(dn, layout_down_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_center(label(dn, &lv_font_montserrat_20, lv_color_white(), LV_SYMBOL_DOWN));
+    s_layout_name = label(sel, &lv_font_montserrat_20, lv_color_white(), "");
+    lv_obj_center(s_layout_name);
+
+    lv_obj_t *ok = lv_button_create(s->root);
+    lv_obj_set_size(ok, 48, 40);
+    lv_obj_align(ok, LV_ALIGN_BOTTOM_LEFT, 6, -6);
+    lv_obj_set_style_bg_color(ok, lv_palette_main(LV_PALETTE_GREEN), 0);
+    lv_obj_add_event_cb(ok, layout_ok_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_center(label(ok, &lv_font_montserrat_20, lv_color_white(), LV_SYMBOL_OK));
+
+    layout_preview(s);
+}
+
+/* ---- page n ------------------------------------------------------------ */
+
+static void page_refresh(screen_t *s)
+{
+    page_cfg_t *p = &config_get()->page[s->page];
+    set_toggle(s, 0, p->enabled);
+    set_right(s, 1, layout_get(p->layout)->name, true);
+}
+
+static void page_select(screen_t *s, int idx)
+{
+    page_cfg_t *p = &config_get()->page[s->page];
+    switch (idx) {
+    case 0:
+        p->enabled = !p->enabled;
+        config_save();
+        page_refresh(s);
+        break;
+    case 1: layout_open(s->page); break;
+    case 2: fields_open(s->page); break;
+    default: break;
+    }
+}
+
+static void page_open(int page)
+{
+    char title[24];
+    snprintf(title, sizeof title, "Page %d", page + 1);
+    screen_t *s = push(title);
+    if (!s) return;
+    s->page = page;
+    s->select_cb = page_select;
+    s->refresh_cb = page_refresh;
+    make_list(s);
+    page_cfg_t *p = &config_get()->page[page];
+    add_item(s, "Enable", ITEM_TOGGLE, NULL, p->enabled);
+    add_item(s, "Layout", ITEM_ARROW, layout_get(p->layout)->name, false);
+    add_item(s, "Fields", ITEM_ARROW, NULL, false);
+    s->sel = 0;
+    update_hl(s);
+}
+
+/* ---- pages list -------------------------------------------------------- */
+
+static void pages_refresh(screen_t *s)
+{
+    for (int i = 0; i < CFG_PAGES; i++) {
+        page_cfg_t *p = &config_get()->page[i];
+        set_right(s, i, p->enabled ? layout_get(p->layout)->name : "off", true);
+    }
+}
+
+static void pages_select(screen_t *s, int idx)
+{
+    if (idx < CFG_PAGES) page_open(idx);
+}
+
+static void pages_open(void)
+{
+    screen_t *s = push("Pages");
+    if (!s) return;
+    s->select_cb = pages_select;
+    s->refresh_cb = pages_refresh;
+    make_list(s);
+    for (int i = 0; i < CFG_PAGES; i++) {
+        char t[16];
+        snprintf(t, sizeof t, "Page %d", i + 1);
+        add_item(s, t, ITEM_ARROW, "", false);
+    }
+    pages_refresh(s);
+    s->sel = 0;
+    update_hl(s);
+}
+
+/* ---- settings root ----------------------------------------------------- */
+
+static void tz_text(char *buf, size_t n)
+{
+    int tz = config_get()->tz_min;
+    snprintf(buf, n, "UTC%c%02d:%02d", tz < 0 ? '-' : '+', abs(tz) / 60, abs(tz) % 60);
+}
+
+static void settings_select(screen_t *s, int idx)
+{
+    char buf[16];
+    switch (idx) {
+    case 0:
+        pages_open();
+        break;
+    case 1: {
+        int tz = config_get()->tz_min + 60;
+        if (tz > 14 * 60) tz = -12 * 60;
+        config_get()->tz_min = tz;
+        config_save();
+        tz_text(buf, sizeof buf);
+        set_right(s, 1, buf, false);
+        break;
+    }
+    case 2:
+        stats_reset();
+        menu_close();
+        break;
+    default:
+        break;
+    }
+}
+
+static void timer_cb(lv_timer_t *t)
+{
+    if (s_dp_layout.cont) datapage_refresh(&s_dp_layout);
+    if (s_dp_fields.cont) datapage_refresh(&s_dp_fields);
+}
+
+void menu_open(void)
+{
+    if (s_depth) return;
+    screen_t *s = push("Settings");
+    if (!s) return;
+    s->select_cb = settings_select;
+    make_list(s);
+    char buf[16];
+    tz_text(buf, sizeof buf);
+    add_item(s, "Pages", ITEM_ARROW, NULL, false);
+    add_item(s, "Time zone", ITEM_VALUE, buf, false);
+    add_item(s, "Reset statistics", ITEM_PLAIN, NULL, false);
+    s->sel = 0;
+    update_hl(s);
+    s_timer = lv_timer_create(timer_cb, 500, NULL);
+}
+
+void menu_close(void)
+{
+    datapage_delete(&s_dp_layout);
+    datapage_delete(&s_dp_fields);
+    while (s_depth) {
+        lv_obj_delete(s_stack[--s_depth].root);
+    }
+    if (s_timer) { lv_timer_delete(s_timer); s_timer = NULL; }
+    if (s_close_cb) s_close_cb();
+}
+
+bool menu_active(void) { return s_depth > 0; }
+
+void menu_set_close_cb(void (*cb)(void)) { s_close_cb = cb; }
+
+bool menu_key(uint8_t key, uint8_t evt)
+{
+    screen_t *s = top();
+    if (!s) return false;
+    if (evt != KEY_EVT_CLICK) return true;   /* holds are handled by main.c before we see them */
+    if (s->key_cb) {
+        s->key_cb(s, key);
+        return true;
+    }
+    if (key == 2 && s->sel > -1) s->sel--;
+    else if (key == 1 && s->sel < s->n - 1) s->sel++;
+    else if (key == 0) {
+        if (s->sel < 0) pop();
+        else if (s->select_cb) s->select_cb(s, s->sel);
+        return true;
+    }
+    update_hl(s);
+    return true;
+}

@@ -6,3 +6,4 @@ dependencies.lock
 __pycache__/
 backup-*.bin
 *.log
+shots/
