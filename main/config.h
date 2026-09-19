@@ -51,6 +51,7 @@ typedef struct {
     uint8_t lthr;                       /* lactate threshold HR, 0 = estimate from max HR */
     uint8_t hr_zone_mode;               /* hr_zone_mode_t: zones as % of max HR or of LTHR */
     uint16_t ftp_w;                     /* functional threshold power, 0 = unknown (no power zones) */
+    uint16_t bike_kg10;                 /* bike weight in 0.1 kg, for the FIT bike_profile (version 13) */
 } app_cfg_t;
 
 /* Page configs by index; CFG_PAGES = the map page. */
@@ -75,6 +76,7 @@ void config_sensor_remove(int idx);
 #define CFG_HR_MIN        100      /* max HR / LTHR when set by hand; 0 = auto */
 #define CFG_HR_MAX        230
 #define CFG_FTP_MAX_W     600
+#define CFG_BIKE_MAX_KG10 500
 
 #define CFG_LAP_STEP_M 500
 #define CFG_LAP_MAX_M  10000

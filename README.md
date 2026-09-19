@@ -267,11 +267,18 @@ with `esp32_image_parser.py dump_partition`.)
 2. Key 2 (or *START RIDE*) starts a ride: statistics are reset, a FIT file is
    opened in `/sdcard/c606oss/<local date-time>.fit` (`main/tracklog.c` on top
    of the small encoder in `main/fit.c`: `file_id`, `file_creator`,
-   `device_info` for the unit and the paired ANT+ sensors, timer start/stop
-   events around pauses, one `record` per second with position, altitude,
-   distance, speed — wheel sensor if live, else GPS —, HR, cadence, power and
-   temperature, a `lap` per lap with its averages/maxima, then `session` and
-   `activity`; fields without data carry the FIT "invalid" value) and the
+   `software`, `device_info` for the unit and the paired ANT+ sensors,
+   `user_profile`, `zones_target`, `sport`, `bike_profile` (wheel size, bike
+   weight), a `course` naming the loaded route, timer start/stop events
+   around pauses, one `record` per second with position, altitude,
+   distance, speed — wheel sensor if live, else GPS —, HR, cadence, power,
+   temperature, grade (slope over the last ≥ 30 m, barometric altitude when
+   the nRF's pressure is live, else GPS) and the calories so far, a `lap`
+   per lap with its averages/maxima, calories, work, moving time, average
+   grade and time in HR / power zones, then `session` and `activity`; fields
+   without data carry the FIT "invalid" value — this is everything the
+   vendor's own files carry except the ClimbPro events and the sensors'
+   manufacturer / battery details) and the
    data pages appear ("Page 1" … "Page 5", only the enabled ones; key 0
    cycles). The header shows `▶ h:mm:ss` (session time). Key 2 pauses (`‖`,
    recording and statistics stand still, the time excludes pauses) and resumes.
@@ -322,7 +329,8 @@ with `esp32_image_parser.py dump_partition`.)
      (tap to toggle), *Max HR* and *LTHR* (`auto (184)` = estimated as
      220 − age and 89 % of max HR; + from auto starts at the estimate),
      *FTP* (5 W steps, off = no power zones), *HR zones by* (%Max HR /
-     %LTHR) and *Health*: age, BMI with its class, BMR (Mifflin-St Jeor),
+     %LTHR), *Bike weight* (0.1 kg steps, only written to the FIT
+     `bike_profile`) and *Health*: age, BMI with its class, BMR (Mifflin-St Jeor),
      the HR zone table in bpm and the power zone table in W. The defaults
      (75 kg, 175 cm, 1990, male) are a placeholder — set yours, the calorie
      count depends on them.

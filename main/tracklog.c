@@ -2,7 +2,9 @@
  * Ride recorder: a standard FIT activity file.
  *
  * Message order follows the FIT activity file layout: file_id, file_creator,
- * device_info (this unit + the paired ANT+ sensors), event timer start,
+ * software, device_info (this unit + the paired ANT+ sensors), user_profile,
+ * zones_target, sport, bike_profile, course (when a route is loaded), event
+ * timer start,
  * then one record per second while the timer runs (timer stop/start events
  * around pauses), a lap message when a lap completes, and at the end a last
  * lap, the session, the activity and the file CRC. Values that are not
@@ -34,6 +36,8 @@
 #include "ride.h"
 #include "config.h"
 #include "health.h"
+#include "route.h"
+#include "board.h"
 
 static const char *TAG = "track";
 #define TRACK_DIR TRACKLOG_DIR
@@ -67,6 +71,11 @@ static const char *TAG = "track";
 #define ACTIVITY_MANUAL        0
 #define SPORT_CYCLING          2
 #define SUB_SPORT_GENERIC      0
+#define POS_DEGREE_MINUTE      1    /* display_position */
+#define COURSE_CAP_NAVIGATION  0x200
+#define MOVING_MIN_MS          0.5f /* speed above which a record counts as moving, m/s */
+#define GRADE_MIN_DIST_M       30.0f/* base line for the slope */
+#define GRADE_WINDOW           10   /* records */
 #define SOURCE_ANTPLUS         1
 #define SOURCE_LOCAL           5
 #define DEVICE_INDEX_CREATOR   0
@@ -108,12 +117,12 @@ typedef struct PACKED { uint32_t timestamp; uint8_t event, event_type, event_gro
 static const fit_field_t k_record_f[] = {
     { 253, 4, FIT_UINT32 }, { 0, 4, FIT_SINT32 }, { 1, 4, FIT_SINT32 }, { 5, 4, FIT_UINT32 },
     { 2, 2, FIT_UINT16 }, { 6, 2, FIT_UINT16 }, { 7, 2, FIT_UINT16 }, { 3, 1, FIT_UINT8 },
-    { 4, 1, FIT_UINT8 }, { 13, 1, FIT_SINT8 },
+    { 4, 1, FIT_UINT8 }, { 13, 1, FIT_SINT8 }, { 9, 2, FIT_SINT16 }, { 33, 2, FIT_UINT16 },
 };
-static const fit_mesg_t k_record = { 20, 10, k_record_f };
+static const fit_mesg_t k_record = { 20, 12, k_record_f };
 typedef struct PACKED {
     uint32_t timestamp; int32_t lat, lon; uint32_t distance; uint16_t altitude, speed, power;
-    uint8_t heart_rate, cadence; int8_t temperature;
+    uint8_t heart_rate, cadence; int8_t temperature; int16_t grade; uint16_t calories;
 } record_t;
 
 /* lap and session share the summary block; only the field numbers differ */
@@ -126,6 +135,7 @@ typedef struct PACKED {
     uint8_t avg_hr, max_hr, avg_cad, max_cad; uint16_t avg_power, max_power, ascent, descent;
     int8_t avg_temp, max_temp; uint16_t avg_alt, max_alt, min_alt;
     uint16_t calories; uint32_t hr_zone_ms[HR_ZONES + 1], pwr_zone_ms[PWR_ZONES + 1];
+    uint32_t work_j, moving_ms; int16_t avg_grade;
 } summary_body_t;
 
 static const fit_field_t k_lap_f[] = {
@@ -137,8 +147,9 @@ static const fit_field_t k_lap_f[] = {
     { 19, 2, FIT_UINT16 }, { 20, 2, FIT_UINT16 }, { 21, 2, FIT_UINT16 }, { 22, 2, FIT_UINT16 },
     { 50, 1, FIT_SINT8 }, { 51, 1, FIT_SINT8 }, { 42, 2, FIT_UINT16 }, { 43, 2, FIT_UINT16 }, { 62, 2, FIT_UINT16 },
     { 11, 2, FIT_UINT16 }, { 57, 4 * (HR_ZONES + 1), FIT_UINT32 }, { 60, 4 * (PWR_ZONES + 1), FIT_UINT32 },
+    { 41, 4, FIT_UINT32 }, { 52, 4, FIT_UINT32 }, { 45, 2, FIT_SINT16 },
 };
-static const fit_mesg_t k_lap = { 19, 33, k_lap_f };
+static const fit_mesg_t k_lap = { 19, 36, k_lap_f };
 typedef struct PACKED {
     summary_head_t h; int32_t end_lat, end_lon; uint8_t trigger, sport, sub_sport; summary_body_t b;
 } lap_t;
@@ -152,8 +163,9 @@ static const fit_field_t k_session_f[] = {
     { 20, 2, FIT_UINT16 }, { 21, 2, FIT_UINT16 }, { 22, 2, FIT_UINT16 }, { 23, 2, FIT_UINT16 },
     { 57, 1, FIT_SINT8 }, { 58, 1, FIT_SINT8 }, { 49, 2, FIT_UINT16 }, { 50, 2, FIT_UINT16 }, { 71, 2, FIT_UINT16 },
     { 11, 2, FIT_UINT16 }, { 65, 4 * (HR_ZONES + 1), FIT_UINT32 }, { 68, 4 * (PWR_ZONES + 1), FIT_UINT32 },
+    { 48, 4, FIT_UINT32 }, { 59, 4, FIT_UINT32 }, { 52, 2, FIT_SINT16 },
 };
-static const fit_mesg_t k_session = { 18, 33, k_session_f };
+static const fit_mesg_t k_session = { 18, 36, k_session_f };
 typedef struct PACKED {
     summary_head_t h; uint8_t sport, sub_sport; uint16_t first_lap_index, num_laps; uint8_t trigger; summary_body_t b;
 } session_t;
@@ -170,9 +182,30 @@ typedef struct PACKED {
 /* rider profile and the zone definitions the time-in-zone arrays refer to */
 static const fit_field_t k_user_profile_f[] = {
     { 1, 1, FIT_ENUM }, { 2, 1, FIT_UINT8 }, { 3, 1, FIT_UINT8 }, { 4, 2, FIT_UINT16 }, { 11, 1, FIT_UINT8 },
+    { 18, 1, FIT_ENUM },
 };
-static const fit_mesg_t k_user_profile = { 3, 5, k_user_profile_f };
-typedef struct PACKED { uint8_t gender, age, height; uint16_t weight; uint8_t default_max_hr; } user_profile_t;
+static const fit_mesg_t k_user_profile = { 3, 6, k_user_profile_f };
+typedef struct PACKED { uint8_t gender, age, height; uint16_t weight; uint8_t default_max_hr, position_setting; } user_profile_t;
+
+/* the rest of what the vendor's files carry: firmware, sport profile, bike,
+ * and the loaded route as a course */
+static const fit_field_t k_software_f[] = { { 254, 2, FIT_UINT16 }, { 3, 2, FIT_UINT16 }, { 5, 16, FIT_STRING } };
+static const fit_mesg_t k_software = { 35, 3, k_software_f };
+typedef struct PACKED { uint16_t message_index, version; char part_number[16]; } software_t;
+
+static const fit_field_t k_sport_f[] = { { 0, 1, FIT_ENUM }, { 1, 1, FIT_ENUM }, { 3, 16, FIT_STRING } };
+static const fit_mesg_t k_sport = { 12, 3, k_sport_f };
+typedef struct PACKED { uint8_t sport, sub_sport; char name[16]; } sport_t;
+
+static const fit_field_t k_bike_profile_f[] = {
+    { 254, 2, FIT_UINT16 }, { 0, 16, FIT_STRING }, { 8, 2, FIT_UINT16 }, { 10, 2, FIT_UINT16 },
+};
+static const fit_mesg_t k_bike_profile = { 6, 4, k_bike_profile_f };
+typedef struct PACKED { uint16_t message_index; char name[16]; uint16_t wheelsize, weight; } bike_profile_t;
+
+static const fit_field_t k_course_f[] = { { 4, 1, FIT_ENUM }, { 5, 40, FIT_STRING }, { 6, 4, FIT_UINT32Z }, { 7, 1, FIT_ENUM } };
+static const fit_mesg_t k_course = { 31, 4, k_course_f };
+typedef struct PACKED { uint8_t sport; char name[40]; uint32_t capabilities; uint8_t sub_sport; } course_t;
 
 static const fit_field_t k_zones_target_f[] = {
     { 1, 1, FIT_UINT8 }, { 2, 1, FIT_UINT8 }, { 3, 2, FIT_UINT16 }, { 5, 1, FIT_ENUM }, { 7, 1, FIT_ENUM },
@@ -206,6 +239,9 @@ typedef struct {
     float alt_sum, alt_min, alt_max, alt_ref;
     uint32_t alt_n;
     float ascent, descent;
+    uint32_t work_j, moving_ms;
+    float grade_alt_first, grade_alt_last;   /* net slope of the lap */
+    bool grade_alt_valid;
     float start_kcal;                    /* health.c totals at the start */
     uint32_t start_hr_zone_ms[HR_ZONES + 1], start_pwr_zone_ms[PWR_ZONES + 1];
 } acc_t;
@@ -224,12 +260,53 @@ static uint32_t s_laps_written;
 static int32_t s_last_lat = FIT_INV_S32, s_last_lon = FIT_INV_S32;
 static acc_t s_lap, s_session;
 
+/* Slope: altitude over the last GRADE_WINDOW records (barometric when the
+ * nRF's pressure is live - GPS altitude is too noisy for a slope over a few
+ * tens of metres), against a base line of at least GRADE_MIN_DIST_M. */
+static struct { float dist_m, alt_m; bool valid; } s_grade_ring[GRADE_WINDOW];
+static uint32_t s_grade_n;
+
+static bool grade_altitude(const gps_fix_t *g, bool gps_ok, float *alt)
+{
+    stat_values_t p;
+    stats_get(STAT_PRESSURE, &p);
+    if (p.valid && p.live && p.cur > 300 && p.cur < 1100) {
+        *alt = 44330.0f * (1.0f - powf(p.cur / 1013.25f, 0.1903f));   /* ISA, relative use only */
+        return true;
+    }
+    if (gps_ok) { *alt = g->alt_m; return true; }
+    return false;
+}
+
+/* returns the grade in percent of the current record and remembers it */
+static bool grade_update(float dist_m, float alt_m, bool alt_valid, float *pct)
+{
+    bool ok = false;
+    if (alt_valid) {
+        /* the oldest record in the window that is far enough back */
+        for (uint32_t i = s_grade_n >= GRADE_WINDOW ? s_grade_n - GRADE_WINDOW : 0; i < s_grade_n; i++) {
+            const typeof(s_grade_ring[0]) *o = &s_grade_ring[i % GRADE_WINDOW];
+            if (o->valid && dist_m - o->dist_m >= GRADE_MIN_DIST_M) {
+                *pct = (alt_m - o->alt_m) / (dist_m - o->dist_m) * 100.0f;
+                ok = true;
+                break;
+            }
+        }
+    }
+    s_grade_ring[s_grade_n % GRADE_WINDOW].dist_m = dist_m;
+    s_grade_ring[s_grade_n % GRADE_WINDOW].alt_m = alt_m;
+    s_grade_ring[s_grade_n % GRADE_WINDOW].valid = alt_valid;
+    s_grade_n++;
+    return ok;
+}
+
 static uint32_t now_ms(void) { return esp_timer_get_time() / 1000; }
 static uint32_t ts_now(void) { return s_base_ts + (now_ms() - s_start_ms) / 1000; }
 static int32_t semicircles(double deg) { return (int32_t)(deg * (2147483648.0 / 180.0)); }
 static uint16_t alt_u16(float m) { return m > -500.0f && m < 12000.0f ? (uint16_t)((m + 500.0f) * 5.0f + 0.5f) : FIT_INV_U16; }
 static uint16_t speed_u16(float ms) { return ms < 65.0f ? (uint16_t)(ms * 1000.0f + 0.5f) : FIT_INV_U16; }
 static uint8_t clamp_u8(uint32_t v) { return v < 0xFF ? v : 0xFE; }
+static int16_t grade_s16(float pct) { return (int16_t)((pct > 50 ? 50 : pct < -50 ? -50 : pct) * 100.0f + (pct < 0 ? -0.5f : 0.5f)); }
 static uint16_t clamp_u16(uint32_t v) { return v < 0xFFFF ? v : 0xFFFE; }
 
 static uint32_t serial_number(void)
@@ -254,9 +331,16 @@ static void acc_start(acc_t *a, uint32_t ts)
     for (int z = 0; z <= PWR_ZONES; z++) a->start_pwr_zone_ms[z] = health_pwr_zone_ms(z);
 }
 
-static void acc_add(acc_t *a, const record_t *r, float speed_ms, float alt_m, bool alt_valid)
+static void acc_add(acc_t *a, const record_t *r, float speed_ms, float alt_m, bool alt_valid,
+                    float grade_alt, bool grade_alt_valid)
 {
     a->n++;
+    if (r->power != FIT_INV_U16) a->work_j += r->power;      /* W x 1 s */
+    if (speed_ms >= MOVING_MIN_MS) a->moving_ms += 1000;
+    if (grade_alt_valid) {
+        if (!a->grade_alt_valid) { a->grade_alt_first = grade_alt; a->grade_alt_valid = true; }
+        a->grade_alt_last = grade_alt;
+    }
     if (a->start_lat == FIT_INV_S32 && r->lat != FIT_INV_S32) {
         a->start_lat = r->lat;
         a->start_lon = r->lon;
@@ -334,6 +418,10 @@ static void acc_fill(const acc_t *a, summary_head_t *h, summary_body_t *b, uint3
     for (int z = 0; z <= PWR_ZONES; z++) {
         b->pwr_zone_ms[z] = a->pwr_n && health_pwr_zones_available() ? health_pwr_zone_ms(z) - a->start_pwr_zone_ms[z] : FIT_INV_U32;
     }
+    b->work_j = a->pwr_n ? a->work_j : FIT_INV_U32;
+    b->moving_ms = a->speed_n ? a->moving_ms : FIT_INV_U32;
+    b->avg_grade = a->grade_alt_valid && dist_m >= GRADE_MIN_DIST_M
+        ? grade_s16((a->grade_alt_last - a->grade_alt_first) / dist_m * 100.0f) : FIT_INV_S16;
 }
 
 /* ---- writers ------------------------------------------------------------- */
@@ -375,10 +463,15 @@ static esp_err_t write_preamble(uint32_t ts)
         };
         err = fit_write(&s_w, LOCAL_OTHER, &k_device_info, &ds, sizeof ds);
     }
+    software_t sw = { .message_index = 0, .version = FIT_SW_VERSION };
+    strncpy(sw.part_number, FIT_PRODUCT_NAME " " BOARD_NAME, sizeof sw.part_number - 1);
+    if (err == ESP_OK) err = fit_write(&s_w, LOCAL_OTHER, &k_software, &sw, sizeof sw);
+
     int age = health_age();
     user_profile_t up = {
         .gender = cfg->sex ? GENDER_FEMALE : GENDER_MALE, .age = age ? age : FIT_INV_U8,
         .height = cfg->height_cm, .weight = cfg->weight_kg * 10, .default_max_hr = health_max_hr(),
+        .position_setting = POS_DEGREE_MINUTE,
     };
     if (err == ESP_OK) err = fit_write(&s_w, LOCAL_OTHER, &k_user_profile, &up, sizeof up);
     zones_target_t zt = {
@@ -388,6 +481,18 @@ static esp_err_t write_preamble(uint32_t ts)
         .pwr_calc_type = PWR_CALC_PCT_FTP,
     };
     if (err == ESP_OK) err = fit_write(&s_w, LOCAL_OTHER, &k_zones_target, &zt, sizeof zt);
+
+    sport_t sp = { .sport = SPORT_CYCLING, .sub_sport = SUB_SPORT_GENERIC };
+    strncpy(sp.name, "Ride", sizeof sp.name - 1);
+    if (err == ESP_OK) err = fit_write(&s_w, LOCAL_OTHER, &k_sport, &sp, sizeof sp);
+    bike_profile_t bp = { .message_index = 0, .wheelsize = cfg->wheel_mm, .weight = cfg->bike_kg10 ? cfg->bike_kg10 : FIT_INV_U16 };
+    strncpy(bp.name, "Bike", sizeof bp.name - 1);
+    if (err == ESP_OK) err = fit_write(&s_w, LOCAL_OTHER, &k_bike_profile, &bp, sizeof bp);
+    if (route_loaded() && err == ESP_OK) {
+        course_t co = { .sport = SPORT_CYCLING, .capabilities = COURSE_CAP_NAVIGATION, .sub_sport = SUB_SPORT_GENERIC };
+        strncpy(co.name, route_name(), sizeof co.name - 1);
+        err = fit_write(&s_w, LOCAL_OTHER, &k_course, &co, sizeof co);
+    }
     if (err == ESP_OK) err = write_event(ts, EVT_START);
     return err;
 }
@@ -435,26 +540,31 @@ static void write_record(uint32_t ts)
     bool gps_ok = g.valid && now - g.last_rx_ms < GPS_FRESH_MS;
     bool wheel = ant_live(ANT_DEV_SPEED, ANT_DEV_SPD_CAD);
     float speed_ms = wheel ? a.speed_kmh / 3.6f : gps_ok ? g.speed_kmh / 3.6f : -1;
+    float dist_m = trip_distance_m(), grade_alt = 0, grade_pct = 0;
+    bool grade_alt_ok = grade_altitude(&g, gps_ok, &grade_alt);
+    bool grade_ok = grade_update(dist_m, grade_alt, grade_alt_ok, &grade_pct);
 
     record_t r = {
         .timestamp = ts,
         .lat = gps_ok ? semicircles(g.lat) : FIT_INV_S32,
         .lon = gps_ok ? semicircles(g.lon) : FIT_INV_S32,
-        .distance = (uint32_t)(trip_distance_m() * 100.0f + 0.5f),
+        .distance = (uint32_t)(dist_m * 100.0f + 0.5f),
         .altitude = gps_ok ? alt_u16(g.alt_m) : FIT_INV_U16,
         .speed = speed_ms >= 0 ? speed_u16(speed_ms) : FIT_INV_U16,
         .power = ant_live(ANT_DEV_POWER, ANT_DEV_POWER) ? clamp_u16(a.power_w) : FIT_INV_U16,
         .heart_rate = ant_live(ANT_DEV_HR, ANT_DEV_HR) && a.hr_bpm ? a.hr_bpm : FIT_INV_U8,
         .cadence = ant_live(ANT_DEV_CADENCE, ANT_DEV_SPD_CAD) ? clamp_u8((uint32_t)(a.cadence_rpm + 0.5f)) : FIT_INV_U8,
         .temperature = t.valid && t.live ? (int8_t)lrintf(t.cur) : FIT_INV_S8,
+        .grade = grade_ok ? grade_s16(grade_pct) : FIT_INV_S16,
+        .calories = clamp_u16((uint32_t)(health_kcal() + 0.5f)),
     };
     if (fit_write(&s_w, LOCAL_RECORD, &k_record, &r, sizeof r) != ESP_OK) return;
     if (gps_ok) {
         s_last_lat = r.lat;
         s_last_lon = r.lon;
     }
-    acc_add(&s_lap, &r, speed_ms, g.alt_m, gps_ok);
-    acc_add(&s_session, &r, speed_ms, g.alt_m, gps_ok);
+    acc_add(&s_lap, &r, speed_ms, g.alt_m, gps_ok, grade_alt, grade_alt_ok);
+    acc_add(&s_session, &r, speed_ms, g.alt_m, gps_ok, grade_alt, grade_alt_ok);
     s_records++;
     s_last_ts = ts;
     /* fatfs buffers in RAM; push to the card now and then */
@@ -482,6 +592,8 @@ static void open_file(uint32_t base_ts)
     s_last_ts = 0;
     s_laps_written = trip_laps();   /* laps completed while the start was pending are lost */
     s_last_lat = s_last_lon = FIT_INV_S32;
+    memset(s_grade_ring, 0, sizeof s_grade_ring);
+    s_grade_n = 0;
     acc_start(&s_lap, base_ts);
     acc_start(&s_session, base_ts);
     if (write_preamble(base_ts) != ESP_OK) {

@@ -14,9 +14,9 @@
 
 static const char *TAG = "config";
 #define CFG_MAGIC   0xC606
-#define CFG_VERSION 12
+#define CFG_VERSION 13
 /* keep k_len_by_version in config_load() in sync when appending fields */
-_Static_assert(sizeof(app_cfg_t) == 188, "app_cfg_t layout changed: add its size to k_len_by_version");
+_Static_assert(sizeof(app_cfg_t) == 192, "app_cfg_t layout changed: add its size to k_len_by_version");
 #define NVS_NS      "c606oss"
 #define NVS_KEY     "cfg"
 
@@ -89,6 +89,7 @@ static void profile_defaults(app_cfg_t *c)
     c->lthr = 0;
     c->hr_zone_mode = 0;
     c->ftp_w = 0;
+    c->bike_kg10 = 100;
 }
 
 static void map_page_defaults(app_cfg_t *c)
@@ -114,6 +115,7 @@ static bool valid(const app_cfg_t *c)
     if (c->max_hr && (c->max_hr < CFG_HR_MIN || c->max_hr > CFG_HR_MAX)) return false;
     if (c->lthr && (c->lthr < CFG_HR_MIN || c->lthr > CFG_HR_MAX)) return false;
     if (c->ftp_w > CFG_FTP_MAX_W) return false;
+    if (c->bike_kg10 > CFG_BIKE_MAX_KG10) return false;
     if (c->wheel_mm < CFG_WHEEL_MIN_MM || c->wheel_mm > CFG_WHEEL_MAX_MM) return false;
     if (c->nsensors > CFG_MAX_SENSORS) return false;
     if (c->route[sizeof c->route - 1] != 0) return false;
@@ -153,7 +155,7 @@ void config_load(void)
      * appended) but their length includes the tail padding of that version,
      * so the sizes are listed explicitly. The struct was zeroed before the
      * read; fill in the defaults of the fields the blob does not have. */
-    static const size_t k_len_by_version[] = { 0, 76, 78, 80, 82, 82, 118, 132, 136, 176, 180, 180, 188 };
+    static const size_t k_len_by_version[] = { 0, 76, 78, 80, 82, 82, 118, 132, 136, 176, 180, 180, 188, 192 };
     if (err == ESP_OK && tmp.magic == CFG_MAGIC && tmp.version >= 1 && tmp.version < CFG_VERSION
         && len == k_len_by_version[tmp.version]) {
         if (tmp.version < 2) tmp.theme = 0;
@@ -167,6 +169,7 @@ void config_load(void)
         if (tmp.version < 10) tmp.theme_auto = 0;
         if (tmp.version < 11) tmp.route_reverse = 0;
         if (tmp.version < 12) profile_defaults(&tmp);
+        if (tmp.version < 13) tmp.bike_kg10 = 100;
         ESP_LOGI(TAG, "config upgraded from version %u", tmp.version);
         tmp.version = CFG_VERSION;
         len = sizeof tmp;

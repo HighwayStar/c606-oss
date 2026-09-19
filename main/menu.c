@@ -4,7 +4,7 @@
  *   Settings
  *     Pages            -> Page 1..5 (layout name / off)
  *     Sensors          -> wheel circumference, known sensors (forget), add (ANT scan)
- *     Profile          -> weight, height, birth year, sex, max HR, LTHR, FTP,
+ *     Profile          -> weight, height, birth year, sex, max HR, LTHR, FTP, bike weight,
  *                         HR zone mode (% max HR / % LTHR); Health: BMI, BMR,
  *                         the HR and power zone tables (health.c)
  *       Page n         -> Enable, Layout (picker with live preview), Fields
@@ -717,6 +717,15 @@ static void ftp_step(int dir)
     config_get()->ftp_w = v;
 }
 
+static void bike_text(char *buf, size_t n) { snprintf(buf, n, "%u.%u kg", config_get()->bike_kg10 / 10, config_get()->bike_kg10 % 10); }
+static void bike_step(int dir)
+{
+    int v = config_get()->bike_kg10 + dir;
+    if (v < 0) v = 0;
+    if (v > CFG_BIKE_MAX_KG10) v = CFG_BIKE_MAX_KG10;
+    config_get()->bike_kg10 = v;
+}
+static const value_def_t k_bike_value   = { bike_text, bike_step };
 static const value_def_t k_weight_value = { weight_text, weight_step };
 static const value_def_t k_height_value = { height_text, height_step };
 static const value_def_t k_birth_value  = { birth_text, birth_step };
@@ -961,7 +970,7 @@ static void health_open(void)
     update_hl(s);
 }
 
-enum { PROF_WEIGHT, PROF_HEIGHT, PROF_BIRTH, PROF_SEX, PROF_MAXHR, PROF_LTHR, PROF_FTP, PROF_ZONEMODE, PROF_HEALTH };
+enum { PROF_WEIGHT, PROF_HEIGHT, PROF_BIRTH, PROF_SEX, PROF_MAXHR, PROF_LTHR, PROF_FTP, PROF_ZONEMODE, PROF_BIKE, PROF_HEALTH };
 
 static const char *sex_text(void) { return config_get()->sex ? "Female" : "Male"; }
 static const char *zone_mode_text(void) { return config_get()->hr_zone_mode == HRZ_PCT_LTHR ? "%LTHR" : "%Max HR"; }
@@ -977,6 +986,7 @@ static void profile_refresh(screen_t *s)
     lthr_text(buf, sizeof buf);   set_right(s, PROF_LTHR, buf, true);
     ftp_text(buf, sizeof buf);    set_right(s, PROF_FTP, buf, true);
     set_right(s, PROF_ZONEMODE, zone_mode_text(), false);
+    bike_text(buf, sizeof buf);   set_right(s, PROF_BIKE, buf, true);
 }
 
 static void profile_select(screen_t *s, int idx)
@@ -998,6 +1008,7 @@ static void profile_select(screen_t *s, int idx)
         config_save();
         profile_refresh(s);
         break;
+    case PROF_BIKE:   value_open("Bike weight", &k_bike_value); break;
     case PROF_HEALTH: health_open(); break;
     default: break;
     }
@@ -1018,6 +1029,7 @@ static void profile_open(void)
     add_item(s, "LTHR", ITEM_ARROW, "", false);
     add_item(s, "FTP", ITEM_ARROW, "", false);
     add_item(s, "HR zones by", ITEM_VALUE, "", false);
+    add_item(s, "Bike weight", ITEM_ARROW, "", false);
     add_item(s, "Health", ITEM_ARROW, NULL, false);
     s->sel = 0;
     profile_refresh(s);
