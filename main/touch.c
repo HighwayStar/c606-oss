@@ -46,7 +46,8 @@ static esp_err_t wr_rd(const uint8_t *w, size_t wn, uint8_t *r, size_t rn)
  * 01 00 80 89 -> 1 byte, expected > 0x12) and enable the "ESD firmware"
  * (B5 AB 5A A5 00 02 00 00 00 00 00 21 00). After 56 polls without a good
  * record the vendor power-cycles the module through the nRF (E2 02 09: 0, 1)
- * and re-enables; we do the same and redraw the screen. */
+ * and re-enables. That blanks the panel too, so here it only logs (the
+ * counter never got near the limit on the test unit). */
 static const uint8_t axs_status_cmd[11] = {0xAB, 0xB5, 0x5A, 0xA5, 0x00, 0x00, 0x00, 0x01, 0x00, 0x80, 0x1F};
 static const uint8_t axs_read_cmd[11]   = {0xB5, 0xAB, 0xA5, 0x5A, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x00};
 static const uint8_t axs_ack_cmd[12]    = {0xAB, 0xB5, 0x5A, 0xA5, 0x00, 0x01, 0x00, 0x00, 0x00, 0x80, 0x1F, 0x0A};
@@ -94,17 +95,25 @@ static bool axs_probe(void)
     return true;
 }
 
-/* vendor "axs_tp_esd_num reset": module power off/on through the nRF */
+/* vendor "axs_tp_esd_num reset": module power off/on through the nRF
+ * (nrf_link_send_lcd_power(0), 2 ms, (1), 150 ms, axs_esd_enable(), full
+ * LVGL redraw). Off by default: it blanks the panel, and the counter only
+ * grows when the controller stops answering. */
+#ifndef AXS_ESD_RECOVERY
+#define AXS_ESD_RECOVERY 0
+#endif
 static void axs_recover(void)
 {
-    ESP_LOGW(TAG, "axs: %d bad polls, power-cycling the module", s_axs_bad);
+    ESP_LOGW(TAG, "axs: %d bad polls%s", s_axs_bad, AXS_ESD_RECOVERY ? ", power-cycling the module" : "");
     s_axs_bad = 0;
+#if AXS_ESD_RECOVERY
     nrf_link_send_lcd_power(0);
     vTaskDelay(pdMS_TO_TICKS(2));
     nrf_link_send_lcd_power(1);
     vTaskDelay(pdMS_TO_TICKS(150));
     axs_esd_enable();
     lv_obj_invalidate(lv_screen_active());   /* the panel came up blank */
+#endif
 }
 
 static bool axs_read(uint16_t *x, uint16_t *y)
@@ -125,10 +134,17 @@ static bool axs_read(uint16_t *x, uint16_t *y)
         s_axs_bad = 0;
         return false;
     }
+    uint8_t sum = 0;
+    for (int i = 0; i < 14; i++) sum += buf[i];
+    if (sum != buf[14]) {
+        s_axs_bad++;
+        ESP_LOGD(TAG, "axs: bad checksum %02x != %02x", sum, buf[14]);
+        return false;
+    }
     uint8_t n = buf[1];
-    if (n < 1 || n > 2 || (buf[2] >> 4) == 4 || buf[14] != buf[0]) {
-        if (buf[14] != buf[0]) s_axs_bad++;
-        return false;   /* no point, lift-off, or bad record */
+    if (n < 1 || n > 2 || (buf[2] >> 4) == 4) {
+        s_axs_bad = 0;
+        return false;   /* no point or lift-off */
     }
     *x = ((buf[2] & 0x0F) << 8) | buf[3];
     *y = ((buf[4] & 0x0F) << 8) | buf[5];

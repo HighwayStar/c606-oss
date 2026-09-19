@@ -346,9 +346,10 @@ Source: vendor firmware **C706 V1.729** (`ota_0-706.elf` in the same Ghidra
 project, built May 30 2025), the full-flash backup
 `magene_c706__my_stock_chinese.bin` and the device's own logs
 (`LOG/<date>.log` on its eMMC). Addresses below refer to that image.
-**Nothing in this section has been verified on hardware yet** — the build
-(`BOARD=c706 tools/build_podman.sh`) follows the vendor code as closely as
-the C606 port did, but the first boot on a real C706 will tell.
+Verified on a real C706 on 2026-09-19 (first boot of `BOARD=c706`): 8 MB
+octal PSRAM detected, panel and touch come up, nRF answers (fw 0.42.11,
+reason 4), RTC/battery frames arrive, eMMC (8 GB `MV3608`) mounts, all
+five keys report, GPS decodes after the module has woken up.
 
 The two firmwares are the same code base (the C606 image even carries the
 5-key handling and the `_CommonKeyD/E` callbacks); only the hardware
@@ -419,15 +420,20 @@ over 11-byte command frames:
 2. write `B5 AB A5 5A 00 00 00 0F 00 00 00` (length 15 big-endian at [6..7]), read **15 bytes**
 3. write `AB B5 5A A5 00 01 00 00 00 80 1F 0A` (12 bytes, "consumed")
 
-Record: `[1]` = number of points (1 or 2), `[2] >> 4 == 4` = finger lifted,
-`x = ([2] & 0x0F) << 8 | [3]`, `y = ([4] & 0x0F) << 8 | [5]` (raw, ≤ 320/480),
-valid only when `[14] == [0]`; `00 FF×13 F3` = idle/no touch.
+Record (seen on hardware, e.g. `00 01 80 78 01 5d 01 02 ff ff ff ff ff ff 56`):
+`[1]` = number of points (1 or 2), `[2] >> 4` = event (0 press, 8 contact /
+move, 4 lift-off), `x = ([2] & 0x0F) << 8 | [3]`, `y = ([4] & 0x0F) << 8 | [5]`
+(raw 0..320 / 0..480, 1:1 on the panel), `[6]`/`[7]` frame counter, `[14]` =
+**sum of bytes 0..13 mod 256**; `00 FF×13 F3` = idle/no touch. The status
+byte is `0x05` only when a new record is pending — while idle that is once
+every ~630 ms (the idle record), `0x00` in between; during a touch every poll.
 Init: read the firmware version (`5A A5 AB B5 00 00 00 01 00 80 89` → 1 byte,
 retried while ≤ 0x12) and enable the "ESD firmware"
 (`B5 AB 5A A5 00 02 00 00 00 00 00 21 00`). After 56 consecutive polls without
 a good record the vendor power-cycles the module via `E2 02 09` (0, then 1),
 re-sends the ESD enable and redraws the screen (`axs_tp_esd_num reset`).
-`main/touch.c` does the same.
+`main/touch.c` only logs at that point (`AXS_ESD_RECOVERY`): the power
+cycle blanks the panel, and the counter stays around 20 in normal use.
 
 ## Keys: five (A..E = nRF index 0..4)
 

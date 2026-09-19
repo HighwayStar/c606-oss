@@ -15,6 +15,7 @@
  *   pos <lat> <lon>   centre the map page on this position instead of the GPS ("pos" alone: back to GPS)
  *   zoom <z>          map zoom level (10..17)
  *   nmea <sentence>   feed a NMEA sentence to the GPS parser (the receiver is muted until "nmea off")
+ *   nrf <type> <cmd> <hex bytes..>  send a raw frame to the nRF (e.g. "nrf 2 10 e2 02 07 00 00 01 00 00")
  *   heap              print free heap
  * tools/devcon.py drives it from the host. */
 

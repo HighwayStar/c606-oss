@@ -4,8 +4,7 @@ The Magene C606 bike computer is an **ESP32-S3** driving a 240x320 ST7789 over
 a 16-bit i80 bus, plus an **nRF co-processor** that owns the buttons, power
 management and sensor radios and talks to the ESP32 over UART. The **C706**
 is the same design with a 320x480 AXS15231 panel on an 8-bit bus, 32 MB
-flash, 8 MB PSRAM and five keys (`BOARD=c706`, see *Targets* below — built
-from the vendor firmware, not yet tried on a real C706).
+flash, 8 MB PSRAM and five keys (`BOARD=c706`, see *Targets* below).
 
 This PoC replaces only the ESP32 application. It:
 
@@ -140,11 +139,9 @@ tools/flash_poc.py -p /dev/ttyACM0 --board c706  # picks build-c706/c706_oss.bin
 keeps its own `sdkconfig.c706`. The C706 keys follow the vendor's map: key 0
 click = lap / hold = power off, key 2 = start / pause (hold = end ride),
 key 3 / 4 = next / previous page; in the menus 0 = back, 2 = select,
-3 / 4 = down / up. **The C706 build is untested on hardware** — it mirrors
-what the vendor firmware does (`docs/HARDWARE.md`, section *Magene C706*),
-so the first things to check on a real unit are the picture (colours →
-`LCD_SWAP_COLOR_BYTES`, alignment → `LCD_ALIGN_PX`) and the touch handshake
-in the boot log.
+3 / 4 = down / up. The analysis behind the port is in `docs/HARDWARE.md`,
+section *Magene C706*; the build runs on a real C706 (display, touch, nRF,
+keys, eMMC, GPS verified on 2026-09-19).
 
 Console logs go to the S3's USB-Serial-JTAG (the USB-C port):
 `idf.py -p /dev/ttyACM0 monitor`.

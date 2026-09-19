@@ -25,6 +25,7 @@
 #include "gps.h"
 #include "sun.h"
 #include "route.h"
+#include "nrf_link.h"
 
 static const char *TAG = "devcon";
 
@@ -171,6 +172,13 @@ static void handle(char *cmd)
         char *a = strtok_r(NULL, " ", &save);
         if (a) ride_speed(atof(a), true);
         printf("ok\n");
+    } else if (!strcmp(w, "nrf")) {   /* raw frame to the nRF: nrf <type> <cmd> <payload hex bytes...> */
+        char *a = strtok_r(NULL, " ", &save), *b = strtok_r(NULL, " ", &save), *h;
+        uint8_t pl[32];
+        int n = 0;
+        while (n < (int)sizeof pl && (h = strtok_r(NULL, " ", &save))) pl[n++] = strtol(h, NULL, 16);
+        if (a && b) printf(nrf_link_send(strtol(a, NULL, 0), strtol(b, NULL, 16), pl, n) == ESP_OK ? "ok\n" : "nrf failed\n");
+        else printf("nrf failed\n");
     } else if (!strcmp(w, "shot")) {
         cmd_shot();
     } else if (!strcmp(w, "ls")) {
@@ -242,6 +250,6 @@ esp_err_t devcon_init(devcon_key_cb_t key_cb)
     usb_serial_jtag_vfs_use_driver();
     usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_CRLF);
     xTaskCreate(devcon_task, "devcon", 4096, NULL, 3, NULL);
-    ESP_LOGI(TAG, "ready: key/tap/spd/shot/ls/get/put/mv/pos/zoom/nmea/heap");
+    ESP_LOGI(TAG, "ready: key/tap/spd/shot/ls/get/put/mv/pos/zoom/nmea/nrf/heap");
     return ESP_OK;
 }
