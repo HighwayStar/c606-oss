@@ -18,6 +18,10 @@
  *     Route            -> GPX file drawn on the map (c606oss/routes/, .gpx), or none
  *       file           -> preview: track outline, length, climb / descent,
  *                         Reverse toggle, "Use this route"
+ *     History          -> recorded rides (ours and the vendor's), newest first
+ *       ride           -> track outline + summary (time, distance, speed, HR,
+ *                         cadence, power, calories, climb, laps),
+ *                         "Use as route" (the ride becomes the map's route), Delete
  *     Reset statistics
  *     System           -> USB storage, Power off, Reset settings (confirm), About
  *
@@ -42,13 +46,14 @@
 #include "sun.h"
 #include "mapview.h"
 #include "route.h"
+#include "history.h"
 #include "ant.h"
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 
 #define MAX_DEPTH 8
-#define MAX_ITEMS 16
+#define MAX_ITEMS 40
 #define HDR_H 28
 #define ROW_H 40
 
@@ -905,12 +910,13 @@ static void system_open(void)
 
 /* ---- settings root ----------------------------------------------------- */
 enum { ROOT_PAGES, ROOT_SENSORS, ROOT_LAP, ROOT_AUTOPAUSE, ROOT_BACKLIGHT, ROOT_TZ, ROOT_THEME, ROOT_AUTOTHEME,
-       ROOT_LAYERS, ROOT_ROUTE, ROOT_RESET, ROOT_SYSTEM };
+       ROOT_LAYERS, ROOT_ROUTE, ROOT_HISTORY, ROOT_RESET, ROOT_SYSTEM };
 
 /* ---- route: GPX files in /sdcard/c606oss/routes ------------------------ */
 
-static char s_routes[MAX_ITEMS - 1][ROUTE_NAME_MAX];
+static char s_routes[MAX_ITEMS - 2][ROUTE_NAME_MAX];
 static int s_nroutes;
+static bool s_route_fit;   /* the loaded route is a recorded ride: extra row on top */
 
 /* Preview of one file before it becomes the route: the track outline
  * (thinned to PREVIEW_POINTS), start / end markers, length, climb and
@@ -949,7 +955,7 @@ static void preview_update(void)
         snprintf(buf + n, sizeof buf - n, "No elevation data");
     }
     lv_label_set_text(s_prev_stats, buf);
-    if (s_prev_pts && s_prev.n) {
+    if (s_prev_pts && s_prev.n && s_prev_start) {
         const lv_point_precise_t *a = &s_prev_pts[0], *b = &s_prev_pts[s_prev.n - 1];
         if (s_prev_rev) { const lv_point_precise_t *t = a; a = b; b = t; }
         lv_obj_set_pos(s_prev_start, (int32_t)a->x - 4, (int32_t)a->y - 4);
@@ -987,6 +993,55 @@ static lv_obj_t *marker(lv_obj_t *parent, lv_palette_t p)
     return m;
 }
 
+/* The track outline of s_prev in a panel: the thinned points scaled to
+ * fit, start (green) / end (red) markers. */
+static lv_obj_t *outline_create(lv_obj_t *parent, int x, int y, int w, int h)
+{
+    lv_obj_t *box = lv_obj_create(parent);
+    lv_obj_remove_style_all(box);
+    lv_obj_set_pos(box, x, y);
+    lv_obj_set_size(box, w, h);
+    lv_obj_add_style(box, &theme_st_panel, 0);
+    lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(box, 1, 0);
+    lv_obj_set_style_radius(box, 4, 0);
+
+    s_prev_pts = s_prev.n ? heap_caps_malloc(s_prev.n * sizeof *s_prev_pts, MALLOC_CAP_SPIRAM) : NULL;
+    if (s_prev_pts) {
+        int32_t minx = s_prev.x20[0], maxx = minx, miny = s_prev.y20[0], maxy = miny;
+        for (size_t i = 1; i < s_prev.n; i++) {
+            if (s_prev.x20[i] < minx) minx = s_prev.x20[i];
+            if (s_prev.x20[i] > maxx) maxx = s_prev.x20[i];
+            if (s_prev.y20[i] < miny) miny = s_prev.y20[i];
+            if (s_prev.y20[i] > maxy) maxy = s_prev.y20[i];
+        }
+        /* fit the bounding box, same scale on both axes, centred */
+        float bw = (float)(maxx - minx), bh = (float)(maxy - miny);
+        float aw = w - 2 * PREVIEW_PAD, ah = h - 2 * PREVIEW_PAD;
+        float sc = 1.0f;
+        if (bw > 0 || bh > 0) sc = fminf(bw > 0 ? aw / bw : 1e9f, bh > 0 ? ah / bh : 1e9f);
+        float ox = PREVIEW_PAD + (aw - bw * sc) / 2, oy = PREVIEW_PAD + (ah - bh * sc) / 2;
+        for (size_t i = 0; i < s_prev.n; i++) {
+            s_prev_pts[i].x = ox + (s_prev.x20[i] - minx) * sc;
+            s_prev_pts[i].y = oy + (s_prev.y20[i] - miny) * sc;
+        }
+        lv_obj_t *line = lv_line_create(box);
+        lv_line_set_points(line, s_prev_pts, s_prev.n);
+        lv_obj_set_style_line_width(line, 2, 0);
+        lv_obj_set_style_line_color(line, theme_current() == THEME_DARK ? lv_color_make(0xe0, 0x50, 0xd0)
+                                                                          : lv_color_make(0xc0, 0x20, 0xa0), 0);
+        lv_obj_set_style_line_rounded(line, true, 0);
+        s_prev_start = marker(box, LV_PALETTE_GREEN);
+        s_prev_end = marker(box, LV_PALETTE_RED);
+    } else {
+        s_prev_start = s_prev_end = NULL;
+        lv_obj_t *l = label(box, &lv_font_montserrat_14, C_GREY, "No GPS track");
+        lv_obj_add_style(l, &theme_st_muted, 0);
+        lv_obj_center(l);
+    }
+    return box;
+}
+
 static void route_preview_open(const char *name)
 {
     route_info_t info;
@@ -1002,44 +1057,7 @@ static void route_preview_open(const char *name)
     s->select_cb = preview_select;
     s->close_cb = preview_close;
 
-    /* the outline in a panel */
-    lv_obj_t *box = lv_obj_create(s->root);
-    lv_obj_remove_style_all(box);
-    lv_obj_set_pos(box, PREVIEW_X, PREVIEW_Y);
-    lv_obj_set_size(box, PREVIEW_W, PREVIEW_H);
-    lv_obj_add_style(box, &theme_st_panel, 0);
-    lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(box, 1, 0);
-    lv_obj_set_style_radius(box, 4, 0);
-
-    s_prev_pts = heap_caps_malloc(s_prev.n * sizeof *s_prev_pts, MALLOC_CAP_SPIRAM);
-    if (s_prev_pts) {
-        int32_t minx = s_prev.x20[0], maxx = minx, miny = s_prev.y20[0], maxy = miny;
-        for (size_t i = 1; i < s_prev.n; i++) {
-            if (s_prev.x20[i] < minx) minx = s_prev.x20[i];
-            if (s_prev.x20[i] > maxx) maxx = s_prev.x20[i];
-            if (s_prev.y20[i] < miny) miny = s_prev.y20[i];
-            if (s_prev.y20[i] > maxy) maxy = s_prev.y20[i];
-        }
-        /* fit the bounding box, same scale on both axes, centred */
-        float w = (float)(maxx - minx), h = (float)(maxy - miny);
-        float aw = PREVIEW_W - 2 * PREVIEW_PAD, ah = PREVIEW_H - 2 * PREVIEW_PAD;
-        float sc = 1.0f;
-        if (w > 0 || h > 0) sc = fminf(w > 0 ? aw / w : 1e9f, h > 0 ? ah / h : 1e9f);
-        float ox = PREVIEW_PAD + (aw - w * sc) / 2, oy = PREVIEW_PAD + (ah - h * sc) / 2;
-        for (size_t i = 0; i < s_prev.n; i++) {
-            s_prev_pts[i].x = ox + (s_prev.x20[i] - minx) * sc;
-            s_prev_pts[i].y = oy + (s_prev.y20[i] - miny) * sc;
-        }
-        lv_obj_t *line = lv_line_create(box);
-        lv_line_set_points(line, s_prev_pts, s_prev.n);
-        lv_obj_set_style_line_width(line, 2, 0);
-        lv_obj_set_style_line_color(line, theme_current() == THEME_DARK ? lv_color_make(0xe0, 0x50, 0xd0)
-                                                                          : lv_color_make(0xc0, 0x20, 0xa0), 0);
-        lv_obj_set_style_line_rounded(line, true, 0);
-    }
-    s_prev_start = marker(box, LV_PALETTE_GREEN);
-    s_prev_end = marker(box, LV_PALETTE_RED);
+    outline_create(s->root, PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H);
 
     s_prev_stats = label(s->root, &lv_font_montserrat_14, C_FG, "");
     lv_obj_add_style(s_prev_stats, &theme_st_text, 0);
@@ -1065,8 +1083,10 @@ static void route_select(screen_t *s, int idx)
         config_save();
         route_clear();
         pop();
-    } else if (idx <= s_nroutes) {
-        route_preview_open(s_routes[idx - 1]);
+    } else if (s_route_fit && idx == 1) {
+        route_preview_open(c->route);
+    } else if (idx - s_route_fit <= s_nroutes) {
+        route_preview_open(s_routes[idx - 1 - s_route_fit]);
     }
 }
 
@@ -1076,15 +1096,21 @@ static void route_open(void)
     if (!s) return;
     s->select_cb = route_select;
     make_list(s);
-    s_nroutes = route_list(s_routes, MAX_ITEMS - 1);
+    s_nroutes = route_list(s_routes, MAX_ITEMS - 2);
     /* first row: clears the loaded route (reads "None" while nothing is loaded) */
     add_item(s, route_loaded() ? LV_SYMBOL_CLOSE "  Unload route" : "None", ITEM_PLAIN, NULL, false);
     s->sel = 0;
+    /* a recorded ride used as the route (from History) is not in the list: show it on top */
+    s_route_fit = route_loaded() && route_is_fit(config_get()->route);
+    if (s_route_fit) {
+        add_item(s, config_get()->route, ITEM_VALUE, config_get()->route_reverse ? LV_SYMBOL_OK " rev." : LV_SYMBOL_OK, false);
+        s->sel = 1;
+    }
     for (int i = 0; i < s_nroutes; i++) {
         bool cur = route_loaded() && !strcmp(s_routes[i], config_get()->route);
         add_item(s, s_routes[i], cur ? ITEM_VALUE : ITEM_PLAIN,
                  config_get()->route_reverse ? LV_SYMBOL_OK " rev." : LV_SYMBOL_OK, false);
-        if (cur) s->sel = i + 1;
+        if (cur) s->sel = i + 1 + s_route_fit;
     }
     if (!s_nroutes) {
         lv_obj_t *h = label(s->root, &lv_font_montserrat_14, C_GREY,
@@ -1102,6 +1128,198 @@ static const char *route_text(void)
     if (!route_loaded()) return "none";
     snprintf(buf, sizeof buf, "%.1f km", route_length_m() / 1000);
     return buf;
+}
+
+/* ---- history: recorded rides ------------------------------------------- */
+
+static history_entry_t s_hist[MAX_ITEMS];
+static int s_nhist;
+
+/* ride screen: outline on top, a 3 x 4 grid of summary values, then
+ * "Use as route" / "Delete ride" */
+#define RIDE_OUTLINE_H 72
+#define RIDE_GRID_Y    (PREVIEW_Y + RIDE_OUTLINE_H + 4)
+#define RIDE_COLS      3
+#define RIDE_ROWS      4
+#define RIDE_CELL_W    (LCD_H_RES / RIDE_COLS)
+#define RIDE_CELL_H    ((LCD_V_RES - 2 * ROW_H - RIDE_GRID_Y) / RIDE_ROWS)
+
+static void hms(char *buf, size_t n, uint32_t ms)
+{
+    uint32_t sec = ms / 1000;
+    snprintf(buf, n, "%lu:%02lu:%02lu", (unsigned long)(sec / 3600), (unsigned long)(sec / 60 % 60), (unsigned long)(sec % 60));
+}
+
+static void ride_cell(lv_obj_t *parent, int idx, const char *name, const char *value)
+{
+    int x = (idx % RIDE_COLS) * RIDE_CELL_W, y = RIDE_GRID_Y + (idx / RIDE_COLS) * RIDE_CELL_H;
+    lv_obj_t *n = label(parent, &lv_font_montserrat_14, C_GREY, name);
+    lv_obj_add_style(n, &theme_st_muted, 0);
+    lv_obj_set_pos(n, x + 8, y);
+    lv_obj_t *v = label(parent, &lv_font_montserrat_14, C_FG, value);
+    lv_obj_add_style(v, &theme_st_text, 0);
+    lv_obj_set_pos(v, x + 8, y + 15);
+}
+
+static void ride_use_as_route(void)
+{
+    app_cfg_t *c = config_get();
+    strncpy(c->route, s_prev_name, sizeof c->route - 1);
+    c->route_reverse = 0;
+    config_save();
+    if (route_load(c->route, 0) != ESP_OK) { c->route[0] = 0; config_save(); }
+    pop();      /* the ride */
+    pop();      /* the history list: back to the settings root */
+}
+
+static void delete_confirm_select(screen_t *s, int idx)
+{
+    if (idx != 1) {
+        pop();
+        return;
+    }
+    app_cfg_t *c = config_get();
+    if (history_delete(s_prev_name) == ESP_OK && !strcmp(c->route, s_prev_name)) {
+        c->route[0] = 0;   /* it was the map's route */
+        config_save();
+        route_clear();
+    }
+    pop();      /* the confirmation */
+    pop();      /* the ride: the list refreshes itself */
+}
+
+static void delete_confirm_open(void)
+{
+    screen_t *s = push("Delete ride?");
+    if (!s) return;
+    s->select_cb = delete_confirm_select;
+    make_list(s);
+    char buf[96];
+    const char *base = strrchr(s_prev_name, '/');
+    snprintf(buf, sizeof buf, "%.40s\nwill be removed from\nthe card for good.", base ? base + 1 : s_prev_name);
+    lv_obj_t *h = label(s->root, &lv_font_montserrat_14, C_GREY, buf);
+    lv_obj_add_style(h, &theme_st_muted, 0);
+    lv_obj_set_style_text_align(h, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(h, LV_ALIGN_TOP_MID, 0, HDR_H + 2 * ROW_H + 16);
+    add_item(s, "Cancel", ITEM_PLAIN, NULL, false);
+    add_item(s, LV_SYMBOL_TRASH "  Delete", ITEM_PLAIN, NULL, false);
+    s->sel = 0;
+    update_hl(s);
+}
+
+static void ride_select(screen_t *s, int idx)
+{
+    bool has_track = s_prev.n >= 2;
+    if (has_track && idx == 0) ride_use_as_route();
+    else if (idx == has_track) delete_confirm_open();
+}
+
+static void ride_open(const history_entry_t *e)
+{
+    route_info_t info;
+    if (route_scan(e->name, PREVIEW_POINTS, &info) != ESP_OK) return;
+
+    char title[40];
+    history_label(e, title, sizeof title);
+    screen_t *s = push(title);
+    if (!s) { route_info_free(&info); return; }
+    s_prev = info;
+    strncpy(s_prev_name, e->name, sizeof s_prev_name - 1);
+    s->select_cb = ride_select;
+    s->close_cb = preview_close;
+
+    outline_create(s->root, PREVIEW_X, PREVIEW_Y, PREVIEW_W, RIDE_OUTLINE_H);
+    if (s_prev_start) {
+        lv_obj_set_pos(s_prev_start, (int32_t)s_prev_pts[0].x - 4, (int32_t)s_prev_pts[0].y - 4);
+        lv_obj_set_pos(s_prev_end, (int32_t)s_prev_pts[s_prev.n - 1].x - 4, (int32_t)s_prev_pts[s_prev.n - 1].y - 4);
+    }
+
+    const fit_summary_t *f = &s_prev.fit;
+    char v[16];
+    hms(v, sizeof v, f->timer_ms);
+    ride_cell(s->root, 0, "Time", v);
+    /* the track length when the file carries no distance (no wheel sensor, no GPS distance) */
+    float dist = f->distance_m > 0 ? f->distance_m : s_prev.len_m;
+    snprintf(v, sizeof v, "%.1f km", dist / 1000);
+    ride_cell(s->root, 1, "Distance", v);
+    if (f->avg_speed_ms >= 0) snprintf(v, sizeof v, "%.1f km/h", f->avg_speed_ms * 3.6f); else strcpy(v, "--");
+    ride_cell(s->root, 2, "Avg spd", v);
+    if (f->max_speed_ms >= 0) snprintf(v, sizeof v, "%.1f km/h", f->max_speed_ms * 3.6f); else strcpy(v, "--");
+    ride_cell(s->root, 3, "Max spd", v);
+    if (f->avg_hr >= 0) snprintf(v, sizeof v, "%d bpm", f->avg_hr); else strcpy(v, "--");
+    ride_cell(s->root, 4, "Avg HR", v);
+    if (f->max_hr >= 0) snprintf(v, sizeof v, "%d bpm", f->max_hr); else strcpy(v, "--");
+    ride_cell(s->root, 5, "Max HR", v);
+    if (f->avg_cad >= 0) snprintf(v, sizeof v, "%d rpm", f->avg_cad); else strcpy(v, "--");
+    ride_cell(s->root, 6, "Cadence", v);
+    if (f->avg_power >= 0) snprintf(v, sizeof v, "%d W", f->avg_power); else strcpy(v, "--");
+    ride_cell(s->root, 7, "Power", v);
+    if (f->calories >= 0) snprintf(v, sizeof v, "%d kcal", f->calories); else strcpy(v, "--");
+    ride_cell(s->root, 8, "Calories", v);
+    int up = f->ascent_m >= 0 ? f->ascent_m : s_prev.has_ele ? (int)(s_prev.climb_m + 0.5f) : -1;
+    int down = f->descent_m >= 0 ? f->descent_m : s_prev.has_ele ? (int)(s_prev.descent_m + 0.5f) : -1;
+    if (up >= 0) snprintf(v, sizeof v, "%d m", up); else strcpy(v, "--");
+    ride_cell(s->root, 9, "Climb", v);
+    if (down >= 0) snprintf(v, sizeof v, "%d m", down); else strcpy(v, "--");
+    ride_cell(s->root, 10, "Descent", v);
+    snprintf(v, sizeof v, "%d", f->laps);
+    ride_cell(s->root, 11, "Laps", v);
+
+    make_list(s);
+    lv_obj_set_pos(s->list, 0, LCD_V_RES - 2 * ROW_H);
+    lv_obj_set_size(s->list, LCD_H_RES, 2 * ROW_H);
+    if (s_prev.n >= 2) add_item(s, LV_SYMBOL_GPS "  Use as route", ITEM_PLAIN, NULL, false);
+    add_item(s, LV_SYMBOL_TRASH "  Delete ride", ITEM_PLAIN, NULL, false);
+    s->sel = 0;
+    update_hl(s);
+}
+
+static void history_select(screen_t *s, int idx)
+{
+    if (idx < s_nhist) ride_open(&s_hist[idx]);
+}
+
+static void history_fill(screen_t *s)
+{
+    int total;
+    s_nhist = history_list(s_hist, MAX_ITEMS - 1, &total);
+    char buf[40];
+    for (int i = 0; i < s_nhist; i++) {
+        history_label(&s_hist[i], buf, sizeof buf);
+        add_item(s, buf, ITEM_ARROW, s_hist[i].vendor ? "Magene" : NULL, false);
+    }
+    if (total > s_nhist) {
+        snprintf(buf, sizeof buf, "%d older not shown", total - s_nhist);
+        add_item(s, buf, ITEM_PLAIN, NULL, false);
+    }
+    if (!s_nhist) {
+        lv_obj_t *h = label(s->list, &lv_font_montserrat_14, C_GREY, "No rides recorded yet");
+        lv_obj_add_style(h, &theme_st_muted, 0);
+        lv_obj_set_style_text_align(h, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_width(h, LCD_H_RES);
+        lv_obj_set_style_pad_top(h, ROW_H, 0);
+    }
+}
+
+static void history_refresh(screen_t *s)
+{
+    int sel = s->sel;
+    list_clear(s);
+    history_fill(s);
+    s->sel = sel < s->n ? sel : s->n - 1;
+    update_hl(s);
+}
+
+static void history_open(void)
+{
+    screen_t *s = push("History");
+    if (!s) return;
+    s->select_cb = history_select;
+    s->refresh_cb = history_refresh;
+    make_list(s);
+    history_fill(s);
+    s->sel = s_nhist ? 0 : -1;
+    update_hl(s);
 }
 
 /* ---- map layers: a toggle per layer group ------------------------------ */
@@ -1182,6 +1400,9 @@ static void settings_select(screen_t *s, int idx)
     case ROOT_ROUTE:
         route_open();
         break;
+    case ROOT_HISTORY:
+        history_open();
+        break;
     case ROOT_RESET:
         stats_reset();
         menu_close();
@@ -1236,6 +1457,7 @@ void menu_open(void)
     add_item(s, "Auto theme", ITEM_TOGGLE, NULL, config_get()->theme_auto);
     add_item(s, "Map layers", ITEM_ARROW, NULL, false);
     add_item(s, "Route", ITEM_ARROW, route_text(), false);
+    add_item(s, "History", ITEM_ARROW, NULL, false);
     add_item(s, "Reset statistics", ITEM_PLAIN, NULL, false);
     add_item(s, "System", ITEM_ARROW, NULL, false);
     s->sel = 0;

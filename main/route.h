@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include "esp_err.h"
+#include "fitread.h"
 
 /* GPX routes / tracks for the map page.
  *
@@ -19,11 +20,17 @@
 
 #define ROUTE_DIR        "/sdcard/c606oss/routes"
 #define ROUTE_NAME_MAX   40
+#define ROUTE_PATH_MAX   (sizeof ROUTE_DIR + ROUTE_NAME_MAX + 1)
 #define ROUTE_MAX_POINTS 16384
 
-/* File name inside ROUTE_DIR; NULL or "" clears. `reverse` loads the
- * points end to start (ride the track backwards). */
+/* A route name is a .gpx file in ROUTE_DIR, a recorded ride (.fit in the
+ * ride directory, loaded through fitread.c), or "dir/file" relative to the
+ * card (the vendor's FITS/FIT/<epoch>.fit rides); route_path() resolves
+ * it. NULL or "" clears. `reverse` loads the points end to start (ride the
+ * track backwards). */
 esp_err_t route_load(const char *name, bool reverse);
+void route_path(const char *name, char *path, size_t n);
+bool route_is_fit(const char *name);
 void route_clear(void);
 bool route_loaded(void);
 const char *route_name(void);
@@ -58,6 +65,8 @@ typedef struct {
     int32_t min_lat, min_lon, max_lat, max_lon;   /* microdegrees */
     int32_t *x20, *y20;               /* thinned points, zoom-20 pixels (PSRAM) */
     size_t n;
+    bool is_fit;
+    fit_summary_t fit;                /* ride summary when the file is a FIT activity */
 } route_info_t;
 
 esp_err_t route_scan(const char *name, size_t max_points, route_info_t *info);

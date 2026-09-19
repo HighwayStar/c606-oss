@@ -48,6 +48,12 @@ This PoC replaces only the ESP32 application. It:
   start / red end) and a *Route Left* data field counts down the track
   distance to its end; the map page works with a route even without a map
   file,
+* **ride history**: Settings → History lists the recorded rides (ours in
+  `c606oss/`, and the vendor firmware's in `FITS/FIT/`, tagged *Magene*)
+  newest first; a ride opens with its track outline and the summary — time,
+  distance, avg / max speed, avg / max HR, cadence, power, calories, climb /
+  descent, laps (`main/fitread.c`, a small tolerant FIT reader) — and can be
+  *used as route*: it becomes the map's route like a GPX file, or deleted,
 * developer console on the USB port: inject key/touch events and take
   screenshots from the host (`tools/devcon.py`),
 * idle / riding / paused modes: the idle screen (clock, GPS and sensor state,
@@ -233,6 +239,19 @@ with `esp32_image_parser.py dump_partition`.)
      field; the match prefers the stretch it was on last time, so an
      out-and-back track does not flip to the other leg where both run along
      the same road.
+   * *History*: the recorded rides, newest first (the date and time from
+     the file name, so the list is instant; the ride being recorded is not
+     listed; rides recorded by the vendor firmware — `FITS/FIT/<unix
+     time>.fit` on the card — are included and tagged *Magene*). A ride
+     opens with its track outline ("No GPS track" for an indoor ride) and a
+     3 × 4 summary: timer time, distance, avg / max speed, avg / max HR,
+     cadence, power, calories, climb / descent and laps. The values come
+     from the file's `session` message; a file without one (power lost
+     mid-ride, or the vendor's files, which end with a single `lap` instead)
+     gets them from that lap or, failing that, from the records
+     themselves. *Use as route* makes the ride the map's route (a `.fit`
+     name in the *Route* setting, listed on top of the GPX files there) and
+     *Delete ride* removes the file after a confirmation.
    * *Reset statistics*.
    * *System* → *USB storage*, *Power off*, *Reset settings* (with a
      confirmation: everything back to the firmware defaults), *About*.
@@ -336,7 +355,9 @@ main/sun.c         sunrise / sunset for the last GPS position (NOAA solar equati
 main/ride.c        idle / riding / paused state machine
 main/mapfile.c     Mapsforge binary map reader (header, tile index, way decoding)
 main/mapview.c     map page: render task, rasteriser, canvas, zoom buttons, route overlay
-main/route.c       GPX track/route loader for the map page, position on the route
+main/route.c       GPX track/route loader for the map page, position on the route (also loads a recorded ride)
+main/fitread.c     FIT activity reader: records for the track, session / lap summary
+main/history.c     ride history: lists our and the vendor's FIT files, delete
 tools/mapdump/     host build of mapfile.c: dump or render a tile of a .map file
 main/trip.c        distance (wheel sensor or GPS) and auto laps
 main/usb_msc.c     TinyUSB mass storage over the eMMC (esp_tinyusb)

@@ -2,6 +2,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"
+#include "sdcard.h"
+
+#define TRACKLOG_DIR SD_MOUNT_POINT "/c606oss"
 
 /* Ride recorder: writes a standard FIT activity file (file_id, file_creator,
  * device_info, timer events, one record per second, a lap message per lap,

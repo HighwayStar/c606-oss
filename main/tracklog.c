@@ -35,7 +35,7 @@
 #include "config.h"
 
 static const char *TAG = "track";
-#define TRACK_DIR SD_MOUNT_POINT "/c606oss"
+#define TRACK_DIR TRACKLOG_DIR
 
 /* identity written to file_id / device_info. `development` is what the
  * profile reserves for unregistered products. */

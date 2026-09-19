@@ -9,9 +9,12 @@
 #include "freertos/semphr.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "sdcard.h"
 
 #include "route.h"
 #include "mapfile.h"
+#include "fitread.h"
+#include "tracklog.h"
 
 static const char *TAG = "route";
 
@@ -151,11 +154,38 @@ static void scan(build_t *b, char *buf, size_t *len, bool eof)
     *len = rest;
 }
 
-/* Parses ROUTE_DIR/name into `b` (x/y/cap set by the caller). */
-static esp_err_t parse_file(const char *name, build_t *b)
+bool route_is_fit(const char *name)
 {
-    char path[sizeof ROUTE_DIR + ROUTE_NAME_MAX + 1];
-    snprintf(path, sizeof path, ROUTE_DIR "/%s", name);
+    size_t l = strlen(name);
+    return l > 4 && strcasecmp(name + l - 4, ".fit") == 0;
+}
+
+void route_path(const char *name, char *path, size_t n)
+{
+    if (strchr(name, '/')) snprintf(path, n, SD_MOUNT_POINT "/%s", name);
+    else if (route_is_fit(name)) snprintf(path, n, TRACKLOG_DIR "/%s", name);
+    else snprintf(path, n, ROUTE_DIR "/%s", name);
+}
+
+/* A recorded ride as a route: every record with a position is a point,
+ * its altitude the elevation. */
+static void fit_record_cb(const fit_rec_t *r, void *ctx)
+{
+    build_t *b = ctx;
+    if (!r->has_pos) return;
+    add_point(b, r->lat, r->lon);
+    if (r->has_alt) add_ele(b, r->alt_m);
+}
+
+/* Parses the file `name` (see route_path) into `b` (x/y/cap set by the caller). */
+static esp_err_t parse_file(const char *name, build_t *b, fit_summary_t *fit)
+{
+    char path[ROUTE_PATH_MAX];
+    route_path(name, path, sizeof path);
+    b->stride = 1;
+    if (route_is_fit(name)) {
+        return fitread_file(path, fit_record_cb, b, fit);   /* may have no positions (indoor ride) */
+    }
     FILE *f = fopen(path, "rb");
     if (!f) {
         ESP_LOGW(TAG, "cannot open %s", path);
@@ -163,7 +193,6 @@ static esp_err_t parse_file(const char *name, build_t *b)
     }
     char *buf = heap_caps_malloc(CHUNK + CARRY, MALLOC_CAP_SPIRAM);
     if (!buf) { fclose(f); return ESP_ERR_NO_MEM; }
-    b->stride = 1;
     size_t len = 0;
     for (;;) {
         size_t got = fread(buf + len, 1, CHUNK, f);
@@ -201,7 +230,11 @@ esp_err_t route_load(const char *name, bool reverse)
 
     build_t b = { 0 };
     if (!alloc_points(&b, ROUTE_MAX_POINTS, true)) return ESP_ERR_NO_MEM;
-    esp_err_t err = parse_file(name, &b);
+    esp_err_t err = parse_file(name, &b, NULL);
+    if (err == ESP_OK && b.n < 2) {
+        ESP_LOGW(TAG, "%s: no track", name);
+        err = ESP_ERR_INVALID_ARG;
+    }
     if (err != ESP_OK) {
         free(b.x); free(b.y); free(b.cum);
         return err;
@@ -231,7 +264,8 @@ esp_err_t route_scan(const char *name, size_t max_points, route_info_t *info)
     memset(info, 0, sizeof *info);
     build_t b = { 0 };
     if (!alloc_points(&b, max_points, false)) return ESP_ERR_NO_MEM;
-    esp_err_t err = parse_file(name, &b);
+    info->is_fit = route_is_fit(name);
+    esp_err_t err = parse_file(name, &b, info->is_fit ? &info->fit : NULL);
     if (err != ESP_OK) {
         free(b.x); free(b.y);
         return err;
