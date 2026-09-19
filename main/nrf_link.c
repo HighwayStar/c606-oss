@@ -86,6 +86,11 @@ esp_err_t nrf_link_send_gps_power(uint8_t val)
     return nrf_link_send_ctrl(NRF_TYPE_SET, 0x02, 0x07, val);
 }
 
+esp_err_t nrf_link_send_lcd_power(uint8_t val)
+{
+    return nrf_link_send_ctrl(NRF_TYPE_SET, 0x02, NRF_CTRL_LCD_POWER, val);
+}
+
 bool nrf_link_decode_key(const uint8_t *f, size_t len, nrf_key_event_t *ev)
 {
     /* payload = f[6..], needs at least 7 payload bytes */
@@ -145,10 +150,11 @@ static void link_task(void *arg)
     }
 }
 
-esp_err_t nrf_link_init(nrf_frame_cb_t cb, void *ctx)
+esp_err_t nrf_link_uart_init(void)
 {
-    s_cb = cb;
-    s_cb_ctx = ctx;
+    if (s_tx_lock) {
+        return ESP_OK;   /* already up (lcd.c may need the link before main.c starts it) */
+    }
     s_tx_lock = xSemaphoreCreateMutex();
     ESP_RETURN_ON_FALSE(s_tx_lock, ESP_ERR_NO_MEM, TAG, "mutex");
 
@@ -165,8 +171,16 @@ esp_err_t nrf_link_init(nrf_frame_cb_t cb, void *ctx)
     ESP_RETURN_ON_ERROR(uart_param_config(NRF_UART_NUM, &cfg), TAG, "param");
     ESP_RETURN_ON_ERROR(uart_set_pin(NRF_UART_NUM, NRF_UART_TX, NRF_UART_RX,
                                      UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE), TAG, "pins");
-
-    xTaskCreate(link_task, "nrf_link", 4096, NULL, 10, NULL);
     ESP_LOGI(TAG, "UART%d tx=%d rx=%d @ %d", NRF_UART_NUM, NRF_UART_TX, NRF_UART_RX, NRF_UART_BAUD);
+    return ESP_OK;
+}
+
+esp_err_t nrf_link_init(nrf_frame_cb_t cb, void *ctx)
+{
+    ESP_RETURN_ON_ERROR(nrf_link_uart_init(), TAG, "uart");
+    s_cb = cb;
+    s_cb_ctx = ctx;
+    uart_flush_input(NRF_UART_NUM);   /* whatever arrived before the task existed */
+    xTaskCreate(link_task, "nrf_link", 4096, NULL, 10, NULL);
     return ESP_OK;
 }

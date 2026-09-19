@@ -1,8 +1,11 @@
-# c606-oss — open firmware for the Magene C606 (proof of concept)
+# c606-oss — open firmware for the Magene C606 / C706 (proof of concept)
 
 The Magene C606 bike computer is an **ESP32-S3** driving a 240x320 ST7789 over
 a 16-bit i80 bus, plus an **nRF co-processor** that owns the buttons, power
-management and sensor radios and talks to the ESP32 over UART.
+management and sensor radios and talks to the ESP32 over UART. The **C706**
+is the same design with a 320x480 AXS15231 panel on an 8-bit bus, 32 MB
+flash, 8 MB PSRAM and five keys (`BOARD=c706`, see *Targets* below — built
+from the vendor firmware, not yet tried on a real C706).
 
 This PoC replaces only the ESP32 application. It:
 
@@ -64,8 +67,10 @@ This PoC replaces only the ESP32 application. It:
   hold 2 = "End ride?" dialog, hold 0 = power-off popup. USB storage mode is
   in Settings → System (tap *Reboot* or hold key 1 to leave it).
 
-Everything hardware-specific lives in `main/board.h`; the analysis behind it
-is in [`docs/HARDWARE.md`](docs/HARDWARE.md).
+Everything hardware-specific lives in `main/board_c606.h` /
+`main/board_c706.h` (selected by `main/board.h` through the Kconfig choice
+`C606OSS_BOARD`); the analysis behind it is in
+[`docs/HARDWARE.md`](docs/HARDWARE.md).
 
 ## Screenshots
 
@@ -116,6 +121,30 @@ or without installing anything on the host:
 ```sh
 tools/build_podman.sh          # uses docker.io/espressif/idf:v5.4.2
 ```
+
+### Targets
+
+| `BOARD` | device | build dir / image | differences |
+|---|---|---|---|
+| `c606` (default) | Magene C606 | `build/c606_oss.bin` | ST7789 240x320, 16-bit i80, 16 MB flash, 2 MB quad PSRAM, 3 keys |
+| `c706` | Magene C706 | `build-c706/c706_oss.bin` | AXS15231 320x480, 8-bit i80 (pixels byte-swapped, 4-px aligned windows), panel reset through the nRF, backlight GPIO10, touch in the panel (0x3B), 32 MB flash, 8 MB octal PSRAM, 5 keys, GPS opened at 115200 |
+
+```sh
+BOARD=c706 tools/build_podman.sh                 # or: idf.py -B build-c706 -DBOARD=c706 build
+BOARD=c706 tools/make_release.sh                 # c706-oss-<version>.zip
+tools/flash_poc.py -p /dev/ttyACM0 --board c706  # picks build-c706/c706_oss.bin
+```
+
+`-DBOARD=c706` adds `sdkconfig.defaults.c706` (flash size, PSRAM mode,
+`partitions_c706.csv`, the board choice) on top of `sdkconfig.defaults` and
+keeps its own `sdkconfig.c706`. The C706 keys follow the vendor's map: key 0
+click = lap / hold = power off, key 2 = start / pause (hold = end ride),
+key 3 / 4 = next / previous page; in the menus 0 = back, 2 = select,
+3 / 4 = down / up. **The C706 build is untested on hardware** — it mirrors
+what the vendor firmware does (`docs/HARDWARE.md`, section *Magene C706*),
+so the first things to check on a real unit are the picture (colours →
+`LCD_SWAP_COLOR_BYTES`, alignment → `LCD_ALIGN_PX`) and the touch handshake
+in the boot log.
 
 Console logs go to the S3's USB-Serial-JTAG (the USB-C port):
 `idf.py -p /dev/ttyACM0 monitor`.

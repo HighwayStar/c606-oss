@@ -11,11 +11,16 @@ typedef void (*nrf_frame_cb_t)(const uint8_t *frame, size_t len, void *ctx);
 
 /* Decoded button event (cmd 0x10, payload[0] == 0x49). */
 typedef struct {
-    uint8_t key;    /* payload[1]: 0..2 on the vendor firmware, 0 = "A"/power */
+    uint8_t key;    /* payload[1]: 0..NUM_KEYS-1 (vendor A.. ), 0 = "A"/power */
     uint8_t event;  /* payload[6]: 1 = press, 4 = long-press start, ... */
     uint8_t aux;    /* payload[5]: unknown, forwarded by vendor */
 } nrf_key_event_t;
 
+/* Opens the UART (idempotent). nrf_link_init() does this too; lcd.c calls
+ * it early on boards whose panel is reset through the nRF. */
+esp_err_t nrf_link_uart_init(void);
+
+/* UART + receive task. */
 esp_err_t nrf_link_init(nrf_frame_cb_t cb, void *ctx);
 
 /* Build [A5][len+4][6F][F1][type][cmd][payload][crc16] and send it. */
@@ -32,6 +37,9 @@ esp_err_t nrf_link_send_power_off(void);
 
 /* GPS power: NRF_GPS_OFF / NRF_GPS_ON / NRF_GPS_RESET */
 esp_err_t nrf_link_send_gps_power(uint8_t val);
+
+/* LCD/touch module power (C706, E2 02 09): 0 off, 1 on, 2 = reset pulse */
+esp_err_t nrf_link_send_lcd_power(uint8_t val);
 
 /* Helper: returns true and fills `ev` if `frame` is a button event. */
 bool nrf_link_decode_key(const uint8_t *frame, size_t len, nrf_key_event_t *ev);

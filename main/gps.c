@@ -1,5 +1,5 @@
 /*
- * GNSS receiver (Airoha AG3352 on the C606) on UART0, TX GPIO1 / RX GPIO0.
+ * GNSS receiver (Airoha AG3352 on the C606 and C706) on UART0, TX GPIO1 / RX GPIO0.
  *
  * Vendor: MidCommInit(0, 921600, ...); GpsPthreadMachine() sends a handful
  * of $PAIR commands (867/866/490/491/470) that only tune EPO/AGNSS
@@ -27,8 +27,9 @@ static gps_update_cb_t s_cb;
 static void *s_cb_ctx;
 static volatile bool s_simulated;   /* devcon feeds sentences, UART ignored */
 
-/* vendor baud first, then the usual GNSS defaults */
-static const uint32_t k_bauds[] = {921600, 115200, 9600, 460800, 230400, 38400, 57600};
+/* the board's vendor baud first, then the usual GNSS defaults (C606 opens
+ * the module at 921600, C706 at 115200; a repeat in the list is harmless) */
+static const uint32_t k_bauds[] = {GPS_UART_BAUD, 921600, 115200, 9600, 460800, 230400, 38400, 57600};
 
 static bool nmea_checksum_ok(const char *s, size_t n)
 {

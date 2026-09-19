@@ -1,0 +1,9 @@
+# Vendor C706 layout (read from the device); only used to size-check the
+# build, tools/flash_poc.py reads the real table from the device.
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   0x4000
+otadata,  data, ota,     0xd000,   0x2000
+phy_init, data, phy,     0xf000,   0x1000
+coredump, data, coredump,0x10000,  0x10000
+ota_0,    app,  ota_0,   0x20000,  0xEA6000
+ota_1,    app,  ota_1,   0xED0000, 0xEA6000

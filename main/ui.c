@@ -1,8 +1,8 @@
 /* UI: an idle page (clock, GPS / sensor state, START), a status page
  * (battery arc, environment, key indicators, event log, heap stats) and the
  * user-configurable data pages (config.c: layout + field per cell, edited
- * in the settings menu). Idle mode cycles idle <-> status with key 0; a
- * ride (ride.c) cycles the enabled data pages. The gear icon opens the menu. */
+ * in the settings menu). Idle mode cycles idle <-> status with KEY_NEXT_PAGE;
+ * a ride (ride.c) cycles the enabled data pages. The gear icon opens the menu. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,7 +33,7 @@
 static lv_obj_t *s_page_idle, *s_page_status, *s_page_map, *s_map_status;
 static lv_obj_t *s_pages[MAX_PAGES];
 static int s_npages, s_page_idx;
-static int s_ring[MAX_PAGES], s_ring_n;  /* pages reachable with key 0 in the current mode */
+static int s_ring[MAX_PAGES], s_ring_n;  /* pages reachable with KEY_NEXT_PAGE in the current mode */
 static ride_mode_t s_mode = RIDE_IDLE;
 static datapage_t s_dp[CFG_PAGES];          /* one per configured page */
 static datapage_t s_dp_map;                 /* field strip under the map */
@@ -41,7 +41,7 @@ static int s_dp_of_page[MAX_PAGES];         /* page index -> config page */
 static lv_obj_t *s_data_bat[MAX_PAGES], *s_mode_lbl[MAX_PAGES];
 static uint8_t s_bat_pct;
 static lv_obj_t *s_hdr_bat, *s_arc, *s_arc_lbl, *s_env, *s_nrf, *s_gps, *s_sd, *s_log, *s_foot;
-static lv_obj_t *s_key[3];
+static lv_obj_t *s_key[NUM_KEYS];
 static lv_obj_t *s_idle_clock, *s_idle_gps, *s_idle_sens, *s_idle_sun, *s_idle_hint;
 static lv_obj_t *s_cursor, *s_touch_lbl, *s_btn_start, *s_ant;
 static ui_action_cb_t s_on_start, s_on_usb, s_on_usb_reboot, s_on_power_off, s_on_end_ride;
@@ -99,7 +99,7 @@ static void build_status(lv_obj_t *scr)
     lv_obj_set_style_bg_color(hdr, C_HDR, 0);
     lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
     lv_obj_t *t = label(hdr, &lv_font_montserrat_14, lv_color_white());
-    lv_label_set_text(t, "C606 open FW");
+    lv_label_set_text(t, BOARD_NAME " open FW");
     lv_obj_align(t, LV_ALIGN_LEFT_MID, 6, 0);
     s_hdr_bat = label(hdr, &lv_font_montserrat_14, lv_color_white());
     lv_label_set_text(s_hdr_bat, "--%");
@@ -141,15 +141,16 @@ static void build_status(lv_obj_t *scr)
     lv_label_set_text(s_sd, "SD: not mounted");
     lv_obj_align(s_sd, LV_ALIGN_TOP_MID, 0, 214);
 
-    /* key indicators */
-    for (int i = 0; i < 3; i++) {
+    /* key indicators: one box per key across the width */
+    for (int i = 0; i < NUM_KEYS; i++) {
+        int pitch = (LCD_H_RES - 24) / NUM_KEYS;
         s_key[i] = lv_obj_create(s_page_status);
         lv_obj_remove_style_all(s_key[i]);
-        lv_obj_set_size(s_key[i], 64, 26);
+        lv_obj_set_size(s_key[i], pitch - 12, 26);
         lv_obj_set_style_bg_color(s_key[i], C_IDLE, 0);
         lv_obj_set_style_bg_opa(s_key[i], LV_OPA_COVER, 0);
         lv_obj_set_style_radius(s_key[i], 6, 0);
-        lv_obj_align(s_key[i], LV_ALIGN_TOP_LEFT, 12 + i * 76, 236);
+        lv_obj_align(s_key[i], LV_ALIGN_TOP_LEFT, 12 + i * pitch, 236);
         lv_obj_t *l = label(s_key[i], &lv_font_montserrat_14, lv_color_white());
         lv_label_set_text_fmt(l, "key %d", i);
         lv_obj_center(l);
@@ -198,7 +199,7 @@ static void build_idle(lv_obj_t *scr)
     lv_obj_set_style_bg_color(hdr, C_HDR, 0);
     lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
     lv_obj_t *t = label(hdr, &lv_font_montserrat_14, lv_color_white());
-    lv_label_set_text(t, "C606");
+    lv_label_set_text(t, BOARD_NAME);
     lv_obj_align(t, LV_ALIGN_LEFT_MID, 6, 0);
     s_data_bat[PAGE_IDLE] = label(hdr, &lv_font_montserrat_14, lv_color_white());
     lv_label_set_text(s_data_bat[PAGE_IDLE], "--%");
@@ -226,7 +227,7 @@ static void build_idle(lv_obj_t *scr)
     lv_obj_add_event_cb(s_btn_start, start_btn_cb, LV_EVENT_CLICKED, NULL);
 
     s_idle_hint = tlabel(s_page_idle, &lv_font_montserrat_14, &theme_st_muted);
-    lv_label_set_text(s_idle_hint, "key 2: start ride   key 0: status");
+    lv_label_set_text(s_idle_hint, "key " KEY_STR(KEY_RIDE) ": start ride   key " KEY_STR(KEY_NEXT_PAGE) ": status");
     lv_obj_align(s_idle_hint, LV_ALIGN_BOTTOM_MID, 0, -6);
 }
 
@@ -399,7 +400,7 @@ static void show_page(int idx)
     data_refresh_cb(NULL);   /* don't wait for the timer */
 }
 
-/* Pages reachable with key 0: idle <-> status when idle, the data pages
+/* Pages reachable with KEY_NEXT_PAGE: idle <-> status when idle, the data pages
  * during a ride (status page as a fallback when none is enabled); the map
  * page in both modes when a map file was found. */
 static void set_ring(bool keep_page)
@@ -625,12 +626,12 @@ void ui_toast(const char *text)
 
 void ui_show_power_popup(void)
 {
-    show_popup(UI_POPUP_POWER, "Power off?", "key0: off   other: cancel", "Off", LV_PALETTE_RED);
+    show_popup(UI_POPUP_POWER, "Power off?", "key" KEY_STR(KEY_POWER) ": off   other: cancel", "Off", LV_PALETTE_RED);
 }
 
 void ui_show_end_ride_popup(void)
 {
-    show_popup(UI_POPUP_END_RIDE, "End ride?", "key2: end   other: cancel", "End", LV_PALETTE_ORANGE);
+    show_popup(UI_POPUP_END_RIDE, "End ride?", "key" KEY_STR(KEY_RIDE) ": end   other: cancel", "End", LV_PALETTE_ORANGE);
 }
 
 void ui_set_touch(const char *chip_name)
@@ -747,7 +748,7 @@ static void key_reset_cb(lv_timer_t *t)
 void ui_key_event(uint8_t key, uint8_t evt)
 {
     ui_lock();
-    if (key < 3) {
+    if (key < NUM_KEYS) {
         lv_obj_t *box = s_key[key];
         if (evt == KEY_EVT_LONG_START) {
             lv_obj_set_style_bg_color(box, C_HOLD, 0);
@@ -871,7 +872,7 @@ void ui_show_usb_mode(void)
     lv_obj_align(b, LV_ALIGN_TOP_MID, 0, 236);
     lv_obj_add_event_cb(b, usb_reboot_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *k = tlabel(p, &lv_font_montserrat_14, &theme_st_muted);
-    lv_label_set_text(k, "or hold key 1");
+    lv_label_set_text(k, "or hold key " KEY_STR(KEY_USB_EXIT));
     lv_obj_align(k, LV_ALIGN_TOP_MID, 0, 290);
     ui_unlock();
 }
@@ -882,6 +883,15 @@ void ui_next_page(void)
     int pos = 0;
     for (int i = 0; i < s_ring_n; i++) if (s_ring[i] == s_page_idx) pos = i;
     show_page(s_ring[(pos + 1) % s_ring_n]);
+    ui_unlock();
+}
+
+void ui_prev_page(void)
+{
+    ui_lock();
+    int pos = 0;
+    for (int i = 0; i < s_ring_n; i++) if (s_ring[i] == s_page_idx) pos = i;
+    show_page(s_ring[(pos + s_ring_n - 1) % s_ring_n]);
     ui_unlock();
 }
 

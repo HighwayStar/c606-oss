@@ -18,7 +18,8 @@ void ui_set_gps(const gps_fix_t *fix);
 void ui_set_sensors(const ant_sensors_t *s, const ant_channel_t *ch, size_t nch);
 void ui_set_sd(bool mounted, const char *name, uint32_t size_mb);
 void ui_key_event(uint8_t key, uint8_t evt);
-void ui_next_page(void);   /* key 0: idle <-> status, or the enabled data pages during a ride */
+void ui_next_page(void);   /* KEY_NEXT_PAGE: idle <-> status, or the enabled data pages during a ride */
+void ui_prev_page(void);   /* KEY_PREV_PAGE (C706) */
 void ui_set_mode(ride_mode_t mode);
 void ui_maps_changed(void);   /* after mapview_init(): adds the map page to the key-0 ring */
 void ui_show_usb_mode(void);
@@ -34,7 +35,7 @@ void ui_set_touch(const char *chip_name);
 /* on_backlight: apply config_get()->backlight (menu). */
 void ui_set_actions(ui_action_cb_t on_start, ui_action_cb_t on_usb, ui_action_cb_t on_backlight);
 
-/* Confirmation popups: power off (hold key 0) and end ride (hold key 2).
+/* Confirmation popups: power off (hold KEY_POWER) and end ride (hold KEY_RIDE).
  * The key that opened it confirms, any other key / Cancel / 8 s dismisses. */
 typedef enum { UI_POPUP_NONE, UI_POPUP_POWER, UI_POPUP_END_RIDE } ui_popup_t;
 void ui_set_power_off_cb(ui_action_cb_t cb);

@@ -1,10 +1,14 @@
 /*
- * ST7789 on the ESP32-S3 LCD_CAM i80 (16-bit) bus.
+ * LCD on the ESP32-S3 LCD_CAM i80 bus.
  *
- * The vendor firmware uses esp_lcd's i80 bus + panel_io with its own copy of
- * the ST7789 panel driver ("mg_esp_lcd_panel_st7789.c"). We use the same bus
- * and panel-io drivers from ESP-IDF and replay the vendor's init sequence
- * verbatim, then drive the panel with raw CASET/RASET/RAMWR. LVGL renders
+ *   C606: ST7789 240x320 on a 16-bit bus. The vendor firmware uses esp_lcd's
+ *         i80 bus + panel_io with its own copy of the ST7789 panel driver
+ *         ("mg_esp_lcd_panel_st7789.c"); we replay its init sequence verbatim.
+ *   C706: AXS15231-family 320x480 on an 8-bit bus ("mg_esp_lcd_panel_axs1523").
+ *         The panel initialises itself: the vendor only pulses its reset
+ *         through the nRF (E2 02 09 .. 02), sends INVOFF and starts drawing.
+ *
+ * Either way the panel is driven with raw CASET/RASET/RAMWR. LVGL renders
  * into partial buffers and hands them to lcd_draw_bitmap() (see ui_port.c).
  */
 #include <string.h>
@@ -18,10 +22,11 @@
 
 #include "board.h"
 #include "lcd.h"
+#include "nrf_link.h"
 
 static const char *TAG = "lcd";
 
-/* Set to 0x08 if red and blue come out swapped on your unit. Vendor uses 0. */
+/* ST7789: set to 0x08 if red and blue come out swapped on your unit. Vendor uses 0. */
 #ifndef LCD_MADCTL
 #define LCD_MADCTL 0x00
 #endif
@@ -48,8 +53,9 @@ static void cmd(uint8_t c, const void *p, size_t n)
     ESP_ERROR_CHECK(esp_lcd_panel_io_tx_param(s_io, c, p, n));
 }
 
+#if LCD_PANEL_ST7789
 /* Exact sequence from vendor mg_panel_st7789_init(), incl. the 1 ms gaps. */
-static void st7789_vendor_init(void)
+static void panel_init(void)
 {
     const uint8_t madctl = LCD_MADCTL;
     const uint8_t colmod = 0x55;                              /* 16 bpp */
@@ -91,9 +97,30 @@ static void st7789_vendor_init(void)
     cmd(0x29, NULL, 0);                 vTaskDelay(pdMS_TO_TICKS(1)); /* DISPON */
     cmd(0x2C, NULL, 0);                 vTaskDelay(pdMS_TO_TICKS(1)); /* RAMWR */
 }
+#define PANEL_NAME "ST7789"
+#elif LCD_PANEL_AXS15231
+/* Vendor MidLcdInit(): esp_lcd_panel_reset() = mg_panel_axs1523_reset(),
+ * which sends E2 02 09 00 00 02 00 00 to the nRF and waits 150 ms;
+ * esp_lcd_panel_init() only logs; then invert_color(false), set_gap(0,0).
+ * No MADCTL/COLMOD - the panel comes up configured on its own. */
+static void panel_init(void)
+{
+    cmd(0x20, NULL, 0);                 /* INVOFF */
+}
+#define PANEL_NAME "AXS15231"
+#else
+#error "board.h must define LCD_PANEL_ST7789 or LCD_PANEL_AXS15231"
+#endif
 
 esp_err_t lcd_init(void)
 {
+#if LCD_PANEL_AXS15231
+    /* the module's reset line is on the nRF: pulse it before touching the bus */
+    if (nrf_link_uart_init() == ESP_OK) {
+        nrf_link_send_lcd_power(2);
+        vTaskDelay(pdMS_TO_TICKS(150));
+    }
+#endif
     /* Vendor: RD is a plain output held high (we never read from the panel). */
     gpio_config_t rd = {
         .pin_bit_mask = 1ULL << LCD_PIN_RD,
@@ -131,12 +158,14 @@ esp_err_t lcd_init(void)
             .dc_dummy_level = 0,
             .dc_data_level = 1,
         },
-        /* vendor flags = 0: cs active low, no swap, pclk active pos */
+        /* vendor flags = 0: cs active low, pclk active pos; the byte swap
+         * replaces the vendor's LV_COLOR_16_SWAP on the 8-bit bus */
+        .flags.swap_color_bytes = LCD_SWAP_COLOR_BYTES,
     };
     ESP_RETURN_ON_ERROR(esp_lcd_new_panel_io_i80(s_bus, &io, &s_io), TAG, "panel io");
 
-    st7789_vendor_init();
-    ESP_LOGI(TAG, "ST7789 %dx%d on i80x%d @ %d MHz ready",
+    panel_init();
+    ESP_LOGI(TAG, PANEL_NAME " %dx%d on i80x%d @ %d MHz ready",
              LCD_H_RES, LCD_V_RES, LCD_BUS_WIDTH, LCD_PCLK_HZ / 1000000);
     return ESP_OK;
 }
@@ -152,7 +181,7 @@ void lcd_display_on(bool on)
 
 void lcd_draw_bitmap(int x1, int y1, int x2, int y2, const void *px)
 {
-    /* vendor mg_panel_st7789_draw_bitmap(): CASET, RASET, then RAMWR+color */
+    /* vendor mg_panel_*_draw_bitmap(): CASET, RASET, then RAMWR+color */
     const uint8_t caset[] = {x1 >> 8, x1 & 0xFF, (x2 - 1) >> 8, (x2 - 1) & 0xFF};
     const uint8_t raset[] = {y1 >> 8, y1 & 0xFF, (y2 - 1) >> 8, (y2 - 1) & 0xFF};
     cmd(0x2A, caset, sizeof caset);

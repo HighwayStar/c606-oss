@@ -337,3 +337,125 @@ other hardware revisions.
   console and esptool stay dead until a power-on reset.
 * **NVS**: standard `nvs` partition; vendor config blob `Res1Page11` (byte 3 = HW variant).
 * GPIO43/44 (default UART0 pins) are driven high as outputs on HW variant 2 before LCD init.
+
+---
+
+# Magene C706 (second target)
+
+Source: vendor firmware **C706 V1.729** (`ota_0-706.elf` in the same Ghidra
+project, built May 30 2025), the full-flash backup
+`magene_c706__my_stock_chinese.bin` and the device's own logs
+(`LOG/<date>.log` on its eMMC). Addresses below refer to that image.
+**Nothing in this section has been verified on hardware yet** — the build
+(`BOARD=c706 tools/build_podman.sh`) follows the vendor code as closely as
+the C606 port did, but the first boot on a real C706 will tell.
+
+The two firmwares are the same code base (the C606 image even carries the
+5-key handling and the `_CommonKeyD/E` callbacks); only the hardware
+initialisation differs. Everything not listed here is identical to the C606:
+nRF link (UART2 42/41 @ 115200, same frames), GPS on UART0 GPIO1/0 (Airoha —
+`$PAIR…` traffic in the logs), eMMC on SDMMC 13/14/16/17/18/15, touch I2C0
+SDA21/SCL12, GPIO43/44 driven high on the same NVS HW-variant flag.
+
+## SoC / memory / flash
+
+| Item | C606 | C706 |
+|---|---|---|
+| Flash | 16 MB DIO 80 MHz (header `4f`) | **32 MB** DIO 80 MHz (bootloader/app header byte 3 = `5f`) |
+| PSRAM | 2 MB quad | **8 MB octal** (log: `AppDevInit free_heap_size = 8157220`; image has the `mspi_timing_*` PSRAM tuning code the C606 lacks) |
+| Partitions | `ota_0` 0x20000/0x73A000, `ota_1` 0x760000 | `nvs` 0x9000/0x4000, `otadata` 0xd000, `phy_init` 0xf000, `coredump` 0x10000, **`ota_0` 0x20000/0xEA6000**, `ota_1` 0xED0000/0xEA6000 |
+| Audio | — | ES8311 codec on I2C (0x18) + I2S, `mg_esp_adf` (bell, intercom/"talkback"); not used by this firmware |
+| Wi-Fi | — | `WIFI/` + `WifiList.config` on the eMMC (vendor feature; not used) |
+
+## Display
+
+`MidLcdInit()` @ `0x42033f5c` (same file, lines 0x16d..0x22f):
+
+* Panel: **AXS15231-family** (`mg_esp_lcd_new_panel_axs1523` @ `0x42034718`,
+  `mg_panel_axs1523_*`), **320x480**, 16 bpp, `esp_lcd` **i80 bus, 8-bit wide**.
+* `esp_lcd_i80_bus_config_t`: `dc = 40`, `wr = 3`, `clk_src = PLL_F160M`,
+  `data_gpio_nums = {4, 38, 5, 48, 6, 47, 7, 11}`, `bus_width = 8`,
+  `max_transfer_bytes = 0x4B000` (= 320·480·2, a full frame), `sram_trans_align = 4`.
+  (`cs = 2`, RD `GPIO39` output high — as on the C606.)
+* `esp_lcd_panel_io_i80_config_t`: `pclk = 20 MHz`, queue 10, cmd/param 8 bit,
+  `dc_levels = {0,0,0,1}`, `flags = 0`.
+* `esp_lcd_panel_dev_config_t`: `reset_gpio_num = -1`, `rgb_ele_order = BGR`,
+  `bits_per_pixel = 16` — but the driver's `init` is a **no-op** (it only logs
+  `mg_panel_axs1523_init`), so MADCTL/COLMOD are never sent: the panel boots
+  configured on its own.
+* `mg_panel_axs1523_reset` (`0x420344e8`): sends **`E2 02 09 00 00 02 00 00`**
+  to the nRF (type 2, cmd 0x10 — the frame `A5 0C 6F F1 02 10 E2 02 09 00 00
+  02 00 00 7A 3C` is even precomputed for the first call) and waits 150 ms.
+  So `E2 02 09` is the display/touch module power: 0 off, 1 on, 2 reset pulse
+  (the touch ESD recovery does 0 → 2 ms → 1 → 150 ms).
+* After reset/init: `invert_color(false)` (INVOFF `0x20`), `set_gap(0,0)`.
+* `mg_panel_axs1523_draw_bitmap` (`0x42034610`): CASET/RASET/RAMWR like the
+  ST7789 driver, but it warns (`"444444"` log) when x/y start or end are not
+  multiples of 4 → the port rounds every LVGL dirty area to 4 px.
+* **Pixel byte order**: with an 8-bit bus the DMA sends the two bytes of a
+  pixel in memory order. The vendor's LVGL 8 build has `LV_COLOR_16_SWAP = 1`
+  (its `lv_palette` table is stored byte-swapped: `F2 06 E8 EC …`, whereas the
+  C606 image has `06 F2 EC E8 …`) and bus `flags = 0`; we keep LVGL 9 in
+  little-endian RGB565 and set `swap_color_bytes` on the panel IO instead.
+* LVGL draw buffers: `mg_lvgl_port` (`0x42034b10`) allocates two
+  `hres·vres/10` px = 30,720-byte DMA buffers (64-byte aligned); we use 48
+  lines = the same size. Flush = `esp_lcd_panel_draw_bitmap`, tick 2 ms.
+
+### Backlight (`MidLcdPwmInit` @ `0x42033e4c`)
+
+LEDC low-speed, timer 0, 10-bit, 20 kHz, `LEDC_AUTO_CLK`; channel 0 on
+**GPIO10** (C606: 45), duty 0 at init.
+
+### Touch: AXS15231 integrated controller at 0x3B
+
+`FUN_420343d4` probes **0x3B** first (`axs1523`), then 0x38 / 0x5A as on
+the C606. Log on the real device: `New Dev Addr … 0x3b`, `axs_read_fw_version:19`.
+The vendor does not use the usual single "B5 AB A5 5A 00 00 00 08" read;
+each poll (`axs1523_read` @ `0x420358c0`, `FUN_420364e8`) is a handshake
+over 11-byte command frames:
+
+1. write `AB B5 5A A5 00 00 00 01 00 80 1F`, read 1 byte → must be `0x05`
+   ("data ready"; `0x00`/`0x0A` = nothing, logged as *axs read point error*)
+2. write `B5 AB A5 5A 00 00 00 0F 00 00 00` (length 15 big-endian at [6..7]), read **15 bytes**
+3. write `AB B5 5A A5 00 01 00 00 00 80 1F 0A` (12 bytes, "consumed")
+
+Record: `[1]` = number of points (1 or 2), `[2] >> 4 == 4` = finger lifted,
+`x = ([2] & 0x0F) << 8 | [3]`, `y = ([4] & 0x0F) << 8 | [5]` (raw, ≤ 320/480),
+valid only when `[14] == [0]`; `00 FF×13 F3` = idle/no touch.
+Init: read the firmware version (`5A A5 AB B5 00 00 00 01 00 80 89` → 1 byte,
+retried while ≤ 0x12) and enable the "ESD firmware"
+(`B5 AB 5A A5 00 02 00 00 00 00 00 21 00`). After 56 consecutive polls without
+a good record the vendor power-cycles the module via `E2 02 09` (0, then 1),
+re-sends the ESD enable and redraws the screen (`axs_tp_esd_num reset`).
+`main/touch.c` does the same.
+
+## Keys: five (A..E = nRF index 0..4)
+
+`KeyQueueReceive` (`0x42065c70`) stores 5 keys; the logs show all of
+`Index=0..4`. Key types handed to `KmFunclHandler` are `0x2F + n` with
+n = 0..4 click A..E, 5..9 long, 10..14 hold, 15..19 release
+(`_CommonKeyELongCb` → `0x38`, `_CommonKeyEReleaseCb` → `0x42`). The two
+`KeyMapInfo` scene tables (`0x3c822afc` = scene 1, `0x3c822b4c` = scene 0)
+map a key type to a 1-based index into the `_KeyFunc_*` table at
+`0x3c822e74` (0 = none):
+
+| key | riding page (scene 1) | menus (scene 0) |
+|---|---|---|
+| A (0) | click **Lap**, hold **PowerOffPopUp** | click **ReturnBack**, hold PowerOffPopUp |
+| B (1) | click **CarBell**, hold **StartTalkback** / release EndTalkback ("long press the button at the lower left corner … intercom") | — |
+| C (2) | click **RidingCKeyPressFunc** (start/pause), hold RidingCKeyLongPressFunc | click **Trigger** (select), hold JumpAndStartRide |
+| D (3) | click **SwitchPageHorRight** | click NextItem, hold FastNextItem |
+| E (4) | click **SwitchPageHorLeft** | click PreItem, hold FastPreItem |
+
+`board_c706.h` follows this: key 0 click = lap / hold = power-off, key 2 =
+ride, key 3 / 4 = next / previous page, menus: 0 back, 2 select, 3 / 4
+down / up. Key 1 is free (no bell or intercom here).
+
+## GPS
+
+`AppDevInit` (`0x4200bf98`) opens UART0 at **115200** (C606: 921600);
+`GpsPthreadMachine` switches to the rate stored for the detected chip
+(`MidCommBaudrateSwitch`) — `gps.c` probes 115200 first on this board and
+the other rates after it. The logs show Airoha `$PAIR…` commands
+(`$PAIR508`, `$PAIR496`, `$PAIR650`, `$PAIR470` EPO), so the same driver
+applies.

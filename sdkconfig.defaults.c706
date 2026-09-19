@@ -1,0 +1,9 @@
+# Magene C706 on top of sdkconfig.defaults (later files win):
+# ESP32-S3 with 32 MB flash (vendor image header 0x5f: DIO, 80 MHz) and
+# 8 MB octal PSRAM (vendor log: "free_heap_size = 8157220").
+CONFIG_C606OSS_BOARD_C706=y
+CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_c706.csv"
+CONFIG_TINYUSB_DESC_PRODUCT_STRING="C706 eMMC"

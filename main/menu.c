@@ -327,9 +327,10 @@ static void fields_cell_cb(datapage_t *dp, int cell, void *ctx)
 
 static void fields_key(screen_t *s, uint8_t key)
 {
-    if (key == 2 && s->sel > -1) s->sel--;
-    if (key == 1 && s->sel < s_dp_fields.ncells - 1) s->sel++;
-    if (key == 0) {
+    if (key == KEY_MENU_UP && s->sel > -1) s->sel--;
+    if (key == KEY_MENU_DOWN && s->sel < s_dp_fields.ncells - 1) s->sel++;
+    if (key == KEY_MENU_BACK) { pop(); return; }
+    if (key == KEY_MENU_SELECT) {
         if (s->sel < 0) { pop(); return; }
         category_open(s->page, s->sel);
         return;
@@ -342,7 +343,7 @@ static void fields_refresh(screen_t *s)
 {
     /* a field may have changed: rebuild the preview */
     datapage_build(&s_dp_fields, s->root, config_page(config_get(), s->page), 0, HDR_H, LCD_H_RES, LCD_V_RES - HDR_H);
-    if (s_dp_fields.ncells == 0) s->sel = -1;   /* "Map" layout: nothing to edit, key 0 goes back */
+    if (s_dp_fields.ncells == 0) s->sel = -1;   /* "Map" layout: nothing to edit, select goes back */
     datapage_highlight(&s_dp_fields, s->sel);
 }
 
@@ -395,9 +396,10 @@ static void layout_ok_cb(lv_event_t *e)   { layout_apply(top()); }
 
 static void layout_key(screen_t *s, uint8_t key)
 {
-    if (key == 2) layout_step(s, -1);
-    else if (key == 1) layout_step(s, +1);
-    else if (key == 0) layout_apply(s);
+    if (key == KEY_MENU_UP) layout_step(s, -1);
+    else if (key == KEY_MENU_DOWN) layout_step(s, +1);
+    else if (key == KEY_MENU_SELECT) layout_apply(s);
+    else if (key == KEY_MENU_BACK) pop();
 }
 
 static void layout_open(int page)
@@ -546,9 +548,9 @@ static void value_plus_cb(lv_event_t *e)  { value_step(+1); }
 
 static void value_key(screen_t *s, uint8_t key)
 {
-    if (key == 2) value_step(+1);
-    else if (key == 1) value_step(-1);
-    else if (key == 0) pop();
+    if (key == KEY_MENU_UP) value_step(+1);
+    else if (key == KEY_MENU_DOWN) value_step(-1);
+    else if (key == KEY_MENU_SELECT || key == KEY_MENU_BACK) pop();
 }
 
 static lv_obj_t *round_button(lv_obj_t *parent, const char *sym, lv_event_cb_t cb)
@@ -580,7 +582,8 @@ static void value_open(const char *title, const value_def_t *def)
     lv_obj_align(round_button(s->root, LV_SYMBOL_MINUS, value_minus_cb), LV_ALIGN_CENTER, -60, 50);
     lv_obj_align(round_button(s->root, LV_SYMBOL_PLUS, value_plus_cb), LV_ALIGN_CENTER, 60, 50);
 
-    lv_obj_t *h = label(s->root, &lv_font_montserrat_14, C_GREY, "key 2: +   key 1: -   key 0: back");
+    lv_obj_t *h = label(s->root, &lv_font_montserrat_14, C_GREY,
+                        "key " KEY_STR(KEY_MENU_UP) ": +   key " KEY_STR(KEY_MENU_DOWN) ": -   key " KEY_STR(KEY_MENU_SELECT) ": back");
     lv_obj_add_style(h, &theme_st_muted, 0);
     lv_obj_align(h, LV_ALIGN_BOTTOM_MID, 0, -10);
 
@@ -839,7 +842,7 @@ static void about_open(void)
     const esp_app_desc_t *d = esp_app_get_description();
     lv_obj_t *l = label(s->root, &lv_font_montserrat_14, C_FG, "");
     lv_obj_add_style(l, &theme_st_text, 0);
-    lv_label_set_text_fmt(l, "C606 open firmware\n%s\n\nESP-IDF %s\nbuilt %s\n\nheap %u KB  psram %u KB\nup %lu s",
+    lv_label_set_text_fmt(l, BOARD_NAME " open firmware\n%s\n\nESP-IDF %s\nbuilt %s\n\nheap %u KB  psram %u KB\nup %lu s",
                           d->version, d->idf_ver, d->date,
                           (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
                           (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024),
@@ -1491,8 +1494,8 @@ bool menu_key(uint8_t key, uint8_t evt)
 {
     screen_t *s = top();
     if (!s) return false;
-    if (evt == KEY_EVT_LONG_START && s->key_cb == value_key && key != 0) {
-        value_key(s, key);                   /* hold key 1 / 2 to run the value */
+    if (evt == KEY_EVT_LONG_START && s->key_cb == value_key && (key == KEY_MENU_UP || key == KEY_MENU_DOWN)) {
+        value_key(s, key);                   /* hold up / down to run the value */
         return true;
     }
     if (evt != KEY_EVT_CLICK) return true;   /* other holds are handled by main.c before we see them */
@@ -1500,9 +1503,12 @@ bool menu_key(uint8_t key, uint8_t evt)
         s->key_cb(s, key);
         return true;
     }
-    if (key == 2 && s->sel > -1) s->sel--;
-    else if (key == 1 && s->sel < s->n - 1) s->sel++;
-    else if (key == 0) {
+    if (key == KEY_MENU_UP && s->sel > -1) s->sel--;
+    else if (key == KEY_MENU_DOWN && s->sel < s->n - 1) s->sel++;
+    else if (key == KEY_MENU_BACK) {
+        pop();
+        return true;
+    } else if (key == KEY_MENU_SELECT) {
         if (s->sel < 0) pop();
         else if (s->select_cb) s->select_cb(s, s->sel);
         return true;

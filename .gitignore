@@ -8,3 +8,7 @@ backup-*.bin
 *.log
 shots/
 c606-oss-*.zip
+c706-oss-*.zip
+build-*/
+sdkconfig.c706
+sdkconfig.c706.old

@@ -5,8 +5,12 @@ bootloader, partition table or NVS.
   1. reads the partition table from the device (0x8000, or scans for it)
   2. (unless --no-backup) dumps the regions it is about to modify (ota_0 and
      otadata) to backup-<timestamp>-<name>.bin; --full-backup dumps all flash
-  3. writes build/c606_oss.bin at the ota_0 offset
+  3. writes the image (build/c606_oss.bin, or build-c706/c706_oss.bin with
+     --board c706 / when only that one exists) at the ota_0 offset
   4. erases otadata so the bootloader falls back to ota_0
+
+The partition table is read from the device, so the same helper works for
+the C606 (16 MB flash, ota_0 @ 0x20000) and the C706 (32 MB, ota_0 @ 0x20000).
 
 Restore the vendor firmware later with:
   tools/flash_poc.py -p PORT --restore <vendor_ota_0.bin>
@@ -15,13 +19,19 @@ Requires esptool (comes with ESP-IDF: run inside `. export.sh`).
 """
 import argparse, os, struct, subprocess, sys, tempfile, time
 
-def default_app():
-    """c606_oss.bin next to this script (release zip) or build/c606_oss.bin (source tree)."""
+BOARDS = ("c606", "c706")
+
+def default_app(board=None):
+    """<board>_oss.bin next to this script (release zip) or in the source tree's
+    build dir (build/ for the C606, build-<board>/ otherwise)."""
     here = os.path.dirname(os.path.abspath(__file__))
-    for c in (os.path.join(here, "c606_oss.bin"), os.path.join(here, "..", "build", "c606_oss.bin"), "build/c606_oss.bin"):
-        if os.path.exists(c):
-            return c
-    return "build/c606_oss.bin"
+    for b in ([board] if board else BOARDS):
+        bdir = "build" if b == "c606" else f"build-{b}"
+        for c in (os.path.join(here, f"{b}_oss.bin"), os.path.join(here, "..", bdir, f"{b}_oss.bin"), f"{bdir}/{b}_oss.bin"):
+            if os.path.exists(c):
+                return c
+    b = board or "c606"
+    return f"{'build' if b == 'c606' else 'build-' + b}/{b}_oss.bin"
 
 def esptool(port, *args, after="no_reset"):
     cmd = [sys.executable, "-m", "esptool", "--chip", "esp32s3", "-p", port, "--after", after] + list(args)
@@ -48,17 +58,18 @@ def parse_parttable(data):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-p", "--port", required=True)
-    ap.add_argument("--app", default=default_app(), help="firmware image (default: %(default)s)")
+    ap.add_argument("--board", choices=BOARDS, help="which image to look for (default: the first one found)")
+    ap.add_argument("--app", help="firmware image (default: <board>_oss.bin next to this script or in the build dir)")
     ap.add_argument("--no-backup", action="store_true")
     ap.add_argument("--full-backup", action="store_true", help="dump the whole flash instead of just ota_0/otadata")
-    ap.add_argument("--flash-size", default="16MB", help="for --full-backup")
+    ap.add_argument("--flash-size", default="ALL", help="for --full-backup (esptool detects it; C606 16MB, C706 32MB)")
     ap.add_argument("--restore", metavar="VENDOR_OTA0_BIN", help="write this image to ota_0 instead of the PoC")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
 
-    img = a.restore or a.app
+    img = a.restore or a.app or default_app(a.board)
     if not os.path.exists(img):
-        sys.exit(f"{img} not found (build first, or keep c606_oss.bin next to this script)")
+        sys.exit(f"{img} not found (build first, or keep <board>_oss.bin next to this script)")
 
     with tempfile.TemporaryDirectory() as td:
         pt = os.path.join(td, "pt.bin")

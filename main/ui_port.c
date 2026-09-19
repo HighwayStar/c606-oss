@@ -2,8 +2,8 @@
  * LVGL 9 glue: display driver on top of lcd.c, tick source, render task and
  * a lock so other tasks can touch widgets.
  *
- * Buffers mirror the vendor's LVGL 8 setup: two 60-line RGB565 buffers in
- * internal DMA-capable RAM, partial render mode.
+ * Buffers mirror the vendor's LVGL 8 setup: two LCD_BUF_LINES-line RGB565
+ * buffers in internal DMA-capable RAM, partial render mode.
  */
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -95,6 +95,21 @@ static void flush_cb(lv_display_t *disp, const lv_area_t *a, uint8_t *px)
     /* lv_display_flush_ready() is called from the DMA-done ISR */
 }
 
+#ifdef LCD_ALIGN_PX
+/* The C706 panel wants its CASET/RASET window on LCD_ALIGN_PX boundaries
+ * (the vendor driver warns about anything else): grow every dirty area. */
+static void rounder_cb(lv_event_t *e)
+{
+    lv_area_t *a = lv_event_get_param(e);
+    a->x1 &= ~(LCD_ALIGN_PX - 1);
+    a->y1 &= ~(LCD_ALIGN_PX - 1);
+    a->x2 = ((a->x2 + LCD_ALIGN_PX) & ~(LCD_ALIGN_PX - 1)) - 1;
+    a->y2 = ((a->y2 + LCD_ALIGN_PX) & ~(LCD_ALIGN_PX - 1)) - 1;
+    if (a->x2 >= LCD_H_RES) a->x2 = LCD_H_RES - 1;
+    if (a->y2 >= LCD_V_RES) a->y2 = LCD_V_RES - 1;
+}
+#endif
+
 static bool IRAM_ATTR on_flush_done(esp_lcd_panel_io_handle_t io,
                                     esp_lcd_panel_io_event_data_t *ev, void *ctx)
 {
@@ -136,6 +151,9 @@ esp_err_t ui_port_init(void)
     lv_display_set_color_format(s_disp, LV_COLOR_FORMAT_RGB565);
     lv_display_set_buffers(s_disp, buf1, buf2, LCD_MAX_TRANSFER, LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_flush_cb(s_disp, flush_cb);
+#ifdef LCD_ALIGN_PX
+    lv_display_add_event_cb(s_disp, rounder_cb, LV_EVENT_INVALIDATE_AREA, NULL);
+#endif
     lcd_set_done_cb(on_flush_done, NULL);
 
     if (touch_chip() != TOUCH_NONE) {

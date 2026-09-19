@@ -9,6 +9,7 @@
 #include "sdcard.h"
 #include "tracklog.h"
 #include "mapview.h"
+#include "board.h"
 #include "usb_msc.h"
 
 static const char *TAG = "usb";
@@ -18,7 +19,7 @@ static sdmmc_card_t s_card;
 static const char *k_strings[] = {
     (const char[]){0x09, 0x04},   /* 0: language, English */
     "c606-oss",                   /* 1: manufacturer */
-    "C606 eMMC",                  /* 2: product */
+    BOARD_NAME " eMMC",           /* 2: product */
     "0001",                       /* 3: serial */
 };
 

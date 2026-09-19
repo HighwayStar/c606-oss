@@ -1,12 +1,13 @@
 /*
- * Magene C606 open firmware - proof of concept.
+ * Magene C606 / C706 open firmware - proof of concept.
  *
- * Brings up the ST7789 over the i80 bus, LVGL 9 with draw buffers in internal
+ * Brings up the LCD over the i80 bus, LVGL 9 with draw buffers in internal
  * RAM and objects in PSRAM, the backlight, and the UART link to the nRF
  * co-processor, and the GNSS receiver on UART0.
- * Keys: 0 = next page, 1 = manual lap, 2 = start ride / pause / resume,
- * hold 2 = end ride (dialog), hold 0 = power off (nRF cuts power; next
- * power-on is a full POR). USB mass storage mode: Settings -> System.
+ * Keys (roles per board in board_*.h): KEY_NEXT_PAGE / KEY_PREV_PAGE,
+ * KEY_LAP = manual lap, KEY_RIDE = start ride / pause / resume, hold
+ * KEY_RIDE = end ride (dialog), hold KEY_POWER = power off (nRF cuts power;
+ * next power-on is a full POR). USB mass storage mode: Settings -> System.
  * Rides are recorded as FIT files (tracklog.c) on the eMMC.
  */
 #include <stdio.h>
@@ -78,7 +79,7 @@ static void apply_backlight(void)
     set_backlight(config_get()->backlight);
 }
 
-/* key 1 during a ride: manual lap */
+/* KEY_LAP during a ride: manual lap */
 static void manual_lap(void)
 {
     char msg[16];
@@ -115,11 +116,11 @@ static void on_key(const nrf_key_event_t *ev)
 {
     ESP_LOGI(TAG, "KEY idx=%u event=%u aux=%u", ev->key, ev->event, ev->aux);
     ui_key_event(ev->key, ev->event);
-    if (ev->key == 1 && ev->event == KEY_EVT_LONG_RELEASE && usb_msc_active()) {
+    if (ev->key == KEY_USB_EXIT && ev->event == KEY_EVT_LONG_RELEASE && usb_msc_active()) {
         usb_msc_leave_and_restart();   /* restores USB-Serial-JTAG, then reboots */
         return;
     }
-    if (ev->key == 0 && ev->event == KEY_EVT_LONG_RELEASE) {
+    if (ev->key == KEY_POWER && ev->event == KEY_EVT_LONG_RELEASE) {
         /* vendor behaviour: long press on the power key -> confirmation popup.
          * Holding the key also makes the nRF start its IMU/baro/RTC stream
          * (it does that as part of its own power-on gesture), so after a
@@ -132,8 +133,8 @@ static void on_key(const nrf_key_event_t *ev)
         /* the key that opened the popup confirms, anything else cancels */
         if (ev->event == KEY_EVT_CLICK) {
             ui_hide_popup();
-            if (popup == UI_POPUP_POWER && ev->key == 0) power_off();
-            if (popup == UI_POPUP_END_RIDE && ev->key == 2) end_ride();
+            if (popup == UI_POPUP_POWER && ev->key == KEY_POWER) power_off();
+            if (popup == UI_POPUP_END_RIDE && ev->key == KEY_RIDE) end_ride();
         }
         return;
     }
@@ -145,21 +146,20 @@ static void on_key(const nrf_key_event_t *ev)
         return;
     }
     if (ui_menu_active() && ui_menu_key(ev->key, ev->event)) {
-        return;   /* settings menu: 2 = up, 1 = down, 0 = select */
+        return;   /* settings menu: KEY_MENU_UP / DOWN / SELECT / BACK */
     }
-    if (ev->key == 2 && ev->event == KEY_EVT_LONG_RELEASE) {
+    if (ev->key == KEY_RIDE && ev->event == KEY_EVT_LONG_RELEASE) {
         if (ride_mode() != RIDE_IDLE) ui_show_end_ride_popup();
         return;
     }
     if (ev->event != KEY_EVT_CLICK) {
         return;
     }
-    switch (ev->key) {
-    case 0: ui_next_page(); break;
-    case 1: manual_lap(); break;
-    case 2: ride_toggle(); break;   /* start / pause / resume */
-    default: break;
-    }
+    /* roles may share a key (C706: lap = click on the power key), so no switch */
+    if (ev->key == KEY_RIDE) ride_toggle();        /* start / pause / resume */
+    if (ev->key == KEY_LAP) manual_lap();
+    if (ev->key == KEY_NEXT_PAGE) ui_next_page();
+    if (ev->key == KEY_PREV_PAGE) ui_prev_page();
 }
 
 static void inject_key(uint8_t key, uint8_t evt)

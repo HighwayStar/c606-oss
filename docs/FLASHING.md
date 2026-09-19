@@ -1,8 +1,9 @@
-# Trying c606-oss on your Magene C606
+# Trying c606-oss on your Magene C606 / C706
 
 You get a zip with:
 
-* `c606_oss.bin` — the firmware image
+* `c606_oss.bin` (or `c706_oss.bin` for the C706 — check that the image
+  matches your device, the two are not interchangeable) — the firmware image
 * `flash_poc.py` — flash / backup / restore helper (a thin wrapper around esptool)
 * `VERSION.txt` — which commit the image was built from
 * this file
@@ -35,7 +36,7 @@ The helper
 2. **backs up the vendor app** to `backup-<date>-ota_0.bin` (~7.6 MB, about
    a minute) and `backup-<date>-otadata.bin` — **keep these files**, they are
    the only way back,
-3. writes `c606_oss.bin` into the same `ota_0` slot, erases `otadata` so the
+3. writes the image into the same `ota_0` slot, erases `otadata` so the
    bootloader boots that slot, and resets the device.
 
 First boot shows the idle screen with the clock. Hold the power key (key 0)
@@ -48,8 +49,10 @@ all 16 MB instead of just the two partitions; `--no-backup` skips the backup
 
 ## Using it
 
-* Keys: **0** = next page, hold = power off; **1** = lap; **2** = start
-  ride / pause, hold = end ride. The gear icon on the touch screen opens the
+* Keys (C606): **0** = next page, hold = power off; **1** = lap; **2** = start
+  ride / pause, hold = end ride. C706: **0** = lap, hold = power off; **2** =
+  start ride / pause, hold = end ride; **3** / **4** = next / previous page.
+  The gear icon on the touch screen opens the
   settings (pages, layouts, fields, sensors, theme, map layers, route…).
 * Rides are recorded as FIT files in `c606oss/` on the eMMC.
 * **Maps**: the map page uses the vector maps already on your device
@@ -96,4 +99,4 @@ firmware starts with all its settings intact.
   ```
 
   Check the offsets against `--dry-run` first: `0x20000` is `ota_0`,
-  `0xd000` is `otadata` on the vendor table.
+  `0xd000` is `otadata` on the vendor table (both C606 and C706).

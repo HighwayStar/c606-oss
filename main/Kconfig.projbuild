@@ -1,0 +1,18 @@
+menu "c606-oss board"
+
+    choice C606OSS_BOARD
+        prompt "Target device"
+        default C606OSS_BOARD_C606
+        help
+            Which Magene bike computer to build for. Selects main/board_*.h
+            (pins, panel, keys). The flash size, PSRAM mode and partition
+            table also differ: use the matching sdkconfig.defaults.<board>
+            (idf.py -DBOARD=c706 does all of it).
+
+        config C606OSS_BOARD_C606
+            bool "Magene C606 (ST7789 240x320, 16-bit i80, 3 keys)"
+        config C606OSS_BOARD_C706
+            bool "Magene C706 (AXS15231 320x480, 8-bit i80, 5 keys)"
+    endchoice
+
+endmenu
