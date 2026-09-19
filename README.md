@@ -44,7 +44,11 @@ This PoC replaces only the ESP32 application. It:
   and dark palettes following the theme, rendered in its own task in well
   under 100 ms per view. Configured like the data pages (Settings → Pages →
   Map): enable, layout *Map* (map only), *M1* / *M2* (one or two data fields
-  in a strip under the map, Speed + Heading by default), fields per cell,
+  in a strip under the map, Speed + Heading by default), fields per cell.
+  While riding, the path ridden so far is drawn on the map as a blue line
+  (`main/trail.c`: the GPS fixes of the ride, kept as Mercator pixels in
+  PSRAM, thinned when they exceed 16k points; on top of the route, so the
+  part of it already covered turns blue; cleared when the next ride starts),
 * **GPX routes**: copy `.gpx` tracks/routes to `c606oss/routes/` on the USB
   disk, pick one in Settings → Route — a preview shows the track outline,
   length, climb / descent (from `<ele>`, when present) and a *Reverse*
@@ -383,8 +387,9 @@ main/utc.c         wall clock from the nRF RTC or the GPS date
 main/sun.c         sunrise / sunset for the last GPS position (NOAA solar equations)
 main/ride.c        idle / riding / paused state machine
 main/mapfile.c     Mapsforge binary map reader (header, tile index, way decoding)
-main/mapview.c     map page: render task, rasteriser, canvas, zoom buttons, route overlay
+main/mapview.c     map page: render task, rasteriser, canvas, zoom buttons, route and trail overlays
 main/route.c       GPX track/route loader for the map page, position on the route (also loads a recorded ride)
+main/trail.c       the path ridden so far (GPS fixes of the ride), drawn in blue on the map
 main/fitread.c     FIT activity reader: records for the track, session / lap summary
 main/history.c     ride history: lists our and the vendor's FIT files, delete
 tools/mapdump/     host build of mapfile.c: dump or render a tile of a .map file

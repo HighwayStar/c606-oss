@@ -40,6 +40,7 @@
 #include "devcon.h"
 #include "ride.h"
 #include "trip.h"
+#include "trail.h"
 #include "utc.h"
 #include "esp_system.h"
 #include "tinyusb.h"
@@ -264,6 +265,7 @@ static void on_gps(const gps_fix_t *fix, void *ctx)
         stats_update(STAT_ALTITUDE, fix->alt_m);
         sun_set_position(fix->lat, fix->lon);
         route_track(fix->lat, fix->lon);
+        if (ride_recording()) trail_add(fix->lat, fix->lon);   /* the ridden path on the map */
     }
     trip_gps(fix);
     if (fix->last_rx_ms - last_log > 5000) {

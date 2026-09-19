@@ -20,6 +20,7 @@
 #include "theme.h"
 #include "config.h"
 #include "route.h"
+#include "trail.h"
 
 static const char *TAG = "mapview";
 
@@ -30,6 +31,7 @@ static const char *TAG = "mapview";
 #define ZOOM_DEFAULT 15
 #define MOVE_PX      12          /* re-render once the position moved this far */
 #define REFRESH_MS   500
+#define TRAIL_REFRESH_MS 5000    /* new trail points alone re-render at most this often */
 
 typedef struct {
     mapfile_t mf;
@@ -79,11 +81,13 @@ static const style_t k_styles[] = {
 };
 static const style_t k_default_style = { "", RGB(0x90, 0x90, 0x90), RGB(0x70, 0x70, 0x70), 1, 0, L_OTHER };
 static const uint16_t k_route_light = RGB(0xc0, 0x20, 0xa0), k_route_dark = RGB(0xe0, 0x50, 0xd0);
+static const uint16_t k_trail_light = RGB(0x1e, 0x88, 0xe5), k_trail_dark = RGB(0x42, 0xa5, 0xf5);
 static const uint16_t k_bg_light = RGB(0xe4, 0xe0, 0xd6);   /* a little darker than the page */
 static const uint16_t k_bg_dark  = RGB(0x1c, 0x1e, 0x22);
 static bool s_dark;                    /* palette of the current render */
 static bool s_shown_dark;
-static uint32_t s_shown_layers, s_shown_route;
+static uint32_t s_shown_layers, s_shown_route, s_shown_trail;
+static int64_t s_shown_at;             /* esp_timer time of the last render */
 
 static inline uint16_t style_color(const style_t *st) { return s_dark ? st->dark : st->light; }
 
@@ -386,6 +390,26 @@ static void draw_route(double cx20, double cy20, uint8_t zoom, double dx, double
     route_unlock();
 }
 
+/* The path ridden so far (trail.h), same projection as the route; drawn
+ * over the route so the covered part of it turns blue. */
+static void draw_trail(double cx20, double cy20, uint8_t zoom, double dx, double dy)
+{
+    const int32_t *x, *y;
+    trail_lock();
+    size_t n = trail_points(&x, &y);
+    float scale = ldexpf(1.0f, (int)zoom - 20);
+    uint16_t c = s_dark ? k_trail_dark : k_trail_light;
+    int px = 0, py = 0;
+    for (size_t i = 0; i < n; i++) {
+        int sx = (int)lroundf((float)((double)x[i] - cx20 + dx) * scale) + s_w / 2;
+        int sy = (int)lroundf((float)((double)y[i] - cy20 + dy) * scale) + s_h / 2;
+        if (i && (sx != px || sy != py || i == n - 1)) draw_line(px, py, sx, sy, c, 3);
+        px = sx;
+        py = sy;
+    }
+    trail_unlock();
+}
+
 static void render_task(void *arg)
 {
     for (;;) {
@@ -416,8 +440,9 @@ again:
                 gcj_dy = mapfile_lat_to_py(glat, 20) - mapfile_lat_to_py(lat, 20);
             }
         }
-        uint32_t route_gen = route_generation();
+        uint32_t route_gen = route_generation(), trail_gen = trail_generation();
         if (route_loaded()) draw_route(mapfile_lon_to_px(lon, 20), mapfile_lat_to_py(lat, 20), zoom, gcj_dx, gcj_dy);
+        draw_trail(mapfile_lon_to_px(lon, 20), mapfile_lat_to_py(lat, 20), zoom, gcj_dx, gcj_dy);
         int ms = (int)((esp_timer_get_time() - t0) / 1000);
         xSemaphoreGive(s_mtx);
 
@@ -430,6 +455,8 @@ again:
             s_shown_dark = s_dark;
             s_shown_layers = layers;
             s_shown_route = route_gen;
+            s_shown_trail = trail_gen;
+            s_shown_at = esp_timer_get_time();
             s_shown = true;
             scale_bar_update(lat, zoom);
             snprintf(s_status, sizeof s_status, "z%u %lu w %d ms%s", zoom, (unsigned long)ways, ms,
@@ -456,6 +483,11 @@ static void refresh_cb(lv_timer_t *t)
         double dx = mapfile_lon_to_px(s_lon, s_zoom) - mapfile_lon_to_px(s_shown_lon, s_zoom);
         double dy = mapfile_lat_to_py(s_lat, s_zoom) - mapfile_lat_to_py(s_shown_lat, s_zoom);
         need = fabs(dx) > MOVE_PX || fabs(dy) > MOVE_PX;
+    }
+    /* the trail grew (or was reset) without the centre moving much: the
+     * marker's tail catches up now and then rather than every second */
+    if (s_have_pos && !need && s_shown_trail != trail_generation()) {
+        need = esp_timer_get_time() - s_shown_at > (int64_t)TRAIL_REFRESH_MS * 1000;
     }
     xSemaphoreGive(s_mtx);
     if (need) xTaskNotifyGive(s_task);
