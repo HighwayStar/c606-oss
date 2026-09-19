@@ -471,3 +471,32 @@ down / up. Key 1 is free (no bell or intercom here).
 the other rates after it. The logs show Airoha `$PAIR…` commands
 (`$PAIR508`, `$PAIR496`, `$PAIR650`, `$PAIR470` EPO), so the same driver
 applies.
+
+---
+
+# Magene C606 Pro (third target)
+
+Source: vendor firmware **C606P V1.723** (`c606Pro_ota_0.elf`, built Sep 25
+2025; raw image `~/devel/magene/esp32_image_parser/ota_0_out.bin`, 0x73A000
+bytes = the C606 `ota_0` slot). Addresses refer to that image. **Not yet
+tried on hardware.** `BOARD=c606pro tools/build_podman.sh` →
+`build-c606pro/c606pro_oss.bin`.
+
+A hybrid of the other two: the C606's shell and peripherals on the C706's
+display bus and memory.
+
+| Item | C606 | C606 Pro |
+|---|---|---|
+| Panel | ST7789 240x320, **16-bit** i80 @ 15 MHz | ST7789 240x320, **8-bit** i80 @ 15 MHz, data `{4, 38, 5, 48, 6, 47, 7, 11}` (= C706), DC40 WR3 CS2 RD39, `max_transfer` 28800, two 28800-byte LVGL buffers (`MidLcdInit` @ `0x42033db4`) |
+| Pixel order | as-is | byte-swapped (`LV_COLOR_16_SWAP = 1` palette signature `F2 06 E8 EC` at `0x3c40191c`) → `swap_color_bytes` |
+| ST7789 init (`0x42034324`) | see above | after SWRESET + 20 ms and 10 ms: `36 00`, `3A 05`, `B2 0C 0C 00 33 33`, `B7 05`, `BB 23`, `C0 2C`, `C2 01`, `C3 15`, `C6 0F`, `D0 A7`, `D0 A4 A1`, `D6 A1`, `E0 F0 16 21 15 16 0F 46 54 55 20 1F 1F 3F 3B`, `E1 F0 0A 15 08 09 15 45 44 55 20 1F 1F 3F 3E`, `21`, `11`, `29`, `2C` (1 ms each); then `invert_color(true)`, `set_gap(0,0)`. `MidSendSleepToLCD` (`28`, `10`) right after init and `MidSendInitToLCD` (the sequence again) when the first screen is ready — we skip the sleep and init once |
+| Backlight | GPIO45 | GPIO45 (`0x42033ca0`), same LEDC settings |
+| Touch | FT6336 / CST328 on I2C0 21/12 | same (`0x420341f0`) |
+| nRF / GPS | UART2 42/41, UART0 1/0 @ 921600 | same (`AppDevInit` @ `0x4200be64`: `MidCommInit(1, 115200)`, GPS 921600) |
+| eMMC | SDMMC 13/14/16/17/18/15 | same (`0x4200d4ac`) |
+| Flash / PSRAM | 16 MB DIO 80 MHz (`4f`), 2 MB quad | 16 MB DIO 80 MHz (`4f`), **octal** PSRAM (`octal_psram` driver + `mspi_timing` tuning in the image; size unknown until it boots) |
+| Keys | 3 | 3 — the `KeyMapInfo` scene tables (`0x3c5b7340` riding, `0x3c5b7390` menus) have no D/E entries: riding A = Lap, B = SwitchPageHorRight, C = start/pause; menus A = back, A hold = power-off. `board_c606pro.h` keeps the C606 build's roles |
+| Draw window | any | any (no alignment check in `mg_panel_st7789_draw_bitmap` @ `0x420345fc`) |
+
+(Correction to the C706 key notes above: in the riding scene the vendor's
+A hold is `BreathPlate`; `PowerOffPopUp` is A hold in scene 0.)

@@ -1,5 +1,5 @@
 /*
- * Board selection + everything the Magene C606 and C706 have in common
+ * Board selection + everything the Magene C606, C606 Pro and C706 have in common
  * (the nRF co-processor protocol, key events, GPS power values).
  *
  * The pin maps live in board_c606.h / board_c706.h, chosen with the Kconfig
@@ -12,6 +12,8 @@
 
 #if CONFIG_C606OSS_BOARD_C706
 #include "board_c706.h"
+#elif CONFIG_C606OSS_BOARD_C606PRO
+#include "board_c606pro.h"
 #else
 #include "board_c606.h"
 #endif

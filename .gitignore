@@ -12,3 +12,6 @@ c706-oss-*.zip
 build-*/
 sdkconfig.c706
 sdkconfig.c706.old
+sdkconfig.c606pro
+sdkconfig.c606pro.old
+c606pro-oss-*.zip

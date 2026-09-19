@@ -1,0 +1,7 @@
+# Magene C606 Pro on top of sdkconfig.defaults (later files win):
+# same 16 MB flash / partition layout as the C606, but octal PSRAM (the
+# vendor image carries the octal_psram driver); the size shows at boot.
+CONFIG_C606OSS_BOARD_C606PRO=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_TINYUSB_DESC_PRODUCT_STRING="C606 Pro eMMC"

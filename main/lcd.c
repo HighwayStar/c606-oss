@@ -53,7 +53,56 @@ static void cmd(uint8_t c, const void *p, size_t n)
     ESP_ERROR_CHECK(esp_lcd_panel_io_tx_param(s_io, c, p, n));
 }
 
-#if LCD_PANEL_ST7789
+#if LCD_PANEL_ST7789 && LCD_ST7789_INIT_PRO
+/* C606 Pro: exact sequence from its mg_panel_st7789_init() @ 0x42034324
+ * (C606P V1.723), incl. the 1 ms gaps. Differs from the C606's in most
+ * voltage/gamma registers and sends SLPOUT only at the end. */
+static void panel_init(void)
+{
+    const uint8_t madctl = LCD_MADCTL;
+    const uint8_t colmod = 0x05;                              /* 16 bpp (MCU i/f only) */
+    const uint8_t porctrl[] = {0x0C, 0x0C, 0x00, 0x33, 0x33}; /* B2 */
+    const uint8_t gctrl    = 0x05;                            /* B7 */
+    const uint8_t vcoms    = 0x23;                            /* BB */
+    const uint8_t lcmctrl  = 0x2C;                            /* C0 */
+    const uint8_t vdvvrhen = 0x01;                            /* C2 */
+    const uint8_t vrhs     = 0x15;                            /* C3 */
+    const uint8_t frctrl2  = 0x0F;                            /* C6 */
+    const uint8_t d0a      = 0xA7;                            /* D0 (1 byte) */
+    const uint8_t pwctrl1[] = {0xA4, 0xA1};                   /* D0 */
+    const uint8_t d6       = 0xA1;                            /* D6 */
+    const uint8_t pvgam[] = {0xF0, 0x16, 0x21, 0x15, 0x16, 0x0F, 0x46,
+                             0x54, 0x55, 0x20, 0x1F, 0x1F, 0x3F, 0x3B}; /* E0 */
+    const uint8_t nvgam[] = {0xF0, 0x0A, 0x15, 0x08, 0x09, 0x15, 0x45,
+                             0x44, 0x55, 0x20, 0x1F, 0x1F, 0x3F, 0x3E}; /* E1 */
+
+    /* mg_panel_st7789_reset(): no reset GPIO -> SWRESET + 20 ms */
+    cmd(0x01, NULL, 0);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    cmd(0x36, &madctl, 1);              vTaskDelay(pdMS_TO_TICKS(1));
+    cmd(0x3A, &colmod, 1);              vTaskDelay(pdMS_TO_TICKS(1));
+    cmd(0xB2, porctrl, sizeof porctrl); vTaskDelay(pdMS_TO_TICKS(1));
+    cmd(0xB7, &gctrl, 1);               vTaskDelay(pdMS_TO_TICKS(1));
+    cmd(0xBB, &vcoms, 1);               vTaskDelay(pdMS_TO_TICKS(1));
+    cmd(0xC0, &lcmctrl, 1);             vTaskDelay(pdMS_TO_TICKS(1));
+    cmd(0xC2, &vdvvrhen, 1);            vTaskDelay(pdMS_TO_TICKS(1));
+    cmd(0xC3, &vrhs, 1);                vTaskDelay(pdMS_TO_TICKS(1));
+    cmd(0xC6, &frctrl2, 1);             vTaskDelay(pdMS_TO_TICKS(1));
+    cmd(0xD0, &d0a, 1);                 vTaskDelay(pdMS_TO_TICKS(1));
+    cmd(0xD0, pwctrl1, sizeof pwctrl1); vTaskDelay(pdMS_TO_TICKS(1));
+    cmd(0xD6, &d6, 1);                  vTaskDelay(pdMS_TO_TICKS(1));
+    cmd(0xE0, pvgam, sizeof pvgam);     vTaskDelay(pdMS_TO_TICKS(1));
+    cmd(0xE1, nvgam, sizeof nvgam);     vTaskDelay(pdMS_TO_TICKS(1));
+    cmd(0x21, NULL, 0);                 vTaskDelay(pdMS_TO_TICKS(1)); /* INVON */
+    cmd(0x11, NULL, 0);                 vTaskDelay(pdMS_TO_TICKS(1)); /* SLPOUT */
+    cmd(0x29, NULL, 0);                 vTaskDelay(pdMS_TO_TICKS(1)); /* DISPON */
+    cmd(0x2C, NULL, 0);                 vTaskDelay(pdMS_TO_TICKS(1)); /* RAMWR */
+    vTaskDelay(pdMS_TO_TICKS(120));     /* SLPOUT settle before the first frame */
+}
+#define PANEL_NAME "ST7789 (Pro)"
+#elif LCD_PANEL_ST7789
 /* Exact sequence from vendor mg_panel_st7789_init(), incl. the 1 ms gaps. */
 static void panel_init(void)
 {

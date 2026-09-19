@@ -4,7 +4,9 @@ The Magene C606 bike computer is an **ESP32-S3** driving a 240x320 ST7789 over
 a 16-bit i80 bus, plus an **nRF co-processor** that owns the buttons, power
 management and sensor radios and talks to the ESP32 over UART. The **C706**
 is the same design with a 320x480 AXS15231 panel on an 8-bit bus, 32 MB
-flash, 8 MB PSRAM and five keys (`BOARD=c706`, see *Targets* below).
+flash, 8 MB PSRAM and five keys (`BOARD=c706`); the **C606 Pro** is the C606
+with the C706's 8-bit display bus and octal PSRAM (`BOARD=c606pro`, built
+from its firmware, not yet tried on a unit). See *Targets* below.
 
 This PoC replaces only the ESP32 application. It:
 
@@ -126,6 +128,7 @@ tools/build_podman.sh          # uses docker.io/espressif/idf:v5.4.2
 | `BOARD` | device | build dir / image | differences |
 |---|---|---|---|
 | `c606` (default) | Magene C606 | `build/c606_oss.bin` | ST7789 240x320, 16-bit i80, 16 MB flash, 2 MB quad PSRAM, 3 keys |
+| `c606pro` | Magene C606 Pro | `build-c606pro/c606pro_oss.bin` | as the C606 but ST7789 on the C706's 8-bit i80 pins (byte-swapped pixels, its own init sequence), octal PSRAM — untested on hardware |
 | `c706` | Magene C706 | `build-c706/c706_oss.bin` | AXS15231 320x480, 8-bit i80 (pixels byte-swapped, 4-px aligned windows), panel reset through the nRF, backlight GPIO10, touch in the panel (0x3B), 32 MB flash, 8 MB octal PSRAM, 5 keys, GPS opened at 115200 |
 
 ```sh
@@ -134,9 +137,9 @@ BOARD=c706 tools/make_release.sh                 # c706-oss-<version>.zip
 tools/flash_poc.py -p /dev/ttyACM0 --board c706  # picks build-c706/c706_oss.bin
 ```
 
-`-DBOARD=c706` adds `sdkconfig.defaults.c706` (flash size, PSRAM mode,
-`partitions_c706.csv`, the board choice) on top of `sdkconfig.defaults` and
-keeps its own `sdkconfig.c706`. The C706 keys follow the vendor's map: key 0
+`-DBOARD=<board>` adds `sdkconfig.defaults.<board>` (flash size, PSRAM mode,
+partition table, the board choice) on top of `sdkconfig.defaults` and keeps
+its own `sdkconfig.<board>`. The C706 keys follow the vendor's map: key 0
 click = lap / hold = power off, key 2 = start / pause (hold = end ride),
 key 3 / 4 = next / previous page; in the menus 0 = back, 2 = select,
 3 / 4 = down / up. The analysis behind the port is in `docs/HARDWARE.md`,
