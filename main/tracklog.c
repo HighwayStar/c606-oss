@@ -33,6 +33,7 @@
 #include "trip.h"
 #include "ride.h"
 #include "config.h"
+#include "health.h"
 
 static const char *TAG = "track";
 #define TRACK_DIR TRACKLOG_DIR
@@ -124,6 +125,7 @@ typedef struct PACKED {
     uint32_t elapsed_ms, timer_ms, distance; uint16_t avg_speed, max_speed;
     uint8_t avg_hr, max_hr, avg_cad, max_cad; uint16_t avg_power, max_power, ascent, descent;
     int8_t avg_temp, max_temp; uint16_t avg_alt, max_alt, min_alt;
+    uint16_t calories; uint32_t hr_zone_ms[HR_ZONES + 1], pwr_zone_ms[PWR_ZONES + 1];
 } summary_body_t;
 
 static const fit_field_t k_lap_f[] = {
@@ -134,8 +136,9 @@ static const fit_field_t k_lap_f[] = {
     { 15, 1, FIT_UINT8 }, { 16, 1, FIT_UINT8 }, { 17, 1, FIT_UINT8 }, { 18, 1, FIT_UINT8 },
     { 19, 2, FIT_UINT16 }, { 20, 2, FIT_UINT16 }, { 21, 2, FIT_UINT16 }, { 22, 2, FIT_UINT16 },
     { 50, 1, FIT_SINT8 }, { 51, 1, FIT_SINT8 }, { 42, 2, FIT_UINT16 }, { 43, 2, FIT_UINT16 }, { 62, 2, FIT_UINT16 },
+    { 11, 2, FIT_UINT16 }, { 57, 4 * (HR_ZONES + 1), FIT_UINT32 }, { 60, 4 * (PWR_ZONES + 1), FIT_UINT32 },
 };
-static const fit_mesg_t k_lap = { 19, 30, k_lap_f };
+static const fit_mesg_t k_lap = { 19, 33, k_lap_f };
 typedef struct PACKED {
     summary_head_t h; int32_t end_lat, end_lon; uint8_t trigger, sport, sub_sport; summary_body_t b;
 } lap_t;
@@ -148,8 +151,9 @@ static const fit_field_t k_session_f[] = {
     { 16, 1, FIT_UINT8 }, { 17, 1, FIT_UINT8 }, { 18, 1, FIT_UINT8 }, { 19, 1, FIT_UINT8 },
     { 20, 2, FIT_UINT16 }, { 21, 2, FIT_UINT16 }, { 22, 2, FIT_UINT16 }, { 23, 2, FIT_UINT16 },
     { 57, 1, FIT_SINT8 }, { 58, 1, FIT_SINT8 }, { 49, 2, FIT_UINT16 }, { 50, 2, FIT_UINT16 }, { 71, 2, FIT_UINT16 },
+    { 11, 2, FIT_UINT16 }, { 65, 4 * (HR_ZONES + 1), FIT_UINT32 }, { 68, 4 * (PWR_ZONES + 1), FIT_UINT32 },
 };
-static const fit_mesg_t k_session = { 18, 30, k_session_f };
+static const fit_mesg_t k_session = { 18, 33, k_session_f };
 typedef struct PACKED {
     summary_head_t h; uint8_t sport, sub_sport; uint16_t first_lap_index, num_laps; uint8_t trigger; summary_body_t b;
 } session_t;
@@ -162,6 +166,24 @@ static const fit_mesg_t k_activity = { 34, 7, k_activity_f };
 typedef struct PACKED {
     uint32_t timestamp, timer_ms; uint16_t num_sessions; uint8_t type, event, event_type; uint32_t local_timestamp;
 } activity_t;
+
+/* rider profile and the zone definitions the time-in-zone arrays refer to */
+static const fit_field_t k_user_profile_f[] = {
+    { 1, 1, FIT_ENUM }, { 2, 1, FIT_UINT8 }, { 3, 1, FIT_UINT8 }, { 4, 2, FIT_UINT16 }, { 11, 1, FIT_UINT8 },
+};
+static const fit_mesg_t k_user_profile = { 3, 5, k_user_profile_f };
+typedef struct PACKED { uint8_t gender, age, height; uint16_t weight; uint8_t default_max_hr; } user_profile_t;
+
+static const fit_field_t k_zones_target_f[] = {
+    { 1, 1, FIT_UINT8 }, { 2, 1, FIT_UINT8 }, { 3, 2, FIT_UINT16 }, { 5, 1, FIT_ENUM }, { 7, 1, FIT_ENUM },
+};
+static const fit_mesg_t k_zones_target = { 7, 5, k_zones_target_f };
+typedef struct PACKED { uint8_t max_hr, threshold_hr; uint16_t ftp; uint8_t hr_calc_type, pwr_calc_type; } zones_target_t;
+#define HR_CALC_PCT_MAX   1
+#define HR_CALC_PCT_LTHR  3
+#define PWR_CALC_PCT_FTP  1
+#define GENDER_FEMALE     0
+#define GENDER_MALE       1
 
 /* local message numbers: records keep theirs, everything else shares one
  * (its definition is re-sent whenever the message type changes) */
@@ -184,6 +206,8 @@ typedef struct {
     float alt_sum, alt_min, alt_max, alt_ref;
     uint32_t alt_n;
     float ascent, descent;
+    float start_kcal;                    /* health.c totals at the start */
+    uint32_t start_hr_zone_ms[HR_ZONES + 1], start_pwr_zone_ms[PWR_ZONES + 1];
 } acc_t;
 
 static SemaphoreHandle_t s_lock;
@@ -225,6 +249,9 @@ static void acc_start(acc_t *a, uint32_t ts)
     a->start_lat = s_last_lat;
     a->start_lon = s_last_lon;
     a->temp_max = INT32_MIN;
+    a->start_kcal = health_kcal();
+    for (int z = 0; z <= HR_ZONES; z++) a->start_hr_zone_ms[z] = health_hr_zone_ms(z);
+    for (int z = 0; z <= PWR_ZONES; z++) a->start_pwr_zone_ms[z] = health_pwr_zone_ms(z);
 }
 
 static void acc_add(acc_t *a, const record_t *r, float speed_ms, float alt_m, bool alt_valid)
@@ -299,6 +326,14 @@ static void acc_fill(const acc_t *a, summary_head_t *h, summary_body_t *b, uint3
     b->avg_alt = a->alt_n ? alt_u16(a->alt_sum / a->alt_n) : FIT_INV_U16;
     b->max_alt = a->alt_n ? alt_u16(a->alt_max) : FIT_INV_U16;
     b->min_alt = a->alt_n ? alt_u16(a->alt_min) : FIT_INV_U16;
+    float kcal = health_kcal() - a->start_kcal;
+    b->calories = kcal > 0 ? clamp_u16((uint32_t)(kcal + 0.5f)) : 0;
+    for (int z = 0; z <= HR_ZONES; z++) {
+        b->hr_zone_ms[z] = a->hr_n ? health_hr_zone_ms(z) - a->start_hr_zone_ms[z] : FIT_INV_U32;
+    }
+    for (int z = 0; z <= PWR_ZONES; z++) {
+        b->pwr_zone_ms[z] = a->pwr_n && health_pwr_zones_available() ? health_pwr_zone_ms(z) - a->start_pwr_zone_ms[z] : FIT_INV_U32;
+    }
 }
 
 /* ---- writers ------------------------------------------------------------- */
@@ -340,6 +375,19 @@ static esp_err_t write_preamble(uint32_t ts)
         };
         err = fit_write(&s_w, LOCAL_OTHER, &k_device_info, &ds, sizeof ds);
     }
+    int age = health_age();
+    user_profile_t up = {
+        .gender = cfg->sex ? GENDER_FEMALE : GENDER_MALE, .age = age ? age : FIT_INV_U8,
+        .height = cfg->height_cm, .weight = cfg->weight_kg * 10, .default_max_hr = health_max_hr(),
+    };
+    if (err == ESP_OK) err = fit_write(&s_w, LOCAL_OTHER, &k_user_profile, &up, sizeof up);
+    zones_target_t zt = {
+        .max_hr = health_max_hr(), .threshold_hr = health_lthr(),
+        .ftp = cfg->ftp_w ? cfg->ftp_w : FIT_INV_U16,
+        .hr_calc_type = cfg->hr_zone_mode == HRZ_PCT_LTHR ? HR_CALC_PCT_LTHR : HR_CALC_PCT_MAX,
+        .pwr_calc_type = PWR_CALC_PCT_FTP,
+    };
+    if (err == ESP_OK) err = fit_write(&s_w, LOCAL_OTHER, &k_zones_target, &zt, sizeof zt);
     if (err == ESP_OK) err = write_event(ts, EVT_START);
     return err;
 }

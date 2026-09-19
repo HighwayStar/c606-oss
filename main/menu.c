@@ -4,6 +4,9 @@
  *   Settings
  *     Pages            -> Page 1..5 (layout name / off)
  *     Sensors          -> wheel circumference, known sensors (forget), add (ANT scan)
+ *     Profile          -> weight, height, birth year, sex, max HR, LTHR, FTP,
+ *                         HR zone mode (% max HR / % LTHR); Health: BMI, BMR,
+ *                         the HR and power zone tables (health.c)
  *       Page n         -> Enable, Layout (picker with live preview), Fields
  *         Layout       -> page preview + up/down selector, tick = apply
  *         Fields       -> page preview, tap a cell (or move with keys) ->
@@ -48,6 +51,7 @@
 #include "route.h"
 #include "history.h"
 #include "ant.h"
+#include "health.h"
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -650,6 +654,76 @@ static void wheel_step(int dir)
     ant_set_wheel_mm(v);
 }
 
+/* rider profile */
+static void weight_text(char *buf, size_t n) { snprintf(buf, n, "%u kg", config_get()->weight_kg); }
+static void weight_step(int dir)
+{
+    int v = config_get()->weight_kg + dir;
+    if (v < CFG_WEIGHT_MIN_KG) v = CFG_WEIGHT_MIN_KG;
+    if (v > CFG_WEIGHT_MAX_KG) v = CFG_WEIGHT_MAX_KG;
+    config_get()->weight_kg = v;
+}
+static void height_text(char *buf, size_t n) { snprintf(buf, n, "%u cm", config_get()->height_cm); }
+static void height_step(int dir)
+{
+    int v = config_get()->height_cm + dir;
+    if (v < CFG_HEIGHT_MIN_CM) v = CFG_HEIGHT_MIN_CM;
+    if (v > CFG_HEIGHT_MAX_CM) v = CFG_HEIGHT_MAX_CM;
+    config_get()->height_cm = v;
+}
+static void birth_text(char *buf, size_t n)
+{
+    int age = health_age();
+    if (age) snprintf(buf, n, "%u (%d y)", config_get()->birth_year, age);
+    else snprintf(buf, n, "%u", config_get()->birth_year);
+}
+static void birth_step(int dir)
+{
+    int v = config_get()->birth_year + dir;
+    if (v < CFG_BIRTH_MIN) v = CFG_BIRTH_MIN;
+    if (v > CFG_BIRTH_MAX) v = CFG_BIRTH_MAX;
+    config_get()->birth_year = v;
+}
+/* max HR and LTHR: "auto" (0, the estimate) below the manual range; + from
+ * auto starts at the estimate so the user only has to correct it */
+static void hr_text(char *buf, size_t n, uint8_t cfg, int est)
+{
+    if (cfg) snprintf(buf, n, "%u bpm", cfg);
+    else snprintf(buf, n, "auto (%d)", est);
+}
+static uint8_t hr_step(uint8_t cfg, int est, int dir)
+{
+    int v;
+    if (!cfg) v = dir > 0 ? est : 0;
+    else v = cfg + dir;
+    if (v < CFG_HR_MIN) v = 0;
+    if (v > CFG_HR_MAX) v = CFG_HR_MAX;
+    return v;
+}
+static void maxhr_text(char *buf, size_t n) { hr_text(buf, n, config_get()->max_hr, health_max_hr()); }
+static void maxhr_step(int dir) { config_get()->max_hr = hr_step(config_get()->max_hr, health_max_hr(), dir); }
+static void lthr_text(char *buf, size_t n) { hr_text(buf, n, config_get()->lthr, health_lthr()); }
+static void lthr_step(int dir) { config_get()->lthr = hr_step(config_get()->lthr, health_lthr(), dir); }
+static void ftp_text(char *buf, size_t n)
+{
+    if (config_get()->ftp_w) snprintf(buf, n, "%u W", config_get()->ftp_w);
+    else snprintf(buf, n, "off");
+}
+static void ftp_step(int dir)
+{
+    int v = config_get()->ftp_w + dir * 5;
+    if (v < 0) v = 0;
+    if (v > CFG_FTP_MAX_W) v = CFG_FTP_MAX_W;
+    config_get()->ftp_w = v;
+}
+
+static const value_def_t k_weight_value = { weight_text, weight_step };
+static const value_def_t k_height_value = { height_text, height_step };
+static const value_def_t k_birth_value  = { birth_text, birth_step };
+static const value_def_t k_maxhr_value  = { maxhr_text, maxhr_step };
+static const value_def_t k_lthr_value   = { lthr_text, lthr_step };
+static const value_def_t k_ftp_value    = { ftp_text, ftp_step };
+
 static const value_def_t k_wheel_value = { wheel_text, wheel_step };
 static const value_def_t k_lap_value = { lap_text, lap_step };
 static const value_def_t k_tz_value  = { tz_text, tz_step };
@@ -833,6 +907,123 @@ static void sensors_open(void)
     sensors_refresh(s);
 }
 
+/* ---- profile / health ---------------------------------------------------- */
+
+/* Derived values and the zone tables: what the data fields and the FIT
+ * file's time-in-zone arrays are based on. */
+static void health_open(void)
+{
+    static const char *k_hr_names[HR_ZONES] = { "recovery", "endurance", "tempo", "threshold", "maximum" };
+    static const char *k_pwr_names[PWR_ZONES] = { "recovery", "endurance", "tempo", "threshold", "VO2max", "anaerobic", "neuromusc." };
+    screen_t *s = push("Health");
+    if (!s) return;
+    lv_obj_t *box = lv_obj_create(s->root);
+    lv_obj_remove_style_all(box);
+    lv_obj_set_pos(box, 0, HDR_H);
+    lv_obj_set_size(box, LCD_H_RES, LCD_V_RES - HDR_H);
+    lv_obj_set_scroll_dir(box, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_AUTO);
+
+    char txt[640], line[64];
+    int n = 0;
+    const app_cfg_t *c = config_get();
+    float bmi = health_bmi();
+    n += snprintf(txt + n, sizeof txt - n, "%s, %u kg, %u cm", c->sex ? "Female" : "Male", c->weight_kg, c->height_cm);
+    if (health_age()) n += snprintf(txt + n, sizeof txt - n, ", %d y", health_age());
+    n += snprintf(txt + n, sizeof txt - n, "\nBMI %.1f (%s)", bmi, health_bmi_class(bmi));
+    if (health_bmr_kcal()) n += snprintf(txt + n, sizeof txt - n, "\nBMR %d kcal/day", health_bmr_kcal());
+    n += snprintf(txt + n, sizeof txt - n, "\nMax HR %d%s, LTHR %d%s\n", health_max_hr(), health_max_hr_auto() ? " (est.)" : "",
+                  health_lthr(), health_lthr_auto() ? " (est.)" : "");
+    n += snprintf(txt + n, sizeof txt - n, "\nHR zones, %% of %s:", c->hr_zone_mode == HRZ_PCT_LTHR ? "LTHR" : "max HR");
+    for (int z = 1; z <= HR_ZONES; z++) {
+        if (z < HR_ZONES) snprintf(line, sizeof line, "\n Z%d  %d-%d  %s", z, health_hr_zone_low(z), health_hr_zone_low(z + 1) - 1, k_hr_names[z - 1]);
+        else snprintf(line, sizeof line, "\n Z%d  %d+  %s", z, health_hr_zone_low(z), k_hr_names[z - 1]);
+        n += snprintf(txt + n, sizeof txt - n, "%s", line);
+    }
+    if (health_pwr_zones_available()) {
+        n += snprintf(txt + n, sizeof txt - n, "\n\nPower zones, FTP %u W:", c->ftp_w);
+        for (int z = 1; z <= PWR_ZONES; z++) {
+            if (z < PWR_ZONES) snprintf(line, sizeof line, "\n Z%d  %d-%d  %s", z, health_pwr_zone_low(z), health_pwr_zone_low(z + 1) - 1, k_pwr_names[z - 1]);
+            else snprintf(line, sizeof line, "\n Z%d  %d+  %s", z, health_pwr_zone_low(z), k_pwr_names[z - 1]);
+            n += snprintf(txt + n, sizeof txt - n, "%s", line);
+        }
+    } else {
+        n += snprintf(txt + n, sizeof txt - n, "\n\nPower zones: set FTP");
+    }
+    lv_obj_t *l = label(box, &lv_font_montserrat_14, C_FG, txt);
+    lv_obj_add_style(l, &theme_st_text, 0);
+    lv_obj_set_width(l, LCD_H_RES - 20);
+    lv_obj_set_pos(l, 10, 8);
+    lv_obj_t *pad = lv_obj_create(box);   /* room to scroll the last line clear of the edge */
+    lv_obj_remove_style_all(pad);
+    lv_obj_set_size(pad, 1, 12);
+    lv_obj_align_to(pad, l, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 0);
+    update_hl(s);
+}
+
+enum { PROF_WEIGHT, PROF_HEIGHT, PROF_BIRTH, PROF_SEX, PROF_MAXHR, PROF_LTHR, PROF_FTP, PROF_ZONEMODE, PROF_HEALTH };
+
+static const char *sex_text(void) { return config_get()->sex ? "Female" : "Male"; }
+static const char *zone_mode_text(void) { return config_get()->hr_zone_mode == HRZ_PCT_LTHR ? "%LTHR" : "%Max HR"; }
+
+static void profile_refresh(screen_t *s)
+{
+    char buf[24];
+    weight_text(buf, sizeof buf); set_right(s, PROF_WEIGHT, buf, true);
+    height_text(buf, sizeof buf); set_right(s, PROF_HEIGHT, buf, true);
+    birth_text(buf, sizeof buf);  set_right(s, PROF_BIRTH, buf, true);
+    set_right(s, PROF_SEX, sex_text(), false);
+    maxhr_text(buf, sizeof buf);  set_right(s, PROF_MAXHR, buf, true);
+    lthr_text(buf, sizeof buf);   set_right(s, PROF_LTHR, buf, true);
+    ftp_text(buf, sizeof buf);    set_right(s, PROF_FTP, buf, true);
+    set_right(s, PROF_ZONEMODE, zone_mode_text(), false);
+}
+
+static void profile_select(screen_t *s, int idx)
+{
+    switch (idx) {
+    case PROF_WEIGHT: value_open("Weight", &k_weight_value); break;
+    case PROF_HEIGHT: value_open("Height", &k_height_value); break;
+    case PROF_BIRTH:  value_open("Year of birth", &k_birth_value); break;
+    case PROF_SEX:
+        config_get()->sex = !config_get()->sex;
+        config_save();
+        profile_refresh(s);
+        break;
+    case PROF_MAXHR:  value_open("Max heart rate", &k_maxhr_value); break;
+    case PROF_LTHR:   value_open("Threshold HR", &k_lthr_value); break;
+    case PROF_FTP:    value_open("FTP", &k_ftp_value); break;
+    case PROF_ZONEMODE:
+        config_get()->hr_zone_mode = config_get()->hr_zone_mode == HRZ_PCT_LTHR ? HRZ_PCT_MAX : HRZ_PCT_LTHR;
+        config_save();
+        profile_refresh(s);
+        break;
+    case PROF_HEALTH: health_open(); break;
+    default: break;
+    }
+}
+
+static void profile_open(void)
+{
+    screen_t *s = push("Profile");
+    if (!s) return;
+    s->select_cb = profile_select;
+    s->refresh_cb = profile_refresh;
+    make_list(s);
+    add_item(s, "Weight", ITEM_ARROW, "", false);
+    add_item(s, "Height", ITEM_ARROW, "", false);
+    add_item(s, "Year of birth", ITEM_ARROW, "", false);
+    add_item(s, "Sex", ITEM_VALUE, "", false);
+    add_item(s, "Max HR", ITEM_ARROW, "", false);
+    add_item(s, "LTHR", ITEM_ARROW, "", false);
+    add_item(s, "FTP", ITEM_ARROW, "", false);
+    add_item(s, "HR zones by", ITEM_VALUE, "", false);
+    add_item(s, "Health", ITEM_ARROW, NULL, false);
+    s->sel = 0;
+    profile_refresh(s);
+    update_hl(s);
+}
+
 /* ---- system ------------------------------------------------------------ */
 
 static void about_open(void)
@@ -873,7 +1064,7 @@ static void reset_confirm_open(void)
     s->select_cb = reset_confirm_select;
     make_list(s);
     lv_obj_t *h = label(s->root, &lv_font_montserrat_14, C_GREY,
-                        "Pages, lap length, time zone,\ntheme and backlight go back\nto the firmware defaults.");
+                        "Pages, profile, lap length,\ntime zone, theme and backlight\ngo back to the firmware defaults.");
     lv_obj_add_style(h, &theme_st_muted, 0);
     lv_obj_set_style_text_align(h, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(h, LV_ALIGN_TOP_MID, 0, HDR_H + 2 * ROW_H + 16);
@@ -912,7 +1103,7 @@ static void system_open(void)
 }
 
 /* ---- settings root ----------------------------------------------------- */
-enum { ROOT_PAGES, ROOT_SENSORS, ROOT_LAP, ROOT_AUTOPAUSE, ROOT_BACKLIGHT, ROOT_TZ, ROOT_THEME, ROOT_AUTOTHEME,
+enum { ROOT_PAGES, ROOT_SENSORS, ROOT_PROFILE, ROOT_LAP, ROOT_AUTOPAUSE, ROOT_BACKLIGHT, ROOT_TZ, ROOT_THEME, ROOT_AUTOTHEME,
        ROOT_LAYERS, ROOT_ROUTE, ROOT_HISTORY, ROOT_RESET, ROOT_SYSTEM };
 
 /* ---- route: GPX files in /sdcard/c606oss/routes ------------------------ */
@@ -1357,6 +1548,9 @@ static void settings_select(screen_t *s, int idx)
     case ROOT_SENSORS:
         sensors_open();
         break;
+    case ROOT_PROFILE:
+        profile_open();
+        break;
     case ROOT_LAP:
         value_open("Lap length", &k_lap_value);
         break;
@@ -1408,6 +1602,7 @@ static void settings_select(screen_t *s, int idx)
         break;
     case ROOT_RESET:
         stats_reset();
+        health_reset();
         menu_close();
         break;
     case ROOT_SYSTEM:
@@ -1449,6 +1644,7 @@ void menu_open(void)
     char buf[16];
     add_item(s, "Pages", ITEM_ARROW, NULL, false);
     add_item(s, "Sensors", ITEM_ARROW, NULL, false);
+    add_item(s, "Profile", ITEM_ARROW, NULL, false);
     lap_text(buf, sizeof buf);
     add_item(s, "Lap length", ITEM_ARROW, buf, false);
     add_item(s, "Auto pause", ITEM_TOGGLE, NULL, config_get()->auto_pause);

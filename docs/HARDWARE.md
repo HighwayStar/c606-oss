@@ -338,6 +338,30 @@ other hardware revisions.
 * **NVS**: standard `nvs` partition; vendor config blob `Res1Page11` (byte 3 = HW variant).
 * GPIO43/44 (default UART0 pins) are driven high as outputs on HW variant 2 before LCD init.
 
+## Calories and training zones (vendor algorithm)
+
+Found through the double constant 0.6309 (`1c7c61325530e43f`) in the
+**C606 Pro V1.723** image (`c606Pro_ota_0.elf`, the same code base): the
+per-second ride data update `FUN_42263b60` (~2400 decompiled lines,
+`RideDataProcess`-like; the literal pool at `0x42246778`) adds a calorie
+increment to two accumulators (`+0xb0` total, `+0xb4` lap) and keeps a
+rate in `+0xb8` (= total / elapsed s × 3600, the `kcal/h` field). The
+accumulators are in **calories** (not kcal); the source is chosen in this
+order (`+0xc0` = power meter present, `+0xa0` = HR present):
+
+| source | cal per second | notes |
+|---|---|---|
+| power meter (uint16 `+0xcc`, W) | `W / 990 × 1000` | 1.01 kcal per kJ, i.e. ~24 % efficiency |
+| heart rate (`+0xa8`, bpm) | Keytel et al. 2005: male (`+0x54 != 0`) `(-55.0969 + 0.6309·HR + 0.1988·kg + 0.2017·age) / 4.186` kcal/min, female `(-20.4022 + 0.4472·HR + 0.1263·kg + 0.074·age) / 4.186`; `× 1000 / 60`; negative → 0 | age = byte `+0x55` of the profile, weight = `_DAT_3c768940`; **the vendor adds the female weight term, the paper subtracts it** |
+| neither | `MET × kg / 3600 × 1000` with speed (m/s × 3.6) → MET: 0 when standing, 4.2 < 16 km/h, 6.3 < 19.2, 8.4 < 22.4, 10.5 < 25.6, 12.6 < 30.6, 14.7 < 32, 16.8 above | multiples of 2.1 rather than the Compendium's 4.0/6.8/8.0/10/12/15.8 |
+
+Our `main/health.c` uses the same three sources (with the paper's sign for
+women). The zone UI strings (`HR Zones`, `Power Zones`, `%MAX HR`, `%LTHR`,
+`Active Recovery` … `Anaerobic Capacity`) show the vendor keeps max HR,
+LTHR and FTP in the profile synced from the app; the zone boundaries were
+not chased — ours are Garmin's %max-HR (50/60/70/80/90), %LTHR
+(68/85/90/95/100) and Coggan's %FTP (55/75/90/105/120/150) defaults.
+
 ---
 
 # Magene C706 (second target)

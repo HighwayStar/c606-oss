@@ -13,6 +13,7 @@
 #include "utc.h"
 #include "sun.h"
 #include "route.h"
+#include "health.h"
 
 static char s_name[FIELD_COUNT][24];
 static uint8_t s_batt_pct;
@@ -38,12 +39,23 @@ static const struct { field_id_t id; const char *name, *unit; } k_other[] = {
     { FIELD_PRELAP_TIME,  "PreLap Time",  "" },
     { FIELD_PRELAP_DIST,  "PreLap Dist",  "km" },
     { FIELD_ROUTE_LEFT,   "Route Left",   "km" },
+    { FIELD_CALORIES,     "Calories",     "kcal" },
+    { FIELD_KCAL_H,       "Cal Rate",     "kcal/h" },
+    { FIELD_HR_ZONE,      "HR Zone",      "" },
+    { FIELD_HR_PCT_MAX,   "%Max HR",      "%" },
+    { FIELD_HR_PCT_LTHR,  "%LTHR",        "%" },
+    { FIELD_ZONE_TIME,    "Zone Time",    "" },
+    { FIELD_PWR_ZONE,     "Power Zone",   "" },
+    { FIELD_PWR_PCT_FTP,  "%FTP",         "%" },
+    { FIELD_PWR_KG,       "Power/kg",     "W/kg" },
 };
 #define N_OTHER (sizeof k_other / sizeof k_other[0])
 
 /* chooser categories after the statistics */
 static const field_id_t k_cat_distance[] = { FIELD_DISTANCE, FIELD_LAP_DIST, FIELD_PRELAP_DIST, FIELD_ROUTE_LEFT };
 static const field_id_t k_cat_lap[]      = { FIELD_LAPS, FIELD_LAP_TIME, FIELD_LAP_SPEED, FIELD_PRELAP_TIME };
+static const field_id_t k_cat_health[]   = { FIELD_CALORIES, FIELD_KCAL_H, FIELD_HR_ZONE, FIELD_HR_PCT_MAX, FIELD_HR_PCT_LTHR,
+                                             FIELD_ZONE_TIME, FIELD_PWR_ZONE, FIELD_PWR_PCT_FTP, FIELD_PWR_KG };
 static const field_id_t k_cat_other[]    = { FIELD_TIME_OF_DAY, FIELD_SESSION_TIME, FIELD_BATTERY_PCT, FIELD_SATS, FIELD_HEADING, FIELD_SUNRISE, FIELD_SUNSET, FIELD_SUNSET_IN, FIELD_NONE };
 
 static int other_idx(field_id_t id)
@@ -195,6 +207,50 @@ void field_value(field_id_t id, char *buf, size_t n)
         else snprintf(buf, n, "--");
         break;
     }
+    case FIELD_CALORIES:    snprintf(buf, n, "%.0f", health_kcal()); break;
+    case FIELD_KCAL_H:
+        if (health_kcal_per_h() > 0) snprintf(buf, n, "%.0f", health_kcal_per_h());
+        else snprintf(buf, n, "--");
+        break;
+    case FIELD_HR_ZONE: {
+        int z = health_hr_zone_current();
+        if (z >= 0) snprintf(buf, n, "Z%d", z);
+        else snprintf(buf, n, "--");
+        break;
+    }
+    case FIELD_HR_PCT_MAX:
+    case FIELD_HR_PCT_LTHR: {
+        stat_values_t v;
+        stats_get(STAT_HR, &v);
+        int ref = id == FIELD_HR_PCT_MAX ? health_max_hr() : health_lthr();
+        if (v.valid && v.live && ref) snprintf(buf, n, "%d", (int)(v.cur * 100 / ref + 0.5f));
+        else snprintf(buf, n, "--");
+        break;
+    }
+    case FIELD_ZONE_TIME:
+        if (health_hr_zone_current() >= 0) fmt_hms(buf, n, health_zone_since_ms() / 1000);
+        else snprintf(buf, n, "--");
+        break;
+    case FIELD_PWR_ZONE: {
+        int z = health_pwr_zone_current();
+        if (z >= 0) snprintf(buf, n, "Z%d", z);
+        else snprintf(buf, n, "--");
+        break;
+    }
+    case FIELD_PWR_PCT_FTP: {
+        stat_values_t v;
+        stats_get(STAT_POWER, &v);
+        if (v.valid && v.live && health_pwr_zones_available()) snprintf(buf, n, "%d", (int)(v.cur * 100 / config_get()->ftp_w + 0.5f));
+        else snprintf(buf, n, "--");
+        break;
+    }
+    case FIELD_PWR_KG: {
+        stat_values_t v;
+        stats_get(STAT_POWER, &v);
+        if (v.valid && v.live && config_get()->weight_kg) snprintf(buf, n, "%.1f", v.cur / config_get()->weight_kg);
+        else snprintf(buf, n, "--");
+        break;
+    }
     default:
         buf[0] = 0;
         break;
@@ -205,7 +261,7 @@ void field_value(field_id_t id, char *buf, size_t n)
 
 int field_category_count(void)
 {
-    return STAT_COUNT + 3;
+    return STAT_COUNT + 4;
 }
 
 const char *field_category_name(int cat)
@@ -214,6 +270,7 @@ const char *field_category_name(int cat)
     switch (cat - STAT_COUNT) {
     case 0: return "Distance";
     case 1: return "Lap";
+    case 2: return "Health";
     default: return "Other";
     }
 }
@@ -230,6 +287,7 @@ int field_category_items(int cat, field_id_t *out, int max)
     switch (cat - STAT_COUNT) {
     case 0:  list = k_cat_distance; cnt = sizeof k_cat_distance; break;
     case 1:  list = k_cat_lap;      cnt = sizeof k_cat_lap; break;
+    case 2:  list = k_cat_health;   cnt = sizeof k_cat_health; break;
     default: list = k_cat_other;    cnt = sizeof k_cat_other; break;
     }
     for (int i = 0; i < cnt && n < max; i++) out[n++] = list[i];

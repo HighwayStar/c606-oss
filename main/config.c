@@ -14,9 +14,9 @@
 
 static const char *TAG = "config";
 #define CFG_MAGIC   0xC606
-#define CFG_VERSION 11
+#define CFG_VERSION 12
 /* keep k_len_by_version in config_load() in sync when appending fields */
-_Static_assert(sizeof(app_cfg_t) == 180, "app_cfg_t layout changed: add its size to k_len_by_version");
+_Static_assert(sizeof(app_cfg_t) == 188, "app_cfg_t layout changed: add its size to k_len_by_version");
 #define NVS_NS      "c606oss"
 #define NVS_KEY     "cfg"
 
@@ -24,6 +24,8 @@ static app_cfg_t s_cfg;
 static bool s_nvs_ok;
 
 app_cfg_t *config_get(void) { return &s_cfg; }
+
+static void profile_defaults(app_cfg_t *c);
 
 static void set_page(page_cfg_t *p, bool enabled, const char *layout, const field_id_t *fields, int n)
 {
@@ -43,6 +45,7 @@ void config_defaults(app_cfg_t *c)
     c->backlight = 70;
     c->auto_pause = 1;
     c->wheel_mm = 2105;
+    profile_defaults(c);
 
     static const field_id_t p1[] = {
         FIELD_TIME_OF_DAY, FIELD_STAT(STAT_SPEED, AGG_CUR), FIELD_STAT(STAT_SPEED, AGG_AVG),
@@ -75,6 +78,19 @@ void config_defaults(app_cfg_t *c)
     c->map_layers = 0xFFFFFFFF;
 }
 
+/* a plausible rider until the profile is filled in (as the vendor's app does) */
+static void profile_defaults(app_cfg_t *c)
+{
+    c->weight_kg = 75;
+    c->height_cm = 175;
+    c->birth_year = 1990;
+    c->sex = 0;
+    c->max_hr = 0;
+    c->lthr = 0;
+    c->hr_zone_mode = 0;
+    c->ftp_w = 0;
+}
+
 static void map_page_defaults(app_cfg_t *c)
 {
     app_cfg_t d;
@@ -91,6 +107,13 @@ static bool valid(const app_cfg_t *c)
     if (c->auto_pause > 1) return false;
     if (c->theme_auto > 1) return false;
     if (c->route_reverse > 1) return false;
+    if (c->weight_kg < CFG_WEIGHT_MIN_KG || c->weight_kg > CFG_WEIGHT_MAX_KG) return false;
+    if (c->height_cm < CFG_HEIGHT_MIN_CM || c->height_cm > CFG_HEIGHT_MAX_CM) return false;
+    if (c->birth_year < CFG_BIRTH_MIN || c->birth_year > CFG_BIRTH_MAX) return false;
+    if (c->sex > 1 || c->hr_zone_mode > 1) return false;
+    if (c->max_hr && (c->max_hr < CFG_HR_MIN || c->max_hr > CFG_HR_MAX)) return false;
+    if (c->lthr && (c->lthr < CFG_HR_MIN || c->lthr > CFG_HR_MAX)) return false;
+    if (c->ftp_w > CFG_FTP_MAX_W) return false;
     if (c->wheel_mm < CFG_WHEEL_MIN_MM || c->wheel_mm > CFG_WHEEL_MAX_MM) return false;
     if (c->nsensors > CFG_MAX_SENSORS) return false;
     if (c->route[sizeof c->route - 1] != 0) return false;
@@ -130,7 +153,7 @@ void config_load(void)
      * appended) but their length includes the tail padding of that version,
      * so the sizes are listed explicitly. The struct was zeroed before the
      * read; fill in the defaults of the fields the blob does not have. */
-    static const size_t k_len_by_version[] = { 0, 76, 78, 80, 82, 82, 118, 132, 136, 176, 180, 180 };
+    static const size_t k_len_by_version[] = { 0, 76, 78, 80, 82, 82, 118, 132, 136, 176, 180, 180, 188 };
     if (err == ESP_OK && tmp.magic == CFG_MAGIC && tmp.version >= 1 && tmp.version < CFG_VERSION
         && len == k_len_by_version[tmp.version]) {
         if (tmp.version < 2) tmp.theme = 0;
@@ -143,6 +166,7 @@ void config_load(void)
         if (tmp.version < 9) tmp.route[0] = 0;
         if (tmp.version < 10) tmp.theme_auto = 0;
         if (tmp.version < 11) tmp.route_reverse = 0;
+        if (tmp.version < 12) profile_defaults(&tmp);
         ESP_LOGI(TAG, "config upgraded from version %u", tmp.version);
         tmp.version = CFG_VERSION;
         len = sizeof tmp;

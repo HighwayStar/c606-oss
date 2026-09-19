@@ -42,6 +42,15 @@ typedef struct {
     char route[40];                     /* GPX file in /sdcard/c606oss/routes shown on the map, "" = none (version 9) */
     uint8_t theme_auto;                 /* light theme by day, dark after sunset (version 10) */
     uint8_t route_reverse;              /* ride the route from its end to its start (version 11) */
+    /* rider profile (version 12), see health.h */
+    uint8_t weight_kg;
+    uint8_t height_cm;
+    uint16_t birth_year;
+    uint8_t sex;                        /* 0 = male, 1 = female */
+    uint8_t max_hr;                     /* bpm, 0 = estimate from the age */
+    uint8_t lthr;                       /* lactate threshold HR, 0 = estimate from max HR */
+    uint8_t hr_zone_mode;               /* hr_zone_mode_t: zones as % of max HR or of LTHR */
+    uint16_t ftp_w;                     /* functional threshold power, 0 = unknown (no power zones) */
 } app_cfg_t;
 
 /* Page configs by index; CFG_PAGES = the map page. */
@@ -56,6 +65,16 @@ static inline page_cfg_t *config_page(app_cfg_t *c, int idx)
 /* Sensor list helpers; both save the config. */
 bool config_sensor_add(uint8_t dev_type, uint16_t dev_num, uint8_t trans_type);
 void config_sensor_remove(int idx);
+
+#define CFG_WEIGHT_MIN_KG 30
+#define CFG_WEIGHT_MAX_KG 200
+#define CFG_HEIGHT_MIN_CM 100
+#define CFG_HEIGHT_MAX_CM 230
+#define CFG_BIRTH_MIN     1920
+#define CFG_BIRTH_MAX     2020
+#define CFG_HR_MIN        100      /* max HR / LTHR when set by hand; 0 = auto */
+#define CFG_HR_MAX        230
+#define CFG_FTP_MAX_W     600
 
 #define CFG_LAP_STEP_M 500
 #define CFG_LAP_MAX_M  10000

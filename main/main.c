@@ -40,6 +40,7 @@
 #include "devcon.h"
 #include "ride.h"
 #include "trip.h"
+#include "health.h"
 #include "trail.h"
 #include "utc.h"
 #include "esp_system.h"
@@ -291,6 +292,7 @@ void app_main(void)
     ESP_ERROR_CHECK(lcd_init());
     touch_init();                        /* optional: logs and continues if absent */
     stats_init();
+    health_init();
     fields_init();
     config_load();                       /* NVS; defaults if nothing saved */
     sun_init();                          /* last GPS position for sunrise / sunset */
@@ -349,6 +351,7 @@ void app_main(void)
         }
 
         ui_tick(now / 1000);
+        if (ride_recording()) health_tick();   /* calories, time in zones */
         tracklog_tick();                 /* one FIT record per second while riding */
 
         /* auto pause: wheel sensor speed if live, else GPS ground speed */

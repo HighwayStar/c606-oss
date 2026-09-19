@@ -555,6 +555,7 @@ void ui_show_summary(void)
         { "Max HR",      FIELD_STAT(STAT_HR, AGG_MAX) },
         { "Avg cadence", FIELD_STAT(STAT_CADENCE, AGG_AVG) },
         { "Avg power",   FIELD_STAT(STAT_POWER, AGG_AVG) },
+        { "Calories",    FIELD_CALORIES },
         { "Max altitude",FIELD_STAT(STAT_ALTITUDE, AGG_MAX) },
         { "Laps",        FIELD_LAPS },
     };
@@ -572,7 +573,7 @@ void ui_show_summary(void)
     lv_label_set_text(t, LV_SYMBOL_OK "  Ride summary");
     lv_obj_center(t);
 
-    const int row_h = 24, y0 = HDR_H + 6;
+    const int row_h = 22, y0 = HDR_H + 4;
     for (size_t i = 0; i < sizeof rows / sizeof rows[0]; i++) {
         int y = y0 + i * row_h;
         lv_obj_t *n = tlabel(s_summary, &lv_font_montserrat_14, &theme_st_muted);

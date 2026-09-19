@@ -4,6 +4,7 @@
 #include "tracklog.h"
 #include "trip.h"
 #include "trail.h"
+#include "health.h"
 #include "config.h"
 
 static const char *TAG = "ride";
@@ -41,6 +42,7 @@ void ride_start(void)
     stats_reset();
     trip_reset();
     trail_reset();
+    health_reset();
     if (tracklog_start() != ESP_OK) {
         ESP_LOGW(TAG, "no track file (SD?) - riding without recording");
     }

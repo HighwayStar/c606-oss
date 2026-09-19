@@ -28,6 +28,17 @@ This PoC replaces only the ESP32 application. It:
 * session statistics (current / min / max / avg) for every measured parameter —
   GPS speed and altitude, HR, cadence, sensor speed, power, temperature,
   pressure, battery,
+* **rider profile, calories and training zones** (`main/health.c`): weight,
+  height, year of birth, sex, max HR, LTHR and FTP in Settings → Profile;
+  calories are integrated every second of the ride from the best source —
+  power meter (1.01 kcal/kJ), else heart rate (Keytel et al. 2005), else
+  speed (MET table) — the same three-tier model as the vendor firmware
+  (see `docs/HARDWARE.md`); HR zones 1–5 as % of max HR or of LTHR, power
+  zones 1–7 as % of FTP; data fields *Calories*, *Cal Rate* (kcal/h), *HR
+  Zone*, *%Max HR*, *%LTHR*, *Zone Time*, *Power Zone*, *%FTP*, *Power/kg*;
+  a *Health* screen with BMI, BMR and the zone tables; the FIT file carries
+  `user_profile`, `zones_target`, `total_calories` and the time-in-zone
+  arrays per lap and session,
 * up to 5 user-configurable data pages, Bryton/Magene style: each page has
   one of 18 cell layouts ("fences" 1, 2, 3A … 12) and every cell shows one
   data field (Speed, Max Speed, Avg HR, Time of Day, …). Configured on the
@@ -198,7 +209,7 @@ with `esp32_image_parser.py dump_partition`.)
    recording and statistics stand still, the time excludes pauses) and resumes.
    Hold key 2 for the *End ride?* dialog: key 2 / *End* closes the track file
    and shows the ride summary (time, distance, avg/max speed, avg/max HR, avg
-   cadence and power, max altitude, laps); any key or *Done* returns to the
+   cadence and power, calories, max altitude, laps); any key or *Done* returns to the
    idle screen, anything else in the dialog cancels. The file only opens once
    the clock is known (nRF RTC, else the GPS date — after 20 s without either
    it records anyway, timestamped from 2000-01-01). With *Auto pause*
@@ -217,7 +228,13 @@ with `esp32_image_parser.py dump_partition`.)
    `none` on polar days; `--:--` until both a position and the clock are
    known — the position is saved in NVS whenever it moves ~10 km from the
    saved one, so it survives power cycles) and *Sunset in* (h:mm left until
-   today's sunset, `--` once the sun is down). Distance comes
+   today's sunset, `--` once the sun is down). The *Health* category has
+   *Calories* (kcal so far: from the power meter while it is live, else
+   from the HR strap, else from the speed — `main/health.c`), *Cal Rate*
+   (kcal/h over the session, after the first minute), *HR Zone* (`Z0`–`Z5`
+   of the live HR), *%Max HR*, *%LTHR*, *Zone Time* (how long the HR has
+   been in its current zone), *Power Zone* (`Z0`–`Z7`, needs an FTP),
+   *%FTP* and *Power/kg*. Distance comes
    from the ANT+ wheel sensor when it is live (revs × `ANT_WHEEL_CIRC_M`),
    otherwise from consecutive GPS fixes (moving faster than 2 km/h); a lap
    ends automatically every *Lap length*; key 1 ends the current lap by hand
@@ -233,6 +250,14 @@ with `esp32_image_parser.py dump_partition`.)
      or move the yellow frame with the keys and press key 0, then pick a
      category and a field). The last entry, *Map*, configures the map page
      the same way with the layouts *Map* / *M1* / *M2*.
+   * *Profile* → *Weight*, *Height*, *Year of birth* (+/− screens), *Sex*
+     (tap to toggle), *Max HR* and *LTHR* (`auto (184)` = estimated as
+     220 − age and 89 % of max HR; + from auto starts at the estimate),
+     *FTP* (5 W steps, off = no power zones), *HR zones by* (%Max HR /
+     %LTHR) and *Health*: age, BMI with its class, BMR (Mifflin-St Jeor),
+     the HR zone table in bpm and the power zone table in W. The defaults
+     (75 kg, 175 cm, 1990, male) are a placeholder — set yours, the calorie
+     count depends on them.
    * *Sensors* → *Wheel* (circumference in mm, +/− screen, hold to run) and
      the known ANT+ sensors with their state (`ok` / `searching` / `--`); tap
      one to *Forget* it, *Add sensor* runs a 30 s ANT scan and lists what it
@@ -385,6 +410,7 @@ main/tracklog.c    ride recorder: FIT activity file (records, laps, session)
 main/fit.c         minimal FIT encoder (definitions, data messages, CRC)
 main/utc.c         wall clock from the nRF RTC or the GPS date
 main/sun.c         sunrise / sunset for the last GPS position (NOAA solar equations)
+main/health.c      rider profile (BMI, BMR, max HR / LTHR estimates), calories, HR and power zones, time in zones
 main/ride.c        idle / riding / paused state machine
 main/mapfile.c     Mapsforge binary map reader (header, tile index, way decoding)
 main/mapview.c     map page: render task, rasteriser, canvas, zoom buttons, route and trail overlays

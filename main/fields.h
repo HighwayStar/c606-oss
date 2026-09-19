@@ -31,6 +31,16 @@ enum {
     FIELD_PRELAP_DIST,
     FIELD_SUNSET_IN,       /* h:mm until today's sunset */
     FIELD_ROUTE_LEFT,      /* km along the loaded GPX route to its end (route.c) */
+    /* health / training (health.c) */
+    FIELD_CALORIES,        /* kcal burnt this ride */
+    FIELD_KCAL_H,          /* kcal per hour over the session */
+    FIELD_HR_ZONE,         /* heart rate zone 0..5 of the live HR */
+    FIELD_HR_PCT_MAX,      /* live HR as % of max HR */
+    FIELD_HR_PCT_LTHR,     /* live HR as % of LTHR */
+    FIELD_ZONE_TIME,       /* time in the current HR zone */
+    FIELD_PWR_ZONE,        /* power zone 0..7 of the live power */
+    FIELD_PWR_PCT_FTP,     /* live power as % of FTP */
+    FIELD_PWR_KG,          /* live power per kg body weight */
     FIELD_COUNT
 };
 
@@ -51,7 +61,7 @@ void field_fmt_sun(bool rise, char *buf, size_t n);
 /* Data sources that are not statistics. */
 void fields_set_battery_pct(uint8_t pct);
 
-/* Chooser: categories = one per measured parameter + Distance, Lap, Other. */
+/* Chooser: categories = one per measured parameter + Distance, Lap, Health, Other. */
 int field_category_count(void);
 const char *field_category_name(int cat);
 int field_category_items(int cat, field_id_t *out, int max);
