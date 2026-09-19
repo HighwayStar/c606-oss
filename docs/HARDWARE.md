@@ -349,7 +349,13 @@ project, built May 30 2025), the full-flash backup
 Verified on a real C706 on 2026-09-19 (first boot of `BOARD=c706`): 8 MB
 octal PSRAM detected, panel and touch come up, nRF answers (fw 0.42.11,
 reason 4), RTC/battery frames arrive, eMMC (8 GB `MV3608`) mounts, all
-five keys report, GPS decodes after the module has woken up.
+five keys report, GPS decodes at 115200 after the module has woken up
+(the vendor parks it in RTC mode with `$PAIR650,0` and wakes it through the
+nRF `E2 02 07 .. 01`, which is what our boot sends — the first NMEA came
+~1 min after the flash), colours match the C606. This unit's `MAP/` holds
+only `.etu` files (`mars_china_*_t2_v1741050274.101.etu`, `bg_china_*.etu`)
+plus `map.key.101` (2048 bytes, probably their key) and `map.trans` — no
+plain Mapsforge `.map`, so the map page stays hidden until one is copied in.
 
 The two firmwares are the same code base (the C606 image even carries the
 5-key handling and the `_CommonKeyD/E` callbacks); only the hardware
