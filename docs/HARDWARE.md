@@ -503,7 +503,9 @@ applies.
 Source: vendor firmware **C606P V1.723** (`c606Pro_ota_0.elf`, built Sep 25
 2025; raw image `~/devel/magene/esp32_image_parser/ota_0_out.bin`, 0x73A000
 bytes = the C606 `ota_0` slot). Addresses refer to that image. **Not yet
-tried on hardware.** `BOARD=c606pro tools/build_podman.sh` →
+tried on a C606 Pro.** The related Geoid CC700 Pro has the same pins (read
+back live over JTAG) but the C606's panel init; it has its own profile
+(`BOARD=cc700pro`, see the README, *Geoid CC700 Pro*). `BOARD=c606pro tools/build_podman.sh` →
 `build-c606pro/c606pro_oss.bin`.
 
 A hybrid of the other two: the C606's shell and peripherals on the C706's
