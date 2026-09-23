@@ -14,7 +14,7 @@ static const char *TAG = "mapfile";
 
 #define MAGIC "mapsforge binary OSM"
 #define MAGIC_LEN 20
-#define HEADER_MAX 8192
+#define HEADER_MAX (64 * 1024)   /* berlin.map: 7.5 KB; the tag tables grow with the area */
 #define DEBUG_TILE_SIG 32
 #define DEBUG_INDEX_SIG 16
 #define DEBUG_WAY_SIG 32
@@ -207,14 +207,14 @@ static char *dup_str(pb_t *b)
     uint32_t n;
     const uint8_t *s = pb_str(b, &n);
     if (!s) return NULL;
-    char *d = malloc(n + 1);
+    char *d = scratch_alloc(n + 1);   /* hundreds per official map: keep them out of internal RAM */
     if (!d) { b->err = true; return NULL; }
     memcpy(d, s, n);
     d[n] = 0;
     return d;
 }
 
-static bool read_tag_table(pb_t *b, char **tags, uint8_t *count)
+static bool read_tag_table(pb_t *b, char ***tagsp, uint16_t *count)
 {
     uint16_t n = pb_u16(b);
     if (b->err) return false;
@@ -222,6 +222,8 @@ static bool read_tag_table(pb_t *b, char **tags, uint8_t *count)
         ESP_LOGE(TAG, "%u tags, max %u", n, MAPFILE_MAX_TAGS);
         return false;
     }
+    char **tags = *tagsp = calloc(n ? n : 1, sizeof *tags);
+    if (!tags) return false;
     for (uint16_t i = 0; i < n; i++) {
         tags[i] = dup_str(b);
         if (!tags[i]) return false;
@@ -239,23 +241,28 @@ esp_err_t mapfile_open(mapfile_t *mf, const char *path)
         return ESP_ERR_NOT_FOUND;
     }
 
-    uint8_t *hdr = malloc(HEADER_MAX);
+    uint8_t magic[MAGIC_LEN + 4];
+    if (fread(magic, 1, sizeof magic, mf->f) != sizeof magic || memcmp(magic, MAGIC, MAGIC_LEN) != 0) {
+        ESP_LOGW(TAG, "%s: not a mapsforge file", path);
+        mapfile_close(mf);
+        return ESP_ERR_INVALID_ARG;
+    }
+    pb_t m = { magic + MAGIC_LEN, magic + sizeof magic, false };
+    uint32_t header_size = pb_u32(&m);
+    if (header_size < 4 || header_size > HEADER_MAX) {
+        ESP_LOGW(TAG, "%s: header %lu bytes too big", path, (unsigned long)header_size);
+        mapfile_close(mf);
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t *hdr = scratch_alloc(header_size);   /* freed below */
     if (!hdr) { mapfile_close(mf); return ESP_ERR_NO_MEM; }
-    size_t got = fread(hdr, 1, HEADER_MAX, mf->f);
+    size_t got = fread(hdr, 1, header_size, mf->f);
     pb_t b = { hdr, hdr + got, false };
     esp_err_t err = ESP_ERR_INVALID_ARG;
-
-    if (got < MAGIC_LEN + 8 || memcmp(hdr, MAGIC, MAGIC_LEN) != 0) {
-        ESP_LOGW(TAG, "%s: not a mapsforge file", path);
+    if (got != header_size) {
+        ESP_LOGW(TAG, "%s: truncated header", path);
         goto out;
     }
-    b.p += MAGIC_LEN;
-    uint32_t header_size = pb_u32(&b);
-    if (header_size + MAGIC_LEN + 4 > got) {
-        ESP_LOGW(TAG, "%s: header %lu bytes too big", path, (unsigned long)header_size);
-        goto out;
-    }
-    b.end = hdr + MAGIC_LEN + 4 + header_size;
 
     uint32_t version = pb_u32(&b);
     if (version != 3 && version != 4 && version != 5) {
@@ -284,8 +291,8 @@ esp_err_t mapfile_open(mapfile_t *mf, const char *path)
     if (flags & 0x04) pb_str(&b, &n);                /* created by */
     if (b.err) goto corrupt;
 
-    if (!read_tag_table(&b, mf->poi_tags, &mf->n_poi_tags)) goto corrupt;
-    if (!read_tag_table(&b, mf->way_tags, &mf->n_way_tags)) goto corrupt;
+    if (!read_tag_table(&b, &mf->poi_tags, &mf->n_poi_tags)) goto corrupt;
+    if (!read_tag_table(&b, &mf->way_tags, &mf->n_way_tags)) goto corrupt;
 
     mf->n_zoom = pb_u8(&b);
     if (b.err || mf->n_zoom == 0 || mf->n_zoom > MAPFILE_MAX_ZOOM_INTERVALS) {
@@ -335,6 +342,8 @@ void mapfile_close(mapfile_t *mf)
     if (mf->f) fclose(mf->f);
     for (int i = 0; i < mf->n_poi_tags; i++) free(mf->poi_tags[i]);
     for (int i = 0; i < mf->n_way_tags; i++) free(mf->way_tags[i]);
+    free(mf->poi_tags);
+    free(mf->way_tags);
     free(mf->way_buf);
     free(mf->str_buf);
     free(mf->lat);
@@ -406,8 +415,9 @@ static esp_err_t parse_way(mapfile_t *mf, uint8_t *rec, size_t len, int32_t olat
         uint32_t id = pb_vu(&b);
         if (id >= mf->n_way_tags) { b.err = true; break; }
         w.tags[i] = id;
-        skip_tag_value(&b, mf->way_tags[id]);
     }
+    /* v5 values ("height=%b" ...) follow all the ids, in tag order (mapsforge ReadBuffer.readTags) */
+    for (int i = 0; i < w.tag_count && !b.err; i++) skip_tag_value(&b, mf->way_tags[w.tags[i]]);
     uint8_t flags = pb_u8(&b);
     if (b.err) return ESP_ERR_INVALID_SIZE;
     if (mf->filter && !mf->filter(w.tags, w.tag_count, mf->filter_ctx)) {
