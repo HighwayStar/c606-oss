@@ -15,7 +15,8 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 cp "$BIN" tools/flash_poc.py docs/FLASHING.md "$TMP"
 {
-    echo "c606-oss $VER for the Magene $(echo "$BOARD" | tr a-z A-Z)"
+    case $BOARD in cc700*) VENDOR=Geoid ;; *) VENDOR=Magene ;; esac
+    echo "c606-oss $VER for the $VENDOR $(echo "$BOARD" | tr a-z A-Z)"
     echo "built:  $(date -u -r "$BIN" +%Y-%m-%dT%H:%MZ)"
     git log -1 --format='commit: %H (%ci)' 2>/dev/null || true
     echo "image:  $(stat -c %s "$BIN") bytes, sha256 $(sha256sum "$BIN" | cut -c1-64)"

@@ -11,14 +11,18 @@
  */
 #pragma once
 
+#ifndef BOARD_NAME
 #define BOARD_NAME           "C606 Pro"
+#endif
 
 /* ------------------------------------------------------------------ */
 /* Display: ST7789, 240x320, Intel-8080 **8-bit** bus (LCD_CAM)        */
 /* Source: MidLcdInit() @ 0x42033db4, mg_panel_st7789_init @ 0x42034324 */
 /* ------------------------------------------------------------------ */
 #define LCD_PANEL_ST7789     1
+#ifndef LCD_ST7789_INIT_PRO
 #define LCD_ST7789_INIT_PRO  1    /* the Pro's init table instead of the C606's */
+#endif
 #define LCD_H_RES            240
 #define LCD_V_RES            320
 

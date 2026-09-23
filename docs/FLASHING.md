@@ -1,8 +1,8 @@
-# Trying c606-oss on your Magene C606 / C706
+# Trying c606-oss on your Magene C606 / C706 (or Geoid CC700 Pro)
 
 You get a zip with:
 
-* `c606_oss.bin` (or `c606pro_oss.bin` / `c706_oss.bin` — check that the
+* `c606_oss.bin` (or `c606pro_oss.bin` / `cc700pro_oss.bin` / `c706_oss.bin` — check that the
   image matches your device, they are not interchangeable) — the firmware image
 * `flash_poc.py` — flash / backup / restore helper (a thin wrapper around esptool)
 * `VERSION.txt` — which commit the image was built from

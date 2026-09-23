@@ -1,7 +1,7 @@
 #!/bin/sh
 # Build with the official ESP-IDF container (no host toolchain needed).
 #   tools/build_podman.sh                 -> idf.py build          (C606, build/)
-#   BOARD=c706 tools/build_podman.sh      -> C706 build in build-c706/ (also c606pro)
+#   BOARD=c706 tools/build_podman.sh      -> C706 build in build-c706/ (also c606pro, cc700pro)
 #   tools/build_podman.sh fullclean       -> any idf.py args
 set -e
 cd "$(dirname "$0")/.."

@@ -13,6 +13,8 @@ menu "c606-oss board"
             bool "Magene C606 (ST7789 240x320, 16-bit i80, 3 keys)"
         config C606OSS_BOARD_C606PRO
             bool "Magene C606 Pro (ST7789 240x320 on 8-bit i80, octal PSRAM, 3 keys)"
+        config C606OSS_BOARD_CC700PRO
+            bool "Geoid CC700 Pro (C606 Pro hardware, C606 panel init)"
         config C606OSS_BOARD_C706
             bool "Magene C706 (AXS15231 320x480, 8-bit i80, 5 keys)"
     endchoice

@@ -177,6 +177,15 @@ esp_err_t lcd_init(void)
     };
     ESP_RETURN_ON_ERROR(gpio_config(&rd), TAG, "rd gpio");
     gpio_set_level(LCD_PIN_RD, 1);
+#ifdef LCD_AUX_HIGH_MASK
+    gpio_config_t aux = {
+        .pin_bit_mask = LCD_AUX_HIGH_MASK,
+        .mode = GPIO_MODE_OUTPUT,
+    };
+    for (int i = 0; i < 64; i++)   /* level first: no low pulse when the output turns on */
+        if (LCD_AUX_HIGH_MASK & (1ULL << i)) gpio_set_level(i, 1);
+    ESP_RETURN_ON_ERROR(gpio_config(&aux), TAG, "aux gpio");
+#endif
 
     esp_lcd_i80_bus_config_t bus = {
         .dc_gpio_num = LCD_PIN_DC,
