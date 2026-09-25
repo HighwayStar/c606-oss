@@ -41,6 +41,7 @@
 #include "ride.h"
 #include "trip.h"
 #include "health.h"
+#include "shifting.h"
 #include "trail.h"
 #include "utc.h"
 #include "esp_system.h"
@@ -351,6 +352,7 @@ void app_main(void)
         }
 
         ui_tick(now / 1000);
+        shifting_tick();                 /* asks a Di2 for its gear counts */
         if (ride_recording()) health_tick();   /* calories, time in zones */
         tracklog_tick();                 /* one FIT record per second while riding */
 

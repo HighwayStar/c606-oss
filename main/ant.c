@@ -239,6 +239,9 @@ static void decode_page(uint8_t dev_type, const uint8_t *pg, uint32_t now)
         /* gears and shifter batteries live in their own module */
         shifting_page(pg);
         break;
+    case ANT_DEV_DI2:
+        shifting_di2_page(pg);
+        break;
     default:
         break;
     }

@@ -18,6 +18,8 @@
  *   nrf <type> <cmd> <hex bytes..>  send a raw frame to the nRF (e.g. "nrf 2 10 e2 02 07 00 00 01 00 00")
  *   shift <front> <rear> [ftot] [rtot]  feed a synthetic ANT+ shifting page (gears are 1-based,
  *                     0 = that end is absent; "shift off" forgets the drivetrain)
+ *   di2 <front> <rear> [batt%]      feed a synthetic Shimano Di2 page 0
+ *   di2 speeds <ftot> <rtot>        feed a synthetic Di2 page 0x11 (the gear counts)
  *   heap              print free heap
  * tools/devcon.py drives it from the host. */
 

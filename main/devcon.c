@@ -194,6 +194,22 @@ static void handle(char *cmd)
             shifting_page(pg);
         }
         printf("ok\n");
+    } else if (!strcmp(w, "di2")) {   /* synthetic Di2 page: di2 <front> <rear> [batt%] | di2 speeds <f> <r> */
+        char *a = strtok_r(NULL, " ", &save), *b = strtok_r(NULL, " ", &save);
+        char *c = strtok_r(NULL, " ", &save);
+        uint8_t pg[8] = { 0 };
+        if (a && b && !strcmp(a, "speeds")) {
+            pg[0] = 0x11;
+            pg[2] = atoi(b);
+            pg[3] = c ? atoi(c) : 0;
+            shifting_di2_page(pg);
+        } else if (a && b) {
+            pg[2] = atoi(a);
+            pg[3] = atoi(b);
+            pg[4] = c ? atoi(c) : 0;
+            shifting_di2_page(pg);
+        }
+        printf("ok\n");
     } else if (!strcmp(w, "shot")) {
         cmd_shot();
     } else if (!strcmp(w, "ls")) {

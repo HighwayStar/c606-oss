@@ -224,9 +224,39 @@ comes from a voltage curve of its own batteries; we show the voltage.
 Not implemented here: the proprietary pages the vendor requests with common
 page 70 (`FUN_421c0a0c` sends `46 FF FF FF FF 04 F5 01` for `0xF5`) - tooth
 counts per gear (`%s:Get chainrings=0x%x,cassette=0x%x`, `Front/Rear Teech
-Num Error`), shifter buttons (`0xF3`), shift modes and the Di2 pages of
-`ant_di2.c`. A Di2 D-Fly pairs as device type 128 but its gears need those
-private pages, so it shows no gear here.
+Num Error`), shifter buttons (`0xF3`) and shift modes.
+
+### Shimano Di2 (device type 128)
+
+A D-Fly transmitter uses Shimano's own pages, handled by `ant_di2.c`:
+dispatcher `FUN_421c19e4`, decoders `FUN_422bdb6c` (page 0), `FUN_422bdb8c`
+(page 0x0B) and `FUN_422bdbb0` (page 0x11), application handler
+`mg_di2_dis_evt_handler` @ `0x421bbd04`, profile object `0x3c6d529c`.
+Payload bytes (the decoders get `payload + 1` as well):
+
+| page | contents |
+|---|---|
+| `0x00` | `[2]` current front gear, `[3]` current rear gear (**1-based**, 0 = unknown), `[4]` system battery percentage |
+| `0x0B` | `[1..2]` chainring code, `[3..4]` cassette code (LE16 each), indices into the vendor's tooth tables at `0x3c67482c` (15 x 3) and `0x3c674730` (21 x 12) |
+| `0x11` | `[2]` number of front gears, `[3]` number of rear gears ("Front Speed" / "Rear Speed") |
+| `0x04` | shifter button events (channel, position, assignment) |
+| `0x0C` | shifter battery status, `0x50`/`0x51` manufacturer / product info |
+
+Page 0 is broadcast, the rest only arrives after a request: `ReqDi2SysInfo`
+(`FUN_421bc5c8`) sends the private page `80 08 FF 00 FF FF FF FF` and the
+Di2 tick (`FUN_421bc64c`) repeats it every ~10 s until the pages it wants
+(6..9, 0x0B, 0x0C, 0x11, flag mask 0x6F) have all been seen. The vendor
+validates the gear indices against 1..3 front and 1..13 rear.
+
+### Transmitting an ANT page through the nRF
+
+The path is `ant_*` module -> `FUN_421b88dc(dev_index, {dev_type, len, 8
+bytes})` -> per-device TX ring (block `0x3c6d4080 + index * 0x1c0`, ring at
+`+0x2c`) -> `FUN_421b7e68` pops it -> `FUN_421b92b0` -> `AntSendCmd`. The
+disassembly of `FUN_421b92b0` (the decompiler mangles the tail call) shows
+the arguments: **type 2, `cmd` = the ANT device type, payload = the 8 page
+bytes** - the same `cmd` byte incoming pages carry, so TX and RX are
+symmetric. `main/shifting.c` uses this for `ReqDi2SysInfo`.
 
 ### cmd 0x10 payloads (nRF -> ESP32)
 

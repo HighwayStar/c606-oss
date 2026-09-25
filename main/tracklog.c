@@ -531,8 +531,8 @@ static esp_err_t write_preamble(uint32_t ts)
     shifting_t gear;
     shifting_get(&gear);
     bike_profile_t bp = { .message_index = 0, .wheelsize = cfg->wheel_mm, .weight = cfg->bike_kg10 ? cfg->bike_kg10 : FIT_INV_U16,
-                          .front_gear_num = gear.front_valid ? gear.front_total : FIT_INV_U8Z,
-                          .rear_gear_num = gear.rear_valid ? gear.rear_total : FIT_INV_U8Z };
+                          .front_gear_num = gear.front_total,   /* 0 = FIT_INV_U8Z */
+                          .rear_gear_num = gear.rear_total };
     strncpy(bp.name, "Bike", sizeof bp.name - 1);
     if (err == ESP_OK) err = fit_write(&s_w, LOCAL_OTHER, &k_bike_profile, &bp, sizeof bp);
     if (route_loaded() && err == ESP_OK) {

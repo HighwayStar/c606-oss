@@ -264,11 +264,14 @@ void field_value(field_id_t id, char *buf, size_t n)
         shifting_get(&g);
         bool live = shifting_live();
         bool front = live && g.front_valid, rear = live && g.rear_valid;
+        /* the total is unknown until a Di2 has answered with its gear counts */
         if (id == FIELD_GEAR) {
-            if (rear) snprintf(buf, n, "%u/%u", g.rear, g.rear_total);
+            if (rear && g.rear_total) snprintf(buf, n, "%u/%u", g.rear, g.rear_total);
+            else if (rear) snprintf(buf, n, "%u/--", g.rear);
             else snprintf(buf, n, "--");
         } else if (id == FIELD_GEAR_FRONT) {
-            if (front) snprintf(buf, n, "%u/%u", g.front, g.front_total);
+            if (front && g.front_total) snprintf(buf, n, "%u/%u", g.front, g.front_total);
+            else if (front) snprintf(buf, n, "%u/--", g.front);
             else snprintf(buf, n, "--");
         } else if (front && rear) {
             snprintf(buf, n, "%ux%u", g.front, g.rear);
@@ -282,7 +285,8 @@ void field_value(field_id_t id, char *buf, size_t n)
     case FIELD_SHIFT_BATT: {
         shifting_t g;
         shifting_get(&g);
-        if (g.batt_valid && g.batt_v > 0) snprintf(buf, n, "%.1fV", g.batt_v);
+        if (g.batt_valid && g.batt_pct) snprintf(buf, n, "%u%%", g.batt_pct);     /* Di2 */
+        else if (g.batt_valid && g.batt_v > 0) snprintf(buf, n, "%.1fV", g.batt_v);
         else snprintf(buf, n, "%s", shifting_batt_text());
         break;
     }

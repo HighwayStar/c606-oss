@@ -42,12 +42,16 @@ This PoC replaces only the ESP32 application. It:
   `user_profile`, `zones_target`, `total_calories` and the time-in-zone
   arrays per lap and session,
 * **electronic shifting** (`main/shifting.c`): an ANT+ shifting sensor
-  (device type 34 - SRAM AXS / eTap, Magene QED, Shimano in ANT+ mode) is
-  paired like any other sensor and gives the *Gear* (`3/13`, current of
-  total), *Front Gear*, *Gear Combo* and *Shift Batt* data fields; every
-  shift is written to the FIT file as a standard `front_gear_change` /
-  `rear_gear_change` event and the drivetrain's gear counts go into
-  `bike_profile`, so Garmin Connect and friends show the gear timeline,
+  (device type 34 - SRAM AXS / eTap, Magene QED, Shimano in ANT+ mode) or a
+  Shimano **Di2** D-Fly (device type 128, its own pages) is paired like any
+  other sensor and gives the *Gear* (`3/13`, current of total), *Front
+  Gear*, *Gear Combo* and *Shift Batt* data fields; a Di2 is asked for its
+  gear counts the way the vendor does it (the private page
+  `80 08 FF 00 FF FF FF FF` every 10 s until it answers), and until it
+  answers the total shows as `--`; every shift is written to the FIT file as
+  a standard `front_gear_change` / `rear_gear_change` event and the
+  drivetrain's gear counts go into `bike_profile`, so Garmin Connect and
+  friends show the gear timeline,
 * up to 5 user-configurable data pages, Bryton/Magene style: each page has
   one of 18 cell layouts ("fences" 1, 2, 3A … 12) and every cell shows one
   data field (Speed, Max Speed, Avg HR, Time of Day, …). Configured on the
@@ -321,8 +325,8 @@ with `esp32_image_parser.py dump_partition`.)
    *%FTP* and *Power/kg*. The *Gears* category has *Gear* (the rear gear as
    `3/13` - which gear of how many), *Front Gear* (`1/2`), *Gear Combo*
    (`2x11`, the front and rear positions; just the rear gear on a 1x
-   drivetrain) and *Shift Batt* (the group's lowest battery voltage, or its
-   ANT+ status word when the sensor reports no voltage); all show `--`
+   drivetrain) and *Shift Batt* (a Di2's battery percentage, else the
+   group's lowest battery voltage, else its ANT+ status word); all show `--`
    without a shifting sensor or 10 s after its last page. Distance comes
    from the ANT+ wheel sensor when it is live (revs × `ANT_WHEEL_CIRC_M`),
    otherwise from consecutive GPS fixes (moving faster than 2 km/h); a lap
@@ -440,7 +444,8 @@ card (e.g. a route), `... mv a b` renames a file on the card, `... pos 55.03 82.
 the map page on a position without a GPS fix (`pos` alone: back to the GPS),
 `... zoom 13` sets the map zoom, `... shift 2 3 2 11` feeds a synthetic ANT+
 shifting page (front gear 2 of 2, rear 3 of 11; `shift off` forgets the
-drivetrain), `... sim 55.03 82.92 45 30 60` simulates a
+drivetrain), `... di2 2 3 65` and `... di2 speeds 2 11` do the same for the
+Di2 pages, `... sim 55.03 82.92 45 30 60` simulates a
 GPS receiver riding from that position on heading 45° at 30 km/h for 60 s
 (real RMC/GGA sentences through the real parser; `... nmea off` hands the
 GPS back to the receiver), and `... script "key 0 1" "sleep 0.5" "shot
@@ -494,7 +499,7 @@ main/config.c      page configuration + settings, persisted in NVS
 main/menu.c        settings menu (pages, layout picker, field editor, ...)
 main/theme.c       dark / light colour theme (shared styles)
 main/stats.c       session statistics (min/max/time-weighted avg, staleness)
-main/shifting.c    ANT+ shifting: current gear, gear counts, shifter battery
+main/shifting.c    electronic shifting (ANT+ profile and Shimano Di2): gear, gear counts, battery
 main/devcon.c      developer console: key/tap injection, screenshots, file transfer
 tools/devcon.py    host side of the developer console
 main/backlight.c   LEDC PWM
