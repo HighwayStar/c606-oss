@@ -14,6 +14,8 @@
 #include "board_c706.h"
 #elif CONFIG_C606OSS_BOARD_C606PRO
 #include "board_c606pro.h"
+#elif CONFIG_C606OSS_BOARD_CC700PRO
+#include "board_cc700pro.h"
 #else
 #include "board_c606.h"
 #endif

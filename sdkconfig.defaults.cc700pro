@@ -1,0 +1,7 @@
+# Geoid CC700 Pro on top of sdkconfig.defaults (later files win): the C606
+# Pro's 16 MB flash and 8 MB octal PSRAM. The vendor partition table differs
+# (ota_0 0x7D0000 bytes); flash_poc.py reads it from the device.
+CONFIG_C606OSS_BOARD_CC700PRO=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_TINYUSB_DESC_PRODUCT_STRING="CC700 Pro eMMC"

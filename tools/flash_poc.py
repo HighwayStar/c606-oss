@@ -19,7 +19,7 @@ Requires esptool (comes with ESP-IDF: run inside `. export.sh`).
 """
 import argparse, os, struct, subprocess, sys, tempfile, time
 
-BOARDS = ("c606", "c606pro", "c706")
+BOARDS = ("c606", "c606pro", "cc700pro", "c706")
 
 def default_app(board=None):
     """<board>_oss.bin next to this script (release zip) or in the source tree's
