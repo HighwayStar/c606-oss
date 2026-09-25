@@ -26,6 +26,7 @@
 #include "sun.h"
 #include "route.h"
 #include "nrf_link.h"
+#include "shifting.h"
 
 static const char *TAG = "devcon";
 
@@ -179,6 +180,20 @@ static void handle(char *cmd)
         while (n < (int)sizeof pl && (h = strtok_r(NULL, " ", &save))) pl[n++] = strtol(h, NULL, 16);
         if (a && b) printf(nrf_link_send(strtol(a, NULL, 0), strtol(b, NULL, 16), pl, n) == ESP_OK ? "ok\n" : "nrf failed\n");
         else printf("nrf failed\n");
+    } else if (!strcmp(w, "shift")) { /* synthetic ANT+ shifting page: shift <front> <rear> [ftot] [rtot] */
+        char *a = strtok_r(NULL, " ", &save), *b = strtok_r(NULL, " ", &save);
+        char *c = strtok_r(NULL, " ", &save), *d = strtok_r(NULL, " ", &save);
+        if (a && !strcmp(a, "off")) {
+            shifting_reset();
+        } else if (a && b) {
+            int front = atoi(a), rear = atoi(b);
+            int ftot = c ? atoi(c) : front, rtot = d ? atoi(d) : rear;
+            uint8_t pg[8] = { 0x01, 0, 0xFF, 0, 0, 0xFF, 0xFF, 0xFF };
+            pg[3] = ((front > 0 ? (front - 1) & 7 : 0x07) << 5) | ((rear > 0 ? rear - 1 : 0x1F) & 0x1F);
+            pg[4] = (((front > 0 ? ftot : 0) & 7) << 5) | ((rear > 0 ? rtot : 0) & 0x1F);
+            shifting_page(pg);
+        }
+        printf("ok\n");
     } else if (!strcmp(w, "shot")) {
         cmd_shot();
     } else if (!strcmp(w, "ls")) {

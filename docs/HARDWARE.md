@@ -180,6 +180,54 @@ Pitfalls found on hardware:
 * Decoded live: HR page 4 (72-85 bpm), cadence 122 (26 rpm from slow crank
   turns via event-time/rev deltas); speed 123 uses the same math.
 
+### Electronic shifting (ANT+ device type 34)
+
+The vendor keeps two modules under `Modules/Middlewares/MidAntDeviceManage`:
+`ant_shft/ant_shft.c` for the ANT+ shifting profile (device type 34, used by
+SRAM AXS / eTap, Magene QED and Shimano in its ANT+ mode) and `ant_di2/ant_di2.c`
+for Shimano's private Di2 stream (type 128, "DI2-%d-%d" in scan results).
+Both follow the Nordic ANT+ library shape: a `..._disp_init(p_profile,
+evt_handler)` fills a profile object, the library's dispatcher decodes the
+raw page into the profile and then calls the application handler with the
+page number.
+
+C606 V1.711: dispatcher `FUN_421c2594`, page-1 decoder `FUN_422bddcc`,
+application handler `mg_shft_dis_evt_handler` @ `0x421bfba4` (undefined in
+Ghidra until a function is created at the `entry` there), profile object
+`0x3c6d5650`, init `ant_shft_disp_init` @ `0x421c24bc` from `FUN_421c09dc`.
+The C706 V1.729 image has the same code: `FUN_42205110` / `FUN_42348f04`.
+
+Data page 1 ("shift system status"), the only one needed for the gear
+display, as the vendor decodes it (`FUN_422bddcc` gets `payload + 1`):
+
+| byte | contents |
+|---|---|
+| 0 | page number `0x01` (no toggle-bit masking in this profile - pages `0xF0`..`0xF5` exist) |
+| 1 | shift / event count (kept by the vendor, never used) |
+| 3 | bits 0-4 current **rear** gear, bits 5-7 current **front** gear, both 0-based; all-ones (`0x1F` / `0x7`) = invalid |
+| 4 | bits 0-4 **total** rear gears, bits 5-7 **total** front gears |
+
+A gear only counts as known when the total is non-zero and not smaller than
+the raw index; the vendor then displays `index + 1` of the total
+("Gear:%d/%d", plus `GEARS`, `FRONT GEAR`, `REAR GEAR`, `GEAR RATIO`,
+`GEAR COMBO`, `SHIFTING BATT` data fields and the `COMP_ID_SHIFT_GEAR_CHART_*`
+widgets). `main/shifting.c` does exactly this.
+
+Batteries come from ANT+ common page 82 (`0x52`, decoder `FUN_421c26c8`):
+`[2]` low nibble = number of batteries, high nibble = battery identifier
+(the vendor keeps derailleurs and shifters apart by it), `[3..5]` cumulative
+operating time (16 s units, 2 s when bit 7 of `[7]` is set), `[6]` fractional
+voltage in 1/256 V, `[7]` bits 0-3 coarse voltage (`0x0F` = none), bits 4-6
+status (1 new, 2 good, 3 ok, 4 low, 5 critical). The vendor's percentage
+comes from a voltage curve of its own batteries; we show the voltage.
+
+Not implemented here: the proprietary pages the vendor requests with common
+page 70 (`FUN_421c0a0c` sends `46 FF FF FF FF 04 F5 01` for `0xF5`) - tooth
+counts per gear (`%s:Get chainrings=0x%x,cassette=0x%x`, `Front/Rear Teech
+Num Error`), shifter buttons (`0xF3`), shift modes and the Di2 pages of
+`ant_di2.c`. A Di2 D-Fly pairs as device type 128 but its gears need those
+private pages, so it shows no gear here.
+
 ### cmd 0x10 payloads (nRF -> ESP32)
 
 | payload[0] | meaning |

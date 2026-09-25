@@ -16,6 +16,8 @@
  *   zoom <z>          map zoom level (10..17)
  *   nmea <sentence>   feed a NMEA sentence to the GPS parser (the receiver is muted until "nmea off")
  *   nrf <type> <cmd> <hex bytes..>  send a raw frame to the nRF (e.g. "nrf 2 10 e2 02 07 00 00 01 00 00")
+ *   shift <front> <rear> [ftot] [rtot]  feed a synthetic ANT+ shifting page (gears are 1-based,
+ *                     0 = that end is absent; "shift off" forgets the drivetrain)
  *   heap              print free heap
  * tools/devcon.py drives it from the host. */
 

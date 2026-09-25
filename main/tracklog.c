@@ -37,6 +37,7 @@
 #include "config.h"
 #include "health.h"
 #include "route.h"
+#include "shifting.h"
 #include "board.h"
 
 static const char *TAG = "track";
@@ -76,6 +77,9 @@ static const char *TAG = "track";
 #define MOVING_MIN_MS          0.5f /* speed above which a record counts as moving, m/s */
 #define GRADE_MIN_DIST_M       30.0f/* base line for the slope */
 #define GRADE_WINDOW           10   /* records */
+#define EVENT_FRONT_GEAR_CHANGE 42
+#define EVENT_REAR_GEAR_CHANGE  43
+#define EVT_MARKER             3
 #define SOURCE_ANTPLUS         1
 #define SOURCE_LOCAL           5
 #define DEVICE_INDEX_CREATOR   0
@@ -113,6 +117,19 @@ static const fit_field_t k_event_f[] = {
 };
 static const fit_mesg_t k_event = { 21, 4, k_event_f };
 typedef struct PACKED { uint32_t timestamp; uint8_t event, event_type, event_group; } event_t;
+
+/* gear change: the event message with its `data` field, whose gear_change_data
+ * subfield packs rear_gear_num | rear_gear<<8 | front_gear_num<<16 | front_gear<<24
+ * (the two "gear" bytes are tooth counts, which an ANT+ shifting sensor does
+ * not report - left uint8z-invalid) */
+static const fit_field_t k_gear_event_f[] = {
+    { 253, 4, FIT_UINT32 }, { 0, 1, FIT_ENUM }, { 1, 1, FIT_ENUM }, { 3, 4, FIT_UINT32 },
+    { 4, 1, FIT_UINT8 },
+};
+static const fit_mesg_t k_gear_event = { 21, 5, k_gear_event_f };
+typedef struct PACKED {
+    uint32_t timestamp; uint8_t event, event_type; uint32_t data; uint8_t event_group;
+} gear_event_t;
 
 static const fit_field_t k_record_f[] = {
     { 253, 4, FIT_UINT32 }, { 0, 4, FIT_SINT32 }, { 1, 4, FIT_SINT32 }, { 5, 4, FIT_UINT32 },
@@ -199,9 +216,13 @@ typedef struct PACKED { uint8_t sport, sub_sport; char name[16]; } sport_t;
 
 static const fit_field_t k_bike_profile_f[] = {
     { 254, 2, FIT_UINT16 }, { 0, 16, FIT_STRING }, { 8, 2, FIT_UINT16 }, { 10, 2, FIT_UINT16 },
+    { 38, 1, FIT_UINT8Z }, { 40, 1, FIT_UINT8Z },
 };
-static const fit_mesg_t k_bike_profile = { 6, 4, k_bike_profile_f };
-typedef struct PACKED { uint16_t message_index; char name[16]; uint16_t wheelsize, weight; } bike_profile_t;
+static const fit_mesg_t k_bike_profile = { 6, 6, k_bike_profile_f };
+typedef struct PACKED {
+    uint16_t message_index; char name[16]; uint16_t wheelsize, weight;
+    uint8_t front_gear_num, rear_gear_num;
+} bike_profile_t;
 
 static const fit_field_t k_course_f[] = { { 4, 1, FIT_ENUM }, { 5, 40, FIT_STRING }, { 6, 4, FIT_UINT32Z }, { 7, 1, FIT_ENUM } };
 static const fit_mesg_t k_course = { 31, 4, k_course_f };
@@ -431,6 +452,28 @@ static esp_err_t write_event(uint32_t ts, uint8_t event_type)
     return fit_write(&s_w, LOCAL_OTHER, &k_event, &e, sizeof e);
 }
 
+/* One gear change as a FIT event. The gear numbers are 1-based, 1 =
+ * innermost, which is what the profile asks for; 0 is the uint8z "unknown". */
+static esp_err_t write_gear_event(uint32_t ts, uint8_t event, const shift_change_t *c)
+{
+    uint32_t data = (uint32_t)(c->rear_valid ? c->rear : 0)
+                  | (uint32_t)(c->front_valid ? c->front : 0) << 16;
+    gear_event_t e = { .timestamp = ts, .event = event, .event_type = EVT_MARKER,
+                       .data = data, .event_group = 0 };
+    return fit_write(&s_w, LOCAL_OTHER, &k_gear_event, &e, sizeof e);
+}
+
+/* Writes every shift that shifting.c queued since the last call. Several
+ * shifts inside one second share the timestamp but keep their order. */
+static void write_gear_changes(uint32_t ts)
+{
+    shift_change_t c;
+    while (shifting_next_change(&c)) {
+        if (c.rear_changed) write_gear_event(ts, EVENT_REAR_GEAR_CHANGE, &c);
+        if (c.front_changed) write_gear_event(ts, EVENT_FRONT_GEAR_CHANGE, &c);
+    }
+}
+
 static esp_err_t write_preamble(uint32_t ts)
 {
     file_id_t id = {
@@ -485,7 +528,11 @@ static esp_err_t write_preamble(uint32_t ts)
     sport_t sp = { .sport = SPORT_CYCLING, .sub_sport = SUB_SPORT_GENERIC };
     strncpy(sp.name, "Ride", sizeof sp.name - 1);
     if (err == ESP_OK) err = fit_write(&s_w, LOCAL_OTHER, &k_sport, &sp, sizeof sp);
-    bike_profile_t bp = { .message_index = 0, .wheelsize = cfg->wheel_mm, .weight = cfg->bike_kg10 ? cfg->bike_kg10 : FIT_INV_U16 };
+    shifting_t gear;
+    shifting_get(&gear);
+    bike_profile_t bp = { .message_index = 0, .wheelsize = cfg->wheel_mm, .weight = cfg->bike_kg10 ? cfg->bike_kg10 : FIT_INV_U16,
+                          .front_gear_num = gear.front_valid ? gear.front_total : FIT_INV_U8Z,
+                          .rear_gear_num = gear.rear_valid ? gear.rear_total : FIT_INV_U8Z };
     strncpy(bp.name, "Bike", sizeof bp.name - 1);
     if (err == ESP_OK) err = fit_write(&s_w, LOCAL_OTHER, &k_bike_profile, &bp, sizeof bp);
     if (route_loaded() && err == ESP_OK) {
@@ -494,6 +541,15 @@ static esp_err_t write_preamble(uint32_t ts)
         err = fit_write(&s_w, LOCAL_OTHER, &k_course, &co, sizeof co);
     }
     if (err == ESP_OK) err = write_event(ts, EVT_START);
+    /* the gear the ride starts in, so the file does not begin with a gap */
+    if (err == ESP_OK && gear.valid) {
+        shift_change_t c = { .front_changed = gear.front_valid, .rear_changed = gear.rear_valid,
+                             .front_valid = gear.front_valid, .rear_valid = gear.rear_valid,
+                             .front = gear.front, .rear = gear.rear };
+        shifting_clear_changes();
+        if (c.rear_changed) err = write_gear_event(ts, EVENT_REAR_GEAR_CHANGE, &c);
+        if (c.front_changed && err == ESP_OK) err = write_gear_event(ts, EVENT_FRONT_GEAR_CHANGE, &c);
+    }
     return err;
 }
 
@@ -705,6 +761,7 @@ void tracklog_tick(void)
     if (s_w.f && !s_paused && ride_recording()) {
         uint32_t ts = ts_now();
         if (ts != s_last_ts) write_record(ts);
+        write_gear_changes(ts);
         if (trip_laps() > s_laps_written) {
             write_lap(ts, trip_prev_lap_manual() ? LAP_TRIG_MANUAL : LAP_TRIG_DISTANCE,
                       trip_prev_lap_time_ms(), trip_prev_lap_distance_m());

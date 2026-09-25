@@ -41,6 +41,11 @@ enum {
     FIELD_PWR_ZONE,        /* power zone 0..7 of the live power */
     FIELD_PWR_PCT_FTP,     /* live power as % of FTP */
     FIELD_PWR_KG,          /* live power per kg body weight */
+    /* electronic shifting (shifting.c) */
+    FIELD_GEAR,            /* rear gear as "3/13" (current of total) */
+    FIELD_GEAR_FRONT,      /* front gear as "1/2" */
+    FIELD_GEAR_COMBO,      /* both as "2x11" (front x rear position) */
+    FIELD_SHIFT_BATT,      /* shifting group battery: voltage, else its status */
     FIELD_COUNT
 };
 

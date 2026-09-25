@@ -16,6 +16,7 @@
 #include "board.h"
 #include "nrf_link.h"
 #include "ant.h"
+#include "shifting.h"
 
 static const char *TAG = "ant";
 
@@ -233,6 +234,10 @@ static void decode_page(uint8_t dev_type, const uint8_t *pg, uint32_t now)
             s_val.power_cadence = pg[3];
             s_val.power_w = pg[6] | (pg[7] << 8);
         }
+        break;
+    case ANT_DEV_SHIFTING:
+        /* gears and shifter batteries live in their own module */
+        shifting_page(pg);
         break;
     default:
         break;

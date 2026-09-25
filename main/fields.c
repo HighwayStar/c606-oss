@@ -14,6 +14,7 @@
 #include "sun.h"
 #include "route.h"
 #include "health.h"
+#include "shifting.h"
 
 static char s_name[FIELD_COUNT][24];
 static uint8_t s_batt_pct;
@@ -48,6 +49,10 @@ static const struct { field_id_t id; const char *name, *unit; } k_other[] = {
     { FIELD_PWR_ZONE,     "Power Zone",   "" },
     { FIELD_PWR_PCT_FTP,  "%FTP",         "%" },
     { FIELD_PWR_KG,       "Power/kg",     "W/kg" },
+    { FIELD_GEAR,         "Gear",         "" },
+    { FIELD_GEAR_FRONT,   "Front Gear",   "" },
+    { FIELD_GEAR_COMBO,   "Gear Combo",   "" },
+    { FIELD_SHIFT_BATT,   "Shift Batt",   "" },
 };
 #define N_OTHER (sizeof k_other / sizeof k_other[0])
 
@@ -56,6 +61,7 @@ static const field_id_t k_cat_distance[] = { FIELD_DISTANCE, FIELD_LAP_DIST, FIE
 static const field_id_t k_cat_lap[]      = { FIELD_LAPS, FIELD_LAP_TIME, FIELD_LAP_SPEED, FIELD_PRELAP_TIME };
 static const field_id_t k_cat_health[]   = { FIELD_CALORIES, FIELD_KCAL_H, FIELD_HR_ZONE, FIELD_HR_PCT_MAX, FIELD_HR_PCT_LTHR,
                                              FIELD_ZONE_TIME, FIELD_PWR_ZONE, FIELD_PWR_PCT_FTP, FIELD_PWR_KG };
+static const field_id_t k_cat_gears[]     = { FIELD_GEAR, FIELD_GEAR_FRONT, FIELD_GEAR_COMBO, FIELD_SHIFT_BATT };
 static const field_id_t k_cat_other[]    = { FIELD_TIME_OF_DAY, FIELD_SESSION_TIME, FIELD_BATTERY_PCT, FIELD_SATS, FIELD_HEADING, FIELD_SUNRISE, FIELD_SUNSET, FIELD_SUNSET_IN, FIELD_NONE };
 
 static int other_idx(field_id_t id)
@@ -251,6 +257,35 @@ void field_value(field_id_t id, char *buf, size_t n)
         else snprintf(buf, n, "--");
         break;
     }
+    case FIELD_GEAR:
+    case FIELD_GEAR_FRONT:
+    case FIELD_GEAR_COMBO: {
+        shifting_t g;
+        shifting_get(&g);
+        bool live = shifting_live();
+        bool front = live && g.front_valid, rear = live && g.rear_valid;
+        if (id == FIELD_GEAR) {
+            if (rear) snprintf(buf, n, "%u/%u", g.rear, g.rear_total);
+            else snprintf(buf, n, "--");
+        } else if (id == FIELD_GEAR_FRONT) {
+            if (front) snprintf(buf, n, "%u/%u", g.front, g.front_total);
+            else snprintf(buf, n, "--");
+        } else if (front && rear) {
+            snprintf(buf, n, "%ux%u", g.front, g.rear);
+        } else if (rear) {
+            snprintf(buf, n, "%u", g.rear);   /* 1x drivetrain: no front to show */
+        } else {
+            snprintf(buf, n, "--");
+        }
+        break;
+    }
+    case FIELD_SHIFT_BATT: {
+        shifting_t g;
+        shifting_get(&g);
+        if (g.batt_valid && g.batt_v > 0) snprintf(buf, n, "%.1fV", g.batt_v);
+        else snprintf(buf, n, "%s", shifting_batt_text());
+        break;
+    }
     default:
         buf[0] = 0;
         break;
@@ -261,7 +296,7 @@ void field_value(field_id_t id, char *buf, size_t n)
 
 int field_category_count(void)
 {
-    return STAT_COUNT + 4;
+    return STAT_COUNT + 5;
 }
 
 const char *field_category_name(int cat)
@@ -271,6 +306,7 @@ const char *field_category_name(int cat)
     case 0: return "Distance";
     case 1: return "Lap";
     case 2: return "Health";
+    case 3: return "Gears";
     default: return "Other";
     }
 }
@@ -288,6 +324,7 @@ int field_category_items(int cat, field_id_t *out, int max)
     case 0:  list = k_cat_distance; cnt = sizeof k_cat_distance; break;
     case 1:  list = k_cat_lap;      cnt = sizeof k_cat_lap; break;
     case 2:  list = k_cat_health;   cnt = sizeof k_cat_health; break;
+    case 3:  list = k_cat_gears;    cnt = sizeof k_cat_gears; break;
     default: list = k_cat_other;    cnt = sizeof k_cat_other; break;
     }
     for (int i = 0; i < cnt && n < max; i++) out[n++] = list[i];

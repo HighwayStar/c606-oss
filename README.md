@@ -41,6 +41,13 @@ This PoC replaces only the ESP32 application. It:
   a *Health* screen with BMI, BMR and the zone tables; the FIT file carries
   `user_profile`, `zones_target`, `total_calories` and the time-in-zone
   arrays per lap and session,
+* **electronic shifting** (`main/shifting.c`): an ANT+ shifting sensor
+  (device type 34 - SRAM AXS / eTap, Magene QED, Shimano in ANT+ mode) is
+  paired like any other sensor and gives the *Gear* (`3/13`, current of
+  total), *Front Gear*, *Gear Combo* and *Shift Batt* data fields; every
+  shift is written to the FIT file as a standard `front_gear_change` /
+  `rear_gear_change` event and the drivetrain's gear counts go into
+  `bike_profile`, so Garmin Connect and friends show the gear timeline,
 * up to 5 user-configurable data pages, Bryton/Magene style: each page has
   one of 18 cell layouts ("fences" 1, 2, 3A … 12) and every cell shows one
   data field (Speed, Max Speed, Avg HR, Time of Day, …). Configured on the
@@ -269,8 +276,10 @@ with `esp32_image_parser.py dump_partition`.)
    of the small encoder in `main/fit.c`: `file_id`, `file_creator`,
    `software`, `device_info` for the unit and the paired ANT+ sensors,
    `user_profile`, `zones_target`, `sport`, `bike_profile` (wheel size, bike
-   weight), a `course` naming the loaded route, timer start/stop events
-   around pauses, one `record` per second with position, altitude,
+   weight and, with an electronic shifting sensor, the number of front and
+   rear gears), a `course` naming the loaded route, timer start/stop events
+   around pauses, a `front_gear_change` / `rear_gear_change` event for the
+   starting gear and for every shift, one `record` per second with position, altitude,
    distance, speed — wheel sensor if live, else GPS —, HR, cadence, power,
    temperature, grade (slope over the last ≥ 30 m, barometric altitude when
    the nRF's pressure is live, else GPS) and the calories so far, a `lap`
@@ -309,7 +318,12 @@ with `esp32_image_parser.py dump_partition`.)
    (kcal/h over the session, after the first minute), *HR Zone* (`Z0`–`Z5`
    of the live HR), *%Max HR*, *%LTHR*, *Zone Time* (how long the HR has
    been in its current zone), *Power Zone* (`Z0`–`Z7`, needs an FTP),
-   *%FTP* and *Power/kg*. Distance comes
+   *%FTP* and *Power/kg*. The *Gears* category has *Gear* (the rear gear as
+   `3/13` - which gear of how many), *Front Gear* (`1/2`), *Gear Combo*
+   (`2x11`, the front and rear positions; just the rear gear on a 1x
+   drivetrain) and *Shift Batt* (the group's lowest battery voltage, or its
+   ANT+ status word when the sensor reports no voltage); all show `--`
+   without a shifting sensor or 10 s after its last page. Distance comes
    from the ANT+ wheel sensor when it is live (revs × `ANT_WHEEL_CIRC_M`),
    otherwise from consecutive GPS fixes (moving faster than 2 km/h); a lap
    ends automatically every *Lap length*; key 1 ends the current lap by hand
@@ -424,7 +438,9 @@ saves a screenshot, `... ls` lists the ride files and `... get
 mode), `... put local.gpx /sdcard/c606oss/routes/x.gpx` copies a file to the
 card (e.g. a route), `... mv a b` renames a file on the card, `... pos 55.03 82.92` centres
 the map page on a position without a GPS fix (`pos` alone: back to the GPS),
-`... zoom 13` sets the map zoom, `... sim 55.03 82.92 45 30 60` simulates a
+`... zoom 13` sets the map zoom, `... shift 2 3 2 11` feeds a synthetic ANT+
+shifting page (front gear 2 of 2, rear 3 of 11; `shift off` forgets the
+drivetrain), `... sim 55.03 82.92 45 30 60` simulates a
 GPS receiver riding from that position on heading 45° at 30 km/h for 60 s
 (real RMC/GGA sentences through the real parser; `... nmea off` hands the
 GPS back to the receiver), and `... script "key 0 1" "sleep 0.5" "shot
@@ -478,6 +494,7 @@ main/config.c      page configuration + settings, persisted in NVS
 main/menu.c        settings menu (pages, layout picker, field editor, ...)
 main/theme.c       dark / light colour theme (shared styles)
 main/stats.c       session statistics (min/max/time-weighted avg, staleness)
+main/shifting.c    ANT+ shifting: current gear, gear counts, shifter battery
 main/devcon.c      developer console: key/tap injection, screenshots, file transfer
 tools/devcon.py    host side of the developer console
 main/backlight.c   LEDC PWM
