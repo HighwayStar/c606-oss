@@ -528,3 +528,7 @@ main/main.c        glue: frame decoding -> UI, key actions, handshake
 tools/flash_poc.py flash/restore helper
 docs/HARDWARE.md   reverse-engineering notes with addresses
 ```
+
+## License
+
+GPL-3.0-or-later, see [LICENSE](LICENSE).
