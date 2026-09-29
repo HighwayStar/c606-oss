@@ -37,7 +37,8 @@ typedef struct {
     mapfile_t mf;
     bool gcj02;
     char name[48];
-    uint64_t tag_on;      /* bit per way tag id: drawn with the current layer mask */
+    bool *tag_on;         /* per way tag id (n_way_tags): drawn with the current layer mask */
+    bool untagged_on;     /* ways without tags ("Other") */
 } map_t;
 
 /* Layer groups the user can switch off (bit i of app_cfg_t::map_layers). */
@@ -218,25 +219,33 @@ static const style_t *style_for(const map_t *map, const mapfile_way_t *w)
     return &k_default_style;
 }
 
-/* Per map: which way tag ids the layer mask allows (the tag table is
- * small, so the lookup during a render is one bit test per tag). */
+/* Per map: which way tag ids the layer mask allows, looked up once per
+ * tag id so the filter during a render is one array read per tag. */
 static void map_apply_layers(map_t *map, uint32_t layers)
 {
-    map->tag_on = 0;
-    for (int i = 0; i < map->mf.n_way_tags && i < 64; i++) {
+    uint16_t n = map->mf.n_way_tags;
+    if (!map->tag_on) {
+        map->tag_on = calloc(n ? n : 1, sizeof *map->tag_on);
+        if (!map->tag_on) ESP_LOGW(TAG, "no memory for the layer table, drawing all layers");
+    }
+    map->untagged_on = false;
+    if (!map->tag_on) return;   /* way_filter lets everything through */
+    memset(map->tag_on, 0, n * sizeof *map->tag_on);
+    for (int i = 0; i < n; i++) {
         const style_t *st = style_for_tag(map->mf.way_tags[i]);
-        if (layers & (1u << st->layer)) map->tag_on |= (uint64_t)1 << i;
+        if (layers & (1u << st->layer)) map->tag_on[i] = true;
     }
 }
 
 /* mapfile filter: a way is drawn when any of its tags is enabled; ways
  * without tags count as "Other" */
-static bool way_filter(const uint8_t *tags, int ntags, void *ctx)
+static bool way_filter(const uint16_t *tags, int ntags, void *ctx)
 {
     const map_t *map = ctx;
-    if (!ntags) return map->tag_on & ((uint64_t)1 << 63);
+    if (!map->tag_on) return true;   /* layer table allocation failed */
+    if (!ntags) return map->untagged_on;
     for (int i = 0; i < ntags; i++) {
-        if (tags[i] < 64 && (map->tag_on & ((uint64_t)1 << tags[i]))) return true;
+        if (tags[i] < map->mf.n_way_tags && map->tag_on[tags[i]]) return true;
     }
     return false;
 }
@@ -297,7 +306,7 @@ static void draw_deferred(void)
 static int render_map(map_t *map, double lat, double lon, uint8_t zoom, uint32_t layers)
 {
     map_apply_layers(map, layers);
-    if (layers & (1u << L_OTHER)) map->tag_on |= (uint64_t)1 << 63;   /* untagged ways */
+    if (layers & (1u << L_OTHER)) map->untagged_on = true;
     map->mf.filter = way_filter;
     map->mf.filter_ctx = map;
     if (map->gcj02) wgs_to_gcj(lat, lon, &lat, &lon);
@@ -723,7 +732,11 @@ void mapview_close(void)
     s_visible = false;
     if (!s_mtx) return;
     xSemaphoreTake(s_mtx, portMAX_DELAY);   /* waits for a running render */
-    for (int i = 0; i < s_nmaps; i++) mapfile_close(&s_maps[i].mf);
+    for (int i = 0; i < s_nmaps; i++) {
+        mapfile_close(&s_maps[i].mf);
+        free(s_maps[i].tag_on);
+        s_maps[i].tag_on = NULL;
+    }
     s_nmaps = 0;
     xSemaphoreGive(s_mtx);
 }

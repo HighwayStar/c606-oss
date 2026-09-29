@@ -22,7 +22,7 @@
  * Ways larger than the buffer are skipped and counted in `skipped`. */
 
 #define MAPFILE_MAX_ZOOM_INTERVALS 4
-#define MAPFILE_MAX_TAGS           64
+#define MAPFILE_MAX_TAGS           1024   /* sanity limit; official Mapsforge v5 maps: ~90 POI / ~330 way tags */
 #define MAPFILE_WAY_BUF            8192   /* largest way record accepted, bytes */
 #define MAPFILE_MAX_POINTS         2048   /* per coordinate block */
 #define MAPFILE_STR_BUF            512    /* name + ref + house number of one way */
@@ -42,17 +42,17 @@ typedef struct {
     bool debug;                                    /* debug signatures present */
     uint8_t n_zoom;
     mapfile_zoom_interval_t zoom[MAPFILE_MAX_ZOOM_INTERVALS];
-    uint8_t n_way_tags;
-    char *way_tags[MAPFILE_MAX_TAGS];              /* "highway=primary" ... */
-    uint8_t n_poi_tags;
-    char *poi_tags[MAPFILE_MAX_TAGS];
+    uint16_t n_way_tags;
+    char **way_tags;                               /* "highway=primary" ..., n_way_tags entries */
+    uint16_t n_poi_tags;
+    char **poi_tags;
     /* scratch (allocated in open, PSRAM when available) */
     uint8_t *way_buf;
     char *str_buf;
     int32_t *lat, *lon;
     /* optional: return false to skip a way before its coordinates are
      * decoded (tags = indices into way_tags) */
-    bool (*filter)(const uint8_t *tags, int ntags, void *ctx);
+    bool (*filter)(const uint16_t *tags, int ntags, void *ctx);
     void *filter_ctx;
     /* statistics for the last mapfile_read_tile() */
     uint32_t ways, skipped, filtered;
@@ -60,7 +60,7 @@ typedef struct {
 
 typedef struct {
     uint8_t tag_count;
-    uint8_t tags[15];       /* indices into mapfile_t::way_tags */
+    uint16_t tags[15];      /* indices into mapfile_t::way_tags */
     int8_t layer;           /* OSM layer, -5..10 */
     const char *name;       /* NULL if absent; valid during the callback only */
     const char *ref;

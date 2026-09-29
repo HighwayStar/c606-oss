@@ -455,7 +455,10 @@ exercising the UI without touching the device.
 **Maps.** The map page lists `/sdcard/MAP/*.map` at boot (the vendor's
 Mapsforge files; the encrypted `.etu` files are ignored). Without a `.map`
 file the page is not in the key-0 ring. Vendor maps for other regions are
-produced with the mapsforge map-writer, so any Mapsforge v3 map works —
+produced with the mapsforge map-writer, so any Mapsforge v3-v5 map works,
+including the official ones from `download.mapsforge.org` (checked with
+`v5/europe/germany/berlin.map`; copy them to `MAP/` in USB storage mode;
+files must stay below 2 GiB, tile offsets go through a 32-bit `fseek`) —
 `tools/mapdump/` builds the same reader on the host (`build.sh`, then
 `mapdump file.map lat lon zoom out.ppm`) for checking a file without the
 device. File names containing "china" are treated as GCJ-02 (the fix is
