@@ -83,6 +83,11 @@
 #define SD_PIN_D1            17
 #define SD_PIN_D2            18
 #define SD_PIN_D3            15
+/* Bus clock asked for (the vendor uses the 20 MHz default); sdcard.c
+ * falls back to 20 MHz when the card does not mount at this speed. */
+#ifndef SD_FREQ_KHZ
+#define SD_FREQ_KHZ          40000
+#endif
 
 /* Touch: I2C0 SDA GPIO21 / SCL GPIO12, internal pull-ups, 400 kHz on both
  * boards (InitI2CBus / I2CManagerAddDev); the controller differs. */

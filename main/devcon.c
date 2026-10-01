@@ -10,10 +10,14 @@
 #include <stdlib.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp_timer.h"
+#include "esp_rom_crc.h"
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
 
@@ -94,6 +98,73 @@ static void cmd_ls(const char *path)
     }
     closedir(d);
     printf("LS_END\n");
+}
+
+/* Sequential read of the first `mb` MB through an 8 KB DMA-capable buffer
+ * (the map reader's path): throughput and a CRC32 to compare bus speeds. */
+static void cmd_sdbench(const char *path, int mb)
+{
+    uint8_t *buf = heap_caps_malloc(8192, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    int fd = open(path, O_RDONLY);
+    if (!buf || fd < 0) {
+        printf("sdbench failed\n");
+        free(buf);
+        if (fd >= 0) close(fd);
+        return;
+    }
+    uint32_t crc = 0, total = 0, want = (uint32_t)mb << 20;
+    int64_t t0 = esp_timer_get_time();
+    while (total < want) {
+        ssize_t n = read(fd, buf, 8192);
+        if (n <= 0) break;
+        crc = esp_rom_crc32_le(crc, buf, n);
+        total += n;
+    }
+    int64_t us = esp_timer_get_time() - t0;
+    close(fd);
+    free(buf);
+    printf("sdbench %lu bytes %lld ms %lu KB/s crc32 %08lx\n", (unsigned long)total, us / 1000,
+           (unsigned long)(us ? (uint64_t)total * 1000000 / 1024 / us : 0), (unsigned long)crc);
+}
+
+/* Writes `mb` MB of a pseudo-random pattern to `path`, reads it back,
+ * compares the CRC32s and deletes the file: write speed + integrity. */
+static void cmd_sdbench_write(const char *path, int mb)
+{
+    uint8_t *buf = heap_caps_malloc(8192, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    int fd = buf ? open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666) : -1;
+    if (fd < 0) {
+        printf("sdbench failed\n");
+        free(buf);
+        return;
+    }
+    uint32_t x = 0x12345678, crc_w = 0, total = 0, want = (uint32_t)mb << 20;
+    int64_t t0 = esp_timer_get_time();
+    while (total < want) {
+        for (int i = 0; i < 8192; i += 4) {   /* xorshift32 */
+            x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+            memcpy(buf + i, &x, 4);
+        }
+        crc_w = esp_rom_crc32_le(crc_w, buf, 8192);
+        if (write(fd, buf, 8192) != 8192) break;
+        total += 8192;
+    }
+    bool ok = close(fd) == 0 && total == want;
+    int64_t us_w = esp_timer_get_time() - t0;
+    uint32_t crc_r = 0, back = 0;
+    fd = open(path, O_RDONLY);
+    while (fd >= 0) {
+        ssize_t n = read(fd, buf, 8192);
+        if (n <= 0) break;
+        crc_r = esp_rom_crc32_le(crc_r, buf, n);
+        back += n;
+    }
+    if (fd >= 0) close(fd);
+    unlink(path);
+    free(buf);
+    printf("sdbench write %lu bytes %lld ms %lu KB/s, read back %lu bytes: %s\n", (unsigned long)total, us_w / 1000,
+           (unsigned long)(us_w ? (uint64_t)total * 1000000 / 1024 / us_w : 0), (unsigned long)back,
+           ok && back == total && crc_r == crc_w ? "OK" : "MISMATCH");
 }
 
 /* file transfer: "FILE <size>", hex rows prefixed with 'F', FILE_END */
@@ -265,6 +336,14 @@ static void handle(char *cmd)
         char *a = strtok_r(NULL, " ", &save), *b = strtok_r(NULL, " ", &save);
         if (a && b) cmd_put(a, atol(b));
         else printf("PUT_ERR usage\n");
+    } else if (!strcmp(w, "sdbench")) {   /* sdbench [w] <MB> <file, may contain spaces> */
+        char *a = strtok_r(NULL, " ", &save);
+        bool wr = a && !strcmp(a, "w");
+        if (wr) a = strtok_r(NULL, " ", &save);
+        char *b = strtok_r(NULL, "", &save);
+        if (a && b && wr) cmd_sdbench_write(b, atoi(a));
+        else if (a && b) cmd_sdbench(b, atoi(a));
+        else printf("sdbench failed\n");
     } else if (!strcmp(w, "heap")) {
         printf("heap int %u psram %u\n", (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));

@@ -1,7 +1,8 @@
 /* SD card on the SDMMC host, 4-bit, mounted at /sdcard.
- * Mirrors vendor MidVFSMount(): SDMMC_HOST_DEFAULT (slot 1, 20 MHz), custom
- * pins, internal pull-ups, 16 KB allocation unit. The vendor formats the card
- * on a failed mount; we never do. */
+ * Mirrors vendor MidVFSMount(): SDMMC_HOST_DEFAULT (slot 1), custom pins,
+ * internal pull-ups, 16 KB allocation unit, but at SD_FREQ_KHZ (40 MHz)
+ * instead of the vendor's 20 MHz, with 20 MHz as the fallback. The vendor
+ * formats the card on a failed mount; we never do. */
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
@@ -17,12 +18,13 @@
 static const char *TAG = "sd";
 static sdmmc_card_t *s_card;
 static sdcard_info_t s_info;
+static int s_freq_khz = SD_FREQ_KHZ;   /* lowered when the card fails at it */
 
 void sdcard_host_config(sdmmc_host_t *host, sdmmc_slot_config_t *slot)
 {
     sdmmc_host_t h = SDMMC_HOST_DEFAULT();
     h.slot = SDMMC_HOST_SLOT_1;
-    h.max_freq_khz = SDMMC_FREQ_DEFAULT;
+    h.max_freq_khz = s_freq_khz;
     *host = h;
 
     sdmmc_slot_config_t sc = SDMMC_SLOT_CONFIG_DEFAULT();
@@ -49,6 +51,13 @@ esp_err_t sdcard_mount(void)
         .allocation_unit_size = 16 * 1024,
     };
     esp_err_t err = esp_vfs_fat_sdmmc_mount(SD_MOUNT_POINT, &host, &slot, &mount, &s_card);
+    if (err != ESP_OK && s_freq_khz > SDMMC_FREQ_DEFAULT) {
+        ESP_LOGW(TAG, "mount at %d kHz failed (%s), retrying at %d kHz", s_freq_khz, esp_err_to_name(err),
+                 SDMMC_FREQ_DEFAULT);
+        s_freq_khz = SDMMC_FREQ_DEFAULT;
+        sdcard_host_config(&host, &slot);
+        err = esp_vfs_fat_sdmmc_mount(SD_MOUNT_POINT, &host, &slot, &mount, &s_card);
+    }
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "mount failed: %s", esp_err_to_name(err));
         return err;

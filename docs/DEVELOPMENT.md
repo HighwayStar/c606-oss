@@ -87,7 +87,9 @@ saves a screenshot, `... ls` lists the ride files and `... get
 mode), `... put local.gpx /sdcard/c606oss/routes/x.gpx` copies a file to the
 card (e.g. a route), `... mv a b` renames a file on the card, `... pos 55.03 82.92` centres
 the map page on a position without a GPS fix (`pos` alone: back to the GPS),
-`... zoom 13` sets the map zoom, `... layers 3ffff` sets the map layer mask
+`... sdbench 32 /sdcard/MAP/x.map` reads the first 32 MB of a file and prints
+the speed and CRC32 (`sdbench w 64 /sdcard/c606oss/bench.bin` writes, reads
+back, compares and deletes), `... zoom 13` sets the map zoom, `... layers 3ffff` sets the map layer mask
 (hex, bit = layer group in `mapview.c`, saved), `... theme light` / `dark`
 switches the theme until the next reboot or auto switch, `... shift 2 3 2 11` feeds a synthetic ANT+
 shifting page (front gear 2 of 2, rear 3 of 11; `shift off` forgets the

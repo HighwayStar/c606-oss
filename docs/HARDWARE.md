@@ -376,6 +376,10 @@ other hardware revisions.
   the vendor code). FAT with long names, mounted at `/sdcard`. Vendor directory tree:
   `System Volume Information/ FONT/ MAP/ BOOT/ SD/ APP/ GPS/ FITS/ COURSE/ NAVIGATION/ EPHEMERIS/ CONFIG/`
   (`FITS/` = ride recordings, `EPHEMERIS/` = AGNSS/EPO files for the GNSS, `MAP/` = map tiles).
+  The vendor runs the bus at the 20 MHz default; the eMMC takes 40 MHz high speed (`SD_FREQ_KHZ`
+  in `board.h`, `sdcard.c` retries at 20 MHz if the mount fails). On the C606, sequential reads
+  through an 8 KB internal buffer: 4.5 MB/s at 20 MHz, 6.9 MB/s at 40 MHz (256 MB read twice and
+  64 MB written + read back, CRC-identical; devcon `sdbench`). Writes ~2.1 MB/s.
   Full root as seen over USB: `ABNORMAL APP AUDIO BOOT CONFIG COURSE EPHEMERIS FITS FONT GPS
   GROUPRIDE LOG MAP ModuleDataTest NAVIGATION NOTIFY REGION SD SEGMENT SMART TMP USER WIFI`,
   plus `hello.txt` ("hello emmc!") and an empty `<date>.logg`.
