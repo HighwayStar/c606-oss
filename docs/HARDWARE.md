@@ -404,6 +404,9 @@ other hardware revisions.
     reference decoder on both files, `tools/mapdump/` on the host). Reading needs
     `CONFIG_FATFS_USE_FASTSEEK`: without the cluster link map every backward `fseek` in a 180 MB file
     walks the FAT chain (a 9-tile view took 2.4 s, 80 ms with it).
+    Tiles are read with plain `read()` into an 8 KB internal (DMA-capable) buffer, aligned to file
+    sectors: `fread()` reaches FatFS in 128-byte pieces (newlib's stdio buffer on ESP-IDF; one byte
+    at a time with `_IONBF`), which held the eMMC at ~1.2 MB/s — 214 KB took 172 ms, 42 ms now.
   The open firmware writes only under `/sdcard/c606oss/`. A copy of everything except
   `MAP/` and `FONT/` lives in `~/devel/magene/emmc/` (outside this repo).
 

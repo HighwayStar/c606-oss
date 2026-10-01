@@ -24,6 +24,9 @@
 #define MAPFILE_MAX_ZOOM_INTERVALS 4
 #define MAPFILE_MAX_TAGS           1024   /* sanity limit; official Mapsforge v5 maps: ~90 POI / ~330 way tags */
 #define MAPFILE_WAY_BUF            8192   /* largest way record accepted, bytes */
+#ifndef MAPFILE_IO_BUF
+#define MAPFILE_IO_BUF             8192   /* tile read buffer (internal RAM), multiple of 512 */
+#endif
 #define MAPFILE_MAX_POINTS         2048   /* per coordinate block */
 #define MAPFILE_STR_BUF            512    /* name + ref + house number of one way */
 
@@ -47,6 +50,7 @@ typedef struct {
     uint16_t n_poi_tags;
     char **poi_tags;
     /* scratch (allocated in open, PSRAM when available) */
+    uint8_t *io_buf;                               /* shared by all maps: read one map at a time */
     uint8_t *way_buf;
     char *str_buf;
     int32_t *lat, *lon;

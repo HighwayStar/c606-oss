@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <unistd.h>
 #include "esp_log.h"
 #ifdef ESP_PLATFORM
 #include "esp_heap_caps.h"
@@ -81,10 +82,16 @@ static const uint8_t *pb_str(pb_t *b, uint32_t *len)
 
 /* ---- buffered sequential file reader for one tile ---------------------- */
 
+/* Plain read() on the descriptor: newlib's stdio buffer on ESP-IDF is 128
+ * bytes, so fread() of a large block still reaches FatFS in 128-byte
+ * pieces (and byte by byte when unbuffered). */
+
 typedef struct {
-    FILE *f;
-    uint8_t buf[512];
+    int fd;
+    uint8_t *buf;        /* mapfile_t::io_buf */
+    unsigned cap;
     unsigned pos, len;
+    unsigned skew;       /* first read stops at a sector boundary of the file */
     uint64_t left;       /* bytes of the tile not yet loaded into buf */
     bool err;
 } rd_t;
@@ -92,9 +99,11 @@ typedef struct {
 static bool rd_fill(rd_t *r)
 {
     if (r->left == 0) return false;
-    size_t want = r->left < sizeof r->buf ? (size_t)r->left : sizeof r->buf;
-    size_t got = fread(r->buf, 1, want, r->f);
-    if (got == 0) { r->err = true; return false; }
+    size_t want = r->cap - r->skew;
+    r->skew = 0;
+    if (want > r->left) want = (size_t)r->left;
+    ssize_t got = read(r->fd, r->buf, want);
+    if (got <= 0) { r->err = true; return false; }
     r->left -= got;
     r->pos = 0;
     r->len = got;
@@ -192,6 +201,10 @@ static int32_t tile_origin_lon(uint32_t tx, uint8_t zoom)
 }
 
 /* ---- header ------------------------------------------------------------- */
+
+/* tile read buffer, shared by all open maps (reads are not concurrent) */
+static uint8_t *s_io_buf;
+static int s_io_users;
 
 static void *scratch_alloc(size_t n)
 {
@@ -315,11 +328,24 @@ esp_err_t mapfile_open(mapfile_t *mf, const char *path)
         z->th = ty1 - z->ty0 + 1;
     }
 
+    if (!s_io_buf) {
+        /* Tile reads: a DMA-capable buffer lets FatFS read whole sector
+         * runs straight into it (multi-sector transfers); PSRAM would be
+         * bounced through the driver one sector at a time. */
+#ifdef ESP_PLATFORM
+        s_io_buf = heap_caps_malloc(MAPFILE_IO_BUF, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+#endif
+        if (!s_io_buf) s_io_buf = scratch_alloc(MAPFILE_IO_BUF);
+    }
+    if (s_io_buf) {
+        s_io_users++;
+        mf->io_buf = s_io_buf;
+    }
     mf->way_buf = scratch_alloc(MAPFILE_WAY_BUF);
     mf->str_buf = scratch_alloc(MAPFILE_STR_BUF);
     mf->lat = scratch_alloc(MAPFILE_MAX_POINTS * sizeof(int32_t));
     mf->lon = scratch_alloc(MAPFILE_MAX_POINTS * sizeof(int32_t));
-    if (!mf->way_buf || !mf->str_buf || !mf->lat || !mf->lon) { err = ESP_ERR_NO_MEM; goto out; }
+    if (!mf->io_buf || !mf->way_buf || !mf->str_buf || !mf->lat || !mf->lon) { err = ESP_ERR_NO_MEM; goto out; }
 
     ESP_LOGI(TAG, "%s: v%lu, bbox %ld,%ld..%ld,%ld, %u way tags, %u intervals (base %u/%u/%u)%s",
              path, (unsigned long)version, (long)mf->min_lat, (long)mf->min_lon,
@@ -344,6 +370,10 @@ void mapfile_close(mapfile_t *mf)
     for (int i = 0; i < mf->n_way_tags; i++) free(mf->way_tags[i]);
     free(mf->poi_tags);
     free(mf->way_tags);
+    if (mf->io_buf && --s_io_users == 0) {
+        free(s_io_buf);
+        s_io_buf = NULL;
+    }
     free(mf->way_buf);
     free(mf->str_buf);
     free(mf->lat);
@@ -490,8 +520,9 @@ esp_err_t mapfile_read_base_tile(mapfile_t *mf, const mapfile_zoom_interval_t *z
 
     uint8_t e[2 * INDEX_ENTRY];
     size_t want = idx + 1 < n_tiles ? sizeof e : INDEX_ENTRY;
-    if (fseek(mf->f, (long)(index_start + (uint64_t)idx * INDEX_ENTRY), SEEK_SET) != 0 ||
-        fread(e, 1, want, mf->f) != want) {
+    int fd = fileno(mf->f);
+    if (lseek(fd, (off_t)(index_start + (uint64_t)idx * INDEX_ENTRY), SEEK_SET) < 0 ||
+        read(fd, e, want) != (ssize_t)want) {
         return ESP_FAIL;
     }
     uint64_t v = 0;
@@ -510,8 +541,9 @@ esp_err_t mapfile_read_base_tile(mapfile_t *mf, const mapfile_zoom_interval_t *z
     if (next <= off) return ESP_OK;              /* empty tile */
     if (next > z->size) return ESP_ERR_INVALID_SIZE;
 
-    rd_t r = { .f = mf->f, .left = next - off };
-    if (fseek(mf->f, (long)(z->start + off), SEEK_SET) != 0) return ESP_FAIL;
+    rd_t r = { .fd = fd, .buf = mf->io_buf, .cap = MAPFILE_IO_BUF, .left = next - off,
+               .skew = (unsigned)((z->start + off) % 512) };
+    if (lseek(fd, (off_t)(z->start + off), SEEK_SET) < 0) return ESP_FAIL;
 
     if (mf->debug) rd_bytes(&r, NULL, DEBUG_TILE_SIG);
     /* zoom table: POI and way counts per zoom level of the interval */

@@ -3,3 +3,7 @@ idf_component_register(
     INCLUDE_DIRS "."
     REQUIRES esp_lcd esp_driver_gpio esp_driver_ledc esp_driver_uart esp_timer esp_app_format fatfs sdmmc esp_driver_sdmmc vfs hal esp_driver_i2c json nvs_flash esp_driver_usb_serial_jtag
 )
+
+# The map reader and rasteriser are the hot loops of a map render: -O2 there
+# (the rest of the firmware stays -Os).
+set_source_files_properties(mapfile.c mapview.c PROPERTIES COMPILE_OPTIONS "-O2")
