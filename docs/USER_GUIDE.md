@@ -164,7 +164,23 @@ key 1 = down, key 0 = select; selecting the back arrow goes back):
   *Delete ride* removes the file after a confirmation.
 * *Reset statistics*.
 * *System* → *USB storage*, *Power off*, *Reset settings* (with a
-  confirmation: everything back to the firmware defaults), *About*.
+  confirmation: everything back to the firmware defaults), *Debug log*,
+  *About*.
+
+## Debug log
+
+Settings → System → Debug log (off by default) writes everything the
+firmware logs — what the USB console shows — to
+`/sdcard/c606oss/logs/log0001.txt`, `log0002.txt`, …: a new file on every
+boot and every 4 MB, the newest 10 are kept. Each file starts with the
+firmware version, board and the reason of the last reset (`PANIC`,
+`task watchdog`, `brownout` point at a crash before it), and a
+`[dbglog] <UTC time> = up <ms>` line once a minute translates the
+`I (12345)` uptime stamps into wall-clock time. Lines are buffered and
+written about once a second, so a crash loses at most the last second;
+the lines from boot until the card is mounted are kept too. To report a
+problem: switch it on, reproduce, then copy the newest log file off in
+USB storage mode.
 
 ## USB storage and power off
 

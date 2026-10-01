@@ -169,6 +169,7 @@ main/sdcard.c      eMMC mount (SDMMC 4-bit)
 main/tracklog.c    ride recorder: FIT activity file (records, laps, session)
 main/fit.c         minimal FIT encoder (definitions, data messages, CRC)
 main/utc.c         wall clock from the nRF RTC or the GPS date
+main/dbglog.c      debug log on the eMMC (System menu): log hook -> PSRAM ring -> c606oss/logs/logNNNN.txt
 main/sun.c         sunrise / sunset for the last GPS position (NOAA solar equations)
 main/health.c      rider profile (BMI, BMR, max HR / LTHR estimates), calories, HR and power zones, time in zones
 main/ride.c        idle / riding / paused state machine

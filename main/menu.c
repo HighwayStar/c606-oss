@@ -26,7 +26,7 @@
  *                         cadence, power, calories, climb, laps),
  *                         "Use as route" (the ride becomes the map's route), Delete
  *     Reset statistics
- *     System           -> USB storage, Power off, Reset settings (confirm), About
+ *     System           -> USB storage, Power off, Reset settings (confirm), Debug log (toggle), About
  *
  * Screens are stacked; each one is a full-screen object on the top layer
  * with a header (back arrow + title). List screens share one implementation
@@ -52,6 +52,7 @@
 #include "history.h"
 #include "ant.h"
 #include "health.h"
+#include "dbglog.h"
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -1093,7 +1094,13 @@ static void system_select(screen_t *s, int idx)
     case 0: cb = s_action_cb[MENU_ACTION_USB]; break;
     case 1: cb = s_action_cb[MENU_ACTION_POWER_OFF]; break;
     case 2: reset_confirm_open(); return;
-    case 3: about_open(); return;
+    case 3:
+        config_get()->debug_log = !config_get()->debug_log;
+        config_save();
+        dbglog_set_enabled(config_get()->debug_log);
+        set_toggle(s, idx, config_get()->debug_log);
+        return;
+    case 4: about_open(); return;
     default: return;
     }
     menu_close();
@@ -1109,6 +1116,7 @@ static void system_open(void)
     add_item(s, LV_SYMBOL_USB "  USB storage", ITEM_PLAIN, NULL, false);
     add_item(s, LV_SYMBOL_POWER "  Power off", ITEM_PLAIN, NULL, false);
     add_item(s, "Reset settings", ITEM_ARROW, NULL, false);
+    add_item(s, "Debug log", ITEM_TOGGLE, NULL, config_get()->debug_log);
     add_item(s, "About", ITEM_ARROW, NULL, false);
     s->sel = 0;
     update_hl(s);

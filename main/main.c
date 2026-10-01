@@ -44,6 +44,7 @@
 #include "shifting.h"
 #include "trail.h"
 #include "utc.h"
+#include "dbglog.h"
 #include "esp_system.h"
 #include "tinyusb.h"
 
@@ -108,6 +109,7 @@ static void power_off(void)
 {
     ESP_LOGI(TAG, "power off");
     ride_end();
+    dbglog_shutdown();
     if (usb_msc_active()) {
         tinyusb_driver_uninstall();
     }
@@ -296,6 +298,7 @@ void app_main(void)
     health_init();
     fields_init();
     config_load();                       /* NVS; defaults if nothing saved */
+    dbglog_init(config_get()->debug_log);   /* log to the eMMC when enabled (System menu) */
     sun_init();                          /* last GPS position for sunrise / sunset */
     devcon_init(inject_key);             /* dev console on the USB port; mirrors the screen from the first frame */
     ESP_ERROR_CHECK(ui_port_init());
