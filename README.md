@@ -22,6 +22,7 @@ This PoC replaces only the ESP32 application. It:
   Cheetah, … import them directly),
 * exposes the eMMC over USB as a mass-storage disk on demand,
 * touchscreen (FT6336 over I2C) as an LVGL pointer: on-screen REC / USB buttons,
+  swipe left / right to go to the next / previous page (pages never scroll),
 * ANT+ sensors through the nRF: HR, speed, cadence, power decoded. The paired
   list lives in our own config (the vendor's `CONFIG/sensor_list.json` is imported
   once on first run); Settings → Sensors lists them with their live state,
@@ -86,7 +87,7 @@ This PoC replaces only the ESP32 application. It:
   distance, avg / max speed, avg / max HR, cadence, power, calories, climb /
   descent, laps (`main/fitread.c`, a small tolerant FIT reader) — and can be
   *used as route*: it becomes the map's route like a GPX file, or deleted,
-* developer console on the USB port: inject key/touch events and take
+* developer console on the USB port: inject key/touch/swipe events and take
   screenshots from the host (`tools/devcon.py`),
 * idle / riding / paused modes: the idle screen (clock, GPS and sensor state,
   START button) is shown until a ride is started; the data pages, the track

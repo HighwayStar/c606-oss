@@ -40,23 +40,34 @@ static bool s_pressed;
 #define TOUCH_MIRROR_Y 0
 #endif
 
-/* injected touch (developer console) */
-static int16_t s_inj_x, s_inj_y;
-static uint32_t s_inj_until_ms;
+/* injected touch (developer console): the finger moves from (x0,y0) to
+ * (x1,y1) over the hold time */
+static int16_t s_inj_x0, s_inj_y0, s_inj_x1, s_inj_y1;
+static uint32_t s_inj_from_ms, s_inj_until_ms;
+
+void ui_port_inject_swipe(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint32_t ms)
+{
+    s_inj_x0 = x0;
+    s_inj_y0 = y0;
+    s_inj_x1 = x1;
+    s_inj_y1 = y1;
+    s_inj_from_ms = esp_timer_get_time() / 1000;
+    s_inj_until_ms = s_inj_from_ms + ms;
+}
 
 void ui_port_inject_touch(int16_t x, int16_t y, uint32_t hold_ms)
 {
-    s_inj_x = x;
-    s_inj_y = y;
-    s_inj_until_ms = esp_timer_get_time() / 1000 + hold_ms;
+    ui_port_inject_swipe(x, y, x, y, hold_ms);
 }
 
 static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
 {
     uint16_t x, y;
-    if (esp_timer_get_time() / 1000 < s_inj_until_ms) {
-        s_last_x = s_inj_x;
-        s_last_y = s_inj_y;
+    uint32_t now = esp_timer_get_time() / 1000;
+    if (now < s_inj_until_ms) {
+        int32_t t = now - s_inj_from_ms, d = s_inj_until_ms - s_inj_from_ms;
+        s_last_x = s_inj_x0 + (s_inj_x1 - s_inj_x0) * t / d;
+        s_last_y = s_inj_y0 + (s_inj_y1 - s_inj_y0) * t / d;
         s_pressed = true;
         data->state = LV_INDEV_STATE_PRESSED;
         data->point.x = s_last_x;

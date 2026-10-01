@@ -43,7 +43,7 @@ static uint8_t s_bat_pct;
 static lv_obj_t *s_hdr_bat, *s_arc, *s_arc_lbl, *s_env, *s_nrf, *s_gps, *s_sd, *s_log, *s_foot;
 static lv_obj_t *s_key[NUM_KEYS];
 static lv_obj_t *s_idle_clock, *s_idle_gps, *s_idle_sens, *s_idle_sun, *s_idle_hint;
-static lv_obj_t *s_cursor, *s_touch_lbl, *s_btn_start, *s_ant;
+static lv_obj_t *s_touch_lbl, *s_btn_start, *s_ant;
 static ui_action_cb_t s_on_start, s_on_usb, s_on_usb_reboot, s_on_power_off, s_on_end_ride;
 static lv_obj_t *s_popup;
 static ui_popup_t s_popup_kind;
@@ -322,8 +322,6 @@ static void build_data_pages(lv_obj_t *scr)
 
         datapage_build(&s_dp[p], pg, &cfg->page[p], 0, HDR_H, LCD_H_RES, LCD_V_RES - HDR_H);
     }
-    /* keep the cursor ring above the new pages */
-    if (s_cursor) lv_obj_move_foreground(s_cursor);
 }
 
 /* "Sunrise 06:42   Sunset 19:11" under the sensor line; blank until the
@@ -390,6 +388,15 @@ static void data_refresh_cb(lv_timer_t *t)
     }
 }
 
+/* Pages never scroll: a horizontal drag is a page swipe (gesture_cb), and
+ * LVGL only reports gestures when no object took the drag as a scroll. */
+static void no_scroll(lv_obj_t *o)
+{
+    lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+    uint32_t n = lv_obj_get_child_count(o);
+    for (uint32_t i = 0; i < n; i++) no_scroll(lv_obj_get_child(o, i));
+}
+
 static void show_page(int idx)
 {
     for (int i = 0; i < s_npages; i++) {
@@ -397,7 +404,31 @@ static void show_page(int idx)
     }
     s_page_idx = idx;
     mapview_set_visible(idx == PAGE_MAP);
+    if (idx >= 0) no_scroll(s_pages[idx]);   /* cheap; catches rebuilt cells */
     data_refresh_cb(NULL);   /* don't wait for the timer */
+}
+
+/* Moves dir (+1 / -1) steps around the current page ring. */
+static void step_page(int dir)
+{
+    int pos = 0;
+    for (int i = 0; i < s_ring_n; i++) if (s_ring[i] == s_page_idx) pos = i;
+    show_page(s_ring[(pos + s_ring_n + dir) % s_ring_n]);
+}
+
+/* Swipe left = next page, swipe right = previous page. Gestures bubble up to
+ * the screen; the menu, popups and the ride summary live on the top layer,
+ * so their swipes never get here. */
+static void gesture_cb(lv_event_t *e)
+{
+    (void)e;
+    if (menu_active() || s_page_idx < 0 || s_ring_n < 2) return;
+    lv_indev_t *indev = lv_indev_active();
+    lv_dir_t dir = lv_indev_get_gesture_dir(indev);
+    if (dir == LV_DIR_LEFT) step_page(1);
+    else if (dir == LV_DIR_RIGHT) step_page(-1);
+    else return;
+    lv_indev_wait_release(indev);   /* no click on the cell / button the swipe started on */
 }
 
 /* Pages reachable with KEY_NEXT_PAGE: idle <-> status when idle, the data pages
@@ -642,17 +673,12 @@ void ui_set_touch(const char *chip_name)
     ui_unlock();
 }
 
-/* A small ring that follows the finger, on top of every page. */
-static void cursor_timer_cb(lv_timer_t *t)
+/* Last touch position on the status page. */
+static void touch_timer_cb(lv_timer_t *t)
 {
     int16_t x, y;
-    bool down = ui_port_touch_state(&x, &y);
-    if (down) {
-        lv_obj_set_hidden(s_cursor, false);
-        lv_obj_set_pos(s_cursor, x - 12, y - 12);
+    if (ui_port_touch_state(&x, &y) && !lv_obj_is_hidden(s_page_status)) {
         lv_label_set_text_fmt(s_touch_lbl, "touch: %d,%d", x, y);
-    } else if (!lv_obj_is_hidden(s_cursor)) {
-        lv_obj_set_hidden(s_cursor, true);
     }
 }
 
@@ -671,15 +697,9 @@ void ui_create(void)
     s_npages = PAGE_FIRST_DATA;
     lv_obj_set_hidden(s_page_status, true);
 
-    s_cursor = lv_obj_create(scr);
-    lv_obj_remove_style_all(s_cursor);
-    lv_obj_set_size(s_cursor, 24, 24);
-    lv_obj_set_style_radius(s_cursor, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_width(s_cursor, 3, 0);
-    lv_obj_set_style_border_color(s_cursor, lv_palette_main(LV_PALETTE_YELLOW), 0);
-    lv_obj_set_clickable(s_cursor, false);
-    lv_obj_set_hidden(s_cursor, true);
-    lv_timer_create(cursor_timer_cb, 30, NULL);
+    lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(scr, gesture_cb, LV_EVENT_GESTURE, NULL);
+    lv_timer_create(touch_timer_cb, 100, NULL);
 
     build_data_pages(scr);
     menu_set_close_cb(on_menu_closed);
@@ -881,18 +901,14 @@ void ui_show_usb_mode(void)
 void ui_next_page(void)
 {
     ui_lock();
-    int pos = 0;
-    for (int i = 0; i < s_ring_n; i++) if (s_ring[i] == s_page_idx) pos = i;
-    show_page(s_ring[(pos + 1) % s_ring_n]);
+    step_page(1);
     ui_unlock();
 }
 
 void ui_prev_page(void)
 {
     ui_lock();
-    int pos = 0;
-    for (int i = 0; i < s_ring_n; i++) if (s_ring[i] == s_page_idx) pos = i;
-    show_page(s_ring[(pos + s_ring_n - 1) % s_ring_n]);
+    step_page(-1);
     ui_unlock();
 }
 

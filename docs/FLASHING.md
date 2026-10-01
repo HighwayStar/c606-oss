@@ -66,6 +66,7 @@ all 16 MB instead of just the two partitions; `--no-backup` skips the backup
   serial port is gone while in this mode — eject the disk and tap *Reboot*.
 
 Everything is described in more detail in the project README.
+  On the touch screen, swipe left / right for the next / previous page.
 
 ## Back to the vendor firmware
 

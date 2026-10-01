@@ -169,6 +169,11 @@ static void handle(char *cmd)
         char *a = strtok_r(NULL, " ", &save), *b = strtok_r(NULL, " ", &save);
         if (a && b) ui_port_inject_touch(atoi(a), atoi(b), 120);
         printf("ok\n");
+    } else if (!strcmp(w, "swipe")) {   /* swipe x0 y0 x1 y1 [ms] */
+        char *a[5];
+        for (int i = 0; i < 5; i++) a[i] = strtok_r(NULL, " ", &save);
+        if (a[3]) ui_port_inject_swipe(atoi(a[0]), atoi(a[1]), atoi(a[2]), atoi(a[3]), a[4] ? atoi(a[4]) : 250);
+        printf("ok\n");
     } else if (!strcmp(w, "spd")) {   /* feed a speed sample to the auto pause logic */
         char *a = strtok_r(NULL, " ", &save);
         if (a) ride_speed(atof(a), true);
@@ -281,6 +286,6 @@ esp_err_t devcon_init(devcon_key_cb_t key_cb)
     usb_serial_jtag_vfs_use_driver();
     usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_CRLF);
     xTaskCreate(devcon_task, "devcon", 4096, NULL, 3, NULL);
-    ESP_LOGI(TAG, "ready: key/tap/spd/shot/ls/get/put/mv/pos/zoom/nmea/nrf/heap");
+    ESP_LOGI(TAG, "ready: key/tap/swipe/spd/shot/ls/get/put/mv/pos/zoom/nmea/nrf/heap");
     return ESP_OK;
 }

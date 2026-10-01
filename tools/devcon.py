@@ -3,6 +3,7 @@
 
   tools/devcon.py PORT key 0 1          click key 0 (evt 1 click, 4 hold, 5 release)
   tools/devcon.py PORT tap 120 160      touch at x,y
+  tools/devcon.py PORT swipe 200 160 40 160 [ms]   drag from x0,y0 to x1,y1 (default 250 ms)
   tools/devcon.py PORT shot out.png     screenshot
   tools/devcon.py PORT heap
   tools/devcon.py PORT ls [/sdcard/dir]  list the ride files (default /sdcard/c606oss)
