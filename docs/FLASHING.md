@@ -65,8 +65,7 @@ all 16 MB instead of just the two partitions; `--no-backup` skips the backup
   the PC as a removable disk for copying maps, routes and FIT files. The
   serial port is gone while in this mode — eject the disk and tap *Reboot*.
 
-Everything is described in more detail in the project README.
-  On the touch screen, swipe left / right for the next / previous page.
+Everything is described in more detail in the project's docs/USER_GUIDE.md.
 
 ## Back to the vendor firmware
 

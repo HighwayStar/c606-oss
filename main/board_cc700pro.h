@@ -7,7 +7,7 @@
  * device: the pin map read live from the GPIO matrix / IO_MUX over JTAG
  * matches board_c606pro.h + board.h; mg_panel_st7789_init() @ 0x420322b8
  * sends the C606 sequence byte for byte (constants at 0x3c373718, the C606
- * Pro's gamma tables are not in the image). See the README, "Geoid CC700 Pro".
+ * Pro's gamma tables are not in the image). See docs/HARDWARE.md, "Geoid CC700 Pro".
  */
 #pragma once
 
