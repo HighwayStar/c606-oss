@@ -116,6 +116,28 @@ without data carry the FIT "invalid" value — this is everything the
 vendor's own files carry except the ClimbPro events and the sensors'
 manufacturer / battery details.
 
+## Wi-Fi transfer
+
+`main/wifi_ap.c` brings esp_wifi up only while the access point is on
+(init on start, full deinit on stop) and starts `main/webfs.c`, a small
+REST API on esp_http_server (see `webfs.h`), plus the page in
+`main/web/index.html`. Quick test from a host on the AP:
+
+```sh
+curl 'http://192.168.4.1/api/ls?d=/c606oss'
+curl -T track.gpx http://192.168.4.1/fs/c606oss/routes/track.gpx
+curl -o ride.fit 'http://192.168.4.1/fs/c606oss/<name>.fit'
+curl -X DELETE http://192.168.4.1/fs/c606oss/routes/track.gpx
+```
+
+Internal RAM is the constraint: linking Wi-Fi costs ~50 KB of internal
+heap even while it is off (driver data; the IRAM optimisations are
+disabled in `sdkconfig.defaults` to keep its code in flash), the running
+AP takes another ~55 KB (C606: ~110 KB free with the menu open, ~55 KB
+with the AP up). The server task's stack is in PSRAM; its one 8 KB
+transfer buffer is internal because the SDMMC driver bounces PSRAM
+buffers sector by sector.
+
 ## Configuration storage
 
 The configuration lives in the NVS partition, namespace `c606oss` (the
@@ -179,6 +201,9 @@ main/history.c     ride history: lists our and the vendor's FIT files, delete
 tools/mapdump/     host build of mapfile.c: dump or render a tile of a .map file
 main/trip.c        distance (wheel sensor or GPS) and auto laps
 main/usb_msc.c     TinyUSB mass storage over the eMMC (esp_tinyusb)
+main/wifi_ap.c     Wi-Fi access point on demand (SSID / password, idle switch-off)
+main/webfs.c       file manager over HTTP on the AP (list, download, upload, mkdir, rename, delete)
+main/web/index.html  the file manager page (embedded with EMBED_TXTFILES)
 main/touch.c       FT6336 / CST328 touch controller over I2C
 main/ant.c         ANT+ channel control + HR/speed/cadence/power page decoding
 main/sensor_list.c reads the vendor's paired-sensor JSON (imported once)

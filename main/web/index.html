@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>c606-oss files</title>
+<style>
+:root{--bg:#fff;--fg:#1a1a1a;--mut:#777;--line:#e4e4e4;--acc:#e8541c;--row:#f6f6f6;--err:#c62828}
+@media (prefers-color-scheme:dark){:root{--bg:#121212;--fg:#eee;--mut:#999;--line:#2c2c2c;--row:#1c1c1c}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,sans-serif}
+header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 16px;z-index:1}
+h1{font-size:17px;margin:0 0 6px}
+#crumbs a{color:var(--acc);text-decoration:none;cursor:pointer}
+#crumbs span{color:var(--mut);margin:0 4px}
+#free{color:var(--mut);font-size:13px;float:right}
+.bar{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+button,.btn{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:7px 12px;font:inherit;cursor:pointer}
+button.ghost{background:none;color:var(--mut);padding:4px 6px}
+button.ghost:hover{color:var(--fg)}
+main{padding:0 16px 40px}
+#drop{border:2px dashed var(--line);border-radius:8px;padding:12px;text-align:center;color:var(--mut);margin:12px 0}
+#drop.over{border-color:var(--acc);color:var(--fg)}
+table{width:100%;border-collapse:collapse}
+td{padding:7px 4px;border-bottom:1px solid var(--line);vertical-align:middle}
+td.n{word-break:break-all}
+td.n a{color:var(--fg);text-decoration:none}
+td.n a.dir{font-weight:600}
+td.s,td.t{color:var(--mut);font-size:13px;white-space:nowrap;text-align:right}
+td.a{white-space:nowrap;text-align:right;width:1%}
+tr:hover td{background:var(--row)}
+@media (max-width:560px){td.t{display:none}}
+#q div{font-size:13px;margin:4px 0}
+progress{width:100%;height:6px;accent-color:var(--acc)}
+.err{color:var(--err)}
+#empty{color:var(--mut);padding:16px 4px}
+</style>
+</head>
+<body>
+<header>
+  <span id="free"></span>
+  <h1>c606-oss files</h1>
+  <div id="crumbs"></div>
+  <div class="bar">
+    <button onclick="pick.click()">Upload files</button>
+    <button onclick="mkdirp()">New folder</button>
+    <button class="ghost" onclick="load(cur)" title="Refresh">&#x21bb;</button>
+    <input type="file" id="pick" multiple hidden>
+  </div>
+</header>
+<main>
+  <div id="drop">Drop files here to upload into this folder</div>
+  <div id="q"></div>
+  <table><tbody id="list"></tbody></table>
+  <div id="empty" hidden>Empty folder</div>
+</main>
+<script>
+let cur = '/', names = new Set();
+const $ = id => document.getElementById(id);
+const enc = p => p.split('/').map(encodeURIComponent).join('/');
+const join = (d, n) => (d === '/' ? '' : d) + '/' + n;
+const esc = s => s.replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
+
+function size(b) {
+  if (b < 1024) return b + ' B';
+  const u = ['KB', 'MB', 'GB']; let i = -1;
+  do { b /= 1024; i++; } while (b >= 1024 && i < 2);
+  return b.toFixed(b < 10 ? 1 : 0) + ' ' + u[i];
+}
+function when(t) {
+  if (t < 347155200) return '';            /* before 1981: no clock was set */
+  return new Date(t * 1000).toISOString().slice(0, 16).replace('T', ' ');
+}
+
+async function load(dir) {
+  const r = await fetch('/api/ls?d=' + encodeURIComponent(dir));
+  if (!r.ok) { alert(await r.text()); if (dir !== '/') load('/'); return; }
+  const j = await r.json();
+  cur = dir;
+  history.replaceState(null, '', '#' + enc(dir));
+  $('free').textContent = size(j.free) + ' free of ' + size(j.total);
+  let c = '<a onclick="load(\'/\')">card</a>', acc = '';
+  for (const p of dir.split('/').filter(Boolean)) {
+    acc += '/' + p;
+    c += '<span>/</span><a data-p="' + esc(acc) + '" onclick="load(this.dataset.p)">' + esc(p) + '</a>';
+  }
+  $('crumbs').innerHTML = c;
+  j.entries.sort((a, b) => b.d - a.d || a.n.localeCompare(b.n, undefined, {numeric: true}));
+  names = new Set(j.entries.map(e => e.n));
+  $('list').innerHTML = j.entries.map(e => {
+    const p = esc(join(dir, e.n));
+    const link = e.d
+      ? '<a class="dir" data-p="' + p + '" onclick="load(this.dataset.p)" href="javascript:">&#x1F4C1; ' + esc(e.n) + '</a>'
+      : '<a href="/fs' + esc(enc(join(dir, e.n))) + '?dl=1">' + esc(e.n) + '</a>';
+    return '<tr><td class="n">' + link + '</td><td class="s">' + (e.d ? '' : size(e.s)) +
+      '</td><td class="t">' + when(e.t) + '</td><td class="a" data-p="' + p + '" data-d="' + e.d + '">' +
+      '<button class="ghost" title="Rename" onclick="mv(this.parentNode)">&#x270E;</button>' +
+      '<button class="ghost" title="Delete" onclick="del(this.parentNode)">&#x2715;</button></td></tr>';
+  }).join('');
+  $('empty').hidden = j.entries.length > 0;
+}
+
+async function req(method, url) {
+  const r = await fetch(url, {method});
+  if (!r.ok) alert(await r.text());
+  load(cur);
+}
+function del(td) {
+  const p = td.dataset.p;
+  if (confirm('Delete ' + p + (td.dataset.d === '1' ? ' (folder must be empty)' : '') + '?')) req('DELETE', '/fs' + enc(p));
+}
+function mv(td) {
+  const p = td.dataset.p, old = p.slice(p.lastIndexOf('/') + 1);
+  const n = prompt('New name (or a path starting with /)', old);
+  if (!n || n === old) return;
+  const to = n.startsWith('/') ? n : join(cur, n);
+  req('POST', '/api/mv?from=' + encodeURIComponent(p) + '&to=' + encodeURIComponent(to));
+}
+function mkdirp() {
+  const n = prompt('Folder name');
+  if (n) req('POST', '/api/mkdir?d=' + encodeURIComponent(join(cur, n)));
+}
+
+/* uploads run one after another */
+const queue = []; let busy = false;
+function upload(files) {
+  for (const f of files) {
+    if (names.has(f.name) && !confirm(f.name + ' exists. Replace it?')) continue;
+    const row = document.createElement('div');
+    row.innerHTML = '<span></span><progress max="1" value="0"></progress>';
+    row.firstChild.textContent = f.name + ' (' + size(f.size) + ')';
+    $('q').appendChild(row);
+    queue.push({f, dir: cur, row});
+  }
+  next();
+}
+function next() {
+  if (busy || !queue.length) return;
+  busy = true;
+  const {f, dir, row} = queue.shift(), bar = row.lastChild, t0 = Date.now();
+  const x = new XMLHttpRequest();
+  x.open('PUT', '/fs' + enc(join(dir, f.name)));
+  x.upload.onprogress = e => {
+    bar.value = e.loaded / f.size;
+    const s = (Date.now() - t0) / 1000;
+    if (s > 1) row.firstChild.textContent = f.name + ' ' + size(e.loaded) + ' / ' + size(f.size) + ', ' + size(e.loaded / s) + '/s';
+  };
+  x.onloadend = () => {
+    busy = false;
+    if (x.status === 200) row.remove();
+    else { row.className = 'err'; row.firstChild.textContent = f.name + ': ' + (x.responseText || 'upload failed'); }
+    if (dir === cur) load(cur);
+    next();
+  };
+  x.send(f);
+}
+$('pick').onchange = e => { upload(e.target.files); e.target.value = ''; };
+const drop = $('drop');
+['dragenter', 'dragover'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+document.addEventListener('drop', e => upload(e.dataTransfer.files));
+window.onbeforeunload = () => busy ? 'Upload in progress' : undefined;
+
+load(decodeURIComponent(location.hash.slice(1)) || '/');
+</script>
+</body>
+</html>

@@ -29,6 +29,7 @@
 #include "sdcard.h"
 #include "tracklog.h"
 #include "usb_msc.h"
+#include "wifi_ap.h"
 #include "mapview.h"
 #include "route.h"
 #include "touch.h"
@@ -97,6 +98,7 @@ static void enter_usb_mode(void)
     if (usb_msc_active()) {
         return;
     }
+    wifi_ap_stop();   /* the card is about to be unmounted */
     if (usb_msc_enter() == ESP_OK) {
         ui_show_usb_mode();
     } else {
@@ -108,6 +110,7 @@ static void power_off(void)
 {
     ESP_LOGI(TAG, "power off");
     ride_end();
+    wifi_ap_stop();
     if (usb_msc_active()) {
         tinyusb_driver_uninstall();
     }

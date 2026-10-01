@@ -64,3 +64,20 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 # makes f_lseek O(1) instead of walking the FAT chain from the file start.
 CONFIG_FATFS_USE_FASTSEEK=y
 CONFIG_FATFS_FAST_SEEK_BUFFER_SIZE=512
+
+# Wi-Fi transfer (Settings -> System): access point + file manager web page.
+# Wi-Fi/lwIP buffers go to PSRAM where possible; the QR code is an LVGL widget.
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+CONFIG_HTTPD_MAX_URI_LEN=1024
+CONFIG_LV_USE_QRCODE=y
+# Internal RAM is tight: keep the Wi-Fi driver's hot paths in flash (a bit
+# slower, ~17 KB more heap even while Wi-Fi is off) and fewer static RX buffers.
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6
+
+# FatFs refuses to delete / rename / write a file that is open (the maps stay
+# open; the web file manager must not be able to pull them away underneath).
+# Counts open files + directories: above the VFS max_files (8) + open dirs.
+CONFIG_FATFS_FS_LOCK=16

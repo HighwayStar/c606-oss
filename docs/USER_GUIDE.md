@@ -155,8 +155,9 @@ key 1 = down, key 0 = select; selecting the back arrow goes back):
   name in the *Route* setting, listed on top of the GPX files there) and
   *Delete ride* removes the file after a confirmation.
 * *Reset statistics*.
-* *System* → *USB storage*, *Power off*, *Reset settings* (with a
-  confirmation: everything back to the firmware defaults), *About*.
+* *System* → *USB storage*, *Wi-Fi transfer*, *Power off*, *Reset
+  settings* (with a confirmation: everything back to the firmware
+  defaults), *About*.
 
 ## USB storage and power off
 
@@ -167,6 +168,30 @@ while in this mode — eject the disk, then tap *Reboot* or hold key 1.
 Hold key 0: "Power off?" popup — key 0 again (or tap Off) powers off via
 the nRF, any other key (or Cancel, or 8 s) dismisses it. Press key 0 to
 power on again.
+
+## Wi-Fi transfer
+
+Settings → System → Wi-Fi transfer → *Access point* turns on a Wi-Fi
+network (`C606-XXXX`, WPA2; the password is made up on the first use and
+then stays the same) with a file manager page at `http://192.168.4.1/`.
+The screen shows a QR code: scan it with a phone camera to join the
+network; once a client is connected the code switches to the page's
+address (tap the code to flip between the two). SSID, password and
+address are printed below it for a computer.
+
+The page browses the whole card: download (tap a name), upload (button
+or drag and drop, several files at once, with progress), new folder,
+rename / move (a name, or a path starting with `/`), delete (folders
+only when empty). Uploads go to `<name>.part` and replace the target
+only when complete, so an interrupted upload leaves the old file alone.
+Files the device has open (the ride being recorded, the maps in `MAP/`)
+can't be replaced, renamed or deleted — the page says "in use"; new maps
+are picked up after a restart. Unlike USB storage the device keeps
+running (riding, recording) while the network is up.
+
+The network stays up after leaving the menu and switches itself off
+after 10 minutes without a connected client; turning on USB storage or
+powering off also stops it.
 
 ## Sensors
 

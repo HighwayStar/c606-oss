@@ -26,7 +26,9 @@
  *                         cadence, power, calories, climb, laps),
  *                         "Use as route" (the ride becomes the map's route), Delete
  *     Reset statistics
- *     System           -> USB storage, Power off, Reset settings (confirm), About
+ *     System           -> USB storage, Wi-Fi transfer, Power off, Reset settings (confirm), About
+ *       Wi-Fi transfer -> access point toggle, QR code (join the network / open
+ *                         the page; tap to switch), SSID, password, URL
  *
  * Screens are stacked; each one is a full-screen object on the top layer
  * with a header (back arrow + title). List screens share one implementation
@@ -52,6 +54,7 @@
 #include "history.h"
 #include "ant.h"
 #include "health.h"
+#include "wifi_ap.h"
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -1086,18 +1089,128 @@ static void reset_confirm_open(void)
     update_hl(s);
 }
 
+/* Wi-Fi transfer: one toggle row, then the QR code and the credentials.
+ * The QR code first carries the network (phones join by scanning it);
+ * once a client is connected it switches to the page URL. Tapping it
+ * flips between the two. The AP stays up after leaving the screen. */
+static lv_obj_t *s_wifi_qr, *s_wifi_info, *s_wifi_qr_cap;
+static bool s_wifi_qr_url, s_wifi_qr_manual;
+static int s_wifi_shown = -1;   /* what the QR code currently holds: -1 nothing, 0 join, 1 URL */
+
+static void wifi_refresh(screen_t *s)
+{
+    bool on = wifi_ap_active();
+    set_toggle(s, 0, on);
+    if (on && !s_wifi_qr_manual && wifi_ap_clients() > 0) s_wifi_qr_url = true;
+    int want = on ? s_wifi_qr_url : -1;
+    if (want != s_wifi_shown) {
+        s_wifi_shown = want;
+        if (want < 0) {
+            lv_obj_add_flag(s_wifi_qr, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(s_wifi_qr_cap, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            char txt[96];
+            if (want) snprintf(txt, sizeof txt, "%s", WIFI_AP_URL);
+            else wifi_ap_qr_text(txt, sizeof txt);
+            lv_qrcode_update(s_wifi_qr, txt, strlen(txt));
+            lv_label_set_text(s_wifi_qr_cap, want ? "Scan to open the page" : "Scan to join the network");
+            lv_obj_remove_flag(s_wifi_qr, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(s_wifi_qr_cap, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    if (on) {
+        lv_label_set_text_fmt(s_wifi_info, "Wi-Fi  %s\nPassword  %s\n%s   %d connected",
+                              wifi_ap_ssid(), wifi_ap_password(), WIFI_AP_URL + 7, wifi_ap_clients());
+    } else {
+        lv_label_set_text_fmt(s_wifi_info, "Upload and download files on\nthe card from a phone or a\ncomputer over Wi-Fi.\n\n"
+                                           "Turns itself off after\n%d minutes without a client.", WIFI_AP_IDLE_MIN);
+    }
+}
+
+static void wifi_select(screen_t *s, int idx)
+{
+    if (idx != 0) return;
+    if (wifi_ap_active()) {
+        wifi_ap_stop();
+    } else {
+        s_wifi_qr_url = s_wifi_qr_manual = false;
+        wifi_ap_start();
+    }
+    wifi_refresh(s);
+}
+
+static void wifi_qr_cb(lv_event_t *e)
+{
+    s_wifi_qr_url = !s_wifi_qr_url;
+    s_wifi_qr_manual = true;
+    wifi_refresh(top());
+}
+
+static void wifi_close(screen_t *s)
+{
+    s_wifi_qr = s_wifi_info = s_wifi_qr_cap = NULL;
+    s_wifi_shown = -1;
+}
+
+static void wifi_open(void)
+{
+    screen_t *s = push("Wi-Fi transfer");
+    if (!s) return;
+    s->select_cb = wifi_select;
+    s->refresh_cb = wifi_refresh;
+    s->close_cb = wifi_close;
+    s->live = true;
+    make_list(s);
+    lv_obj_set_height(s->list, ROW_H);
+    add_item(s, LV_SYMBOL_WIFI "  Access point", ITEM_TOGGLE, NULL, wifi_ap_active());
+
+    /* what is left below the toggle: QR code, its caption, 3 lines of text */
+    int32_t qr = LV_MIN(LCD_H_RES - 40, LCD_V_RES - HDR_H - ROW_H - 92);
+    s_wifi_qr = lv_qrcode_create(s->root);
+    lv_qrcode_set_size(s_wifi_qr, qr);
+    lv_qrcode_set_dark_color(s_wifi_qr, lv_color_black());
+    lv_qrcode_set_light_color(s_wifi_qr, lv_color_white());   /* scanners want dark on light, also in the dark theme */
+    lv_qrcode_set_quiet_zone(s_wifi_qr, true);
+    lv_obj_align(s_wifi_qr, LV_ALIGN_TOP_MID, 0, HDR_H + ROW_H + 6);
+    lv_obj_add_flag(s_wifi_qr, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_wifi_qr, wifi_qr_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_flag(s_wifi_qr, LV_OBJ_FLAG_HIDDEN);   /* until it has content */
+
+    s_wifi_qr_cap = label(s->root, &lv_font_montserrat_14, C_GREY, "");
+    lv_obj_add_style(s_wifi_qr_cap, &theme_st_muted, 0);
+    lv_obj_align(s_wifi_qr_cap, LV_ALIGN_TOP_MID, 0, HDR_H + ROW_H + 6 + qr + 2);
+    lv_obj_add_flag(s_wifi_qr_cap, LV_OBJ_FLAG_HIDDEN);
+
+    s_wifi_info = label(s->root, &lv_font_montserrat_14, C_FG, "");
+    lv_obj_add_style(s_wifi_info, &theme_st_text, 0);
+    lv_obj_set_style_text_align(s_wifi_info, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(s_wifi_info, LCD_H_RES - 8);
+    lv_obj_align(s_wifi_info, LV_ALIGN_BOTTOM_MID, 0, -4);
+
+    s_wifi_shown = -1;
+    s->sel = 0;
+    wifi_refresh(s);
+    update_hl(s);
+}
+
 static void system_select(screen_t *s, int idx)
 {
     void (*cb)(void) = NULL;
     switch (idx) {
     case 0: cb = s_action_cb[MENU_ACTION_USB]; break;
-    case 1: cb = s_action_cb[MENU_ACTION_POWER_OFF]; break;
-    case 2: reset_confirm_open(); return;
-    case 3: about_open(); return;
+    case 1: wifi_open(); return;
+    case 2: cb = s_action_cb[MENU_ACTION_POWER_OFF]; break;
+    case 3: reset_confirm_open(); return;
+    case 4: about_open(); return;
     default: return;
     }
     menu_close();
     if (cb) cb();
+}
+
+static void system_refresh(screen_t *s)
+{
+    set_right(s, 1, wifi_ap_active() ? "on" : "", true);
 }
 
 static void system_open(void)
@@ -1105,8 +1218,10 @@ static void system_open(void)
     screen_t *s = push("System");
     if (!s) return;
     s->select_cb = system_select;
+    s->refresh_cb = system_refresh;
     make_list(s);
     add_item(s, LV_SYMBOL_USB "  USB storage", ITEM_PLAIN, NULL, false);
+    add_item(s, LV_SYMBOL_WIFI "  Wi-Fi transfer", ITEM_ARROW, wifi_ap_active() ? "on" : NULL, false);
     add_item(s, LV_SYMBOL_POWER "  Power off", ITEM_PLAIN, NULL, false);
     add_item(s, "Reset settings", ITEM_ARROW, NULL, false);
     add_item(s, "About", ITEM_ARROW, NULL, false);
