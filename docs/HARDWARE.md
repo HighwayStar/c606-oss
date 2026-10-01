@@ -583,7 +583,7 @@ Source: vendor firmware **C606P V1.723** (`c606Pro_ota_0.elf`, built Sep 25
 bytes = the C606 `ota_0` slot). Addresses refer to that image. **Not yet
 tried on a C606 Pro.** The related Geoid CC700 Pro has the same pins (read
 back live over JTAG) but the C606's panel init; it has its own profile
-(`BOARD=cc700pro`, see the README, *Geoid CC700 Pro*). `BOARD=c606pro tools/build_podman.sh` →
+(`BOARD=cc700pro`, see *Geoid CC700 Pro* at the end of this file). `BOARD=c606pro tools/build_podman.sh` →
 `build-c606pro/c606pro_oss.bin`.
 
 A hybrid of the other two: the C606's shell and peripherals on the C706's
@@ -604,3 +604,71 @@ display bus and memory.
 
 (Correction to the C706 key notes above: in the riding scene the vendor's
 A hold is `BreathPlate`; `PowerOffPopUp` is A hold in scene 0.)
+
+
+---
+
+# Geoid CC700 Pro (`BOARD=cc700pro`)
+
+Geoid is Magene's sister brand. The CC700 Pro (FCC ID 2A2L5-390) is closely
+related to the C606 Pro — same pin map, 8-bit panel bus, octal PSRAM, touch
+and keys — but its vendor firmware initialises the panel like the plain
+C606, and it drives GPIO43/44 high. Whether the hardware is otherwise
+identical to a C606 Pro is not known (no side-by-side teardown); the `c606pro`
+build runs on it too. `BOARD=cc700pro` (`main/board_cc700pro.h`) is
+`board_c606pro.h` plus those two differences. Display, touch, the three keys, nRF link
+(battery, temperature / pressure), eMMC, USB storage mode, GPS, FIT
+recording and the map page (with an official Mapsforge v5 map, which needs
+the v5 reader fixes) were verified on one unit on 2026-09-23. Not yet
+checked: ANT+ / BLE sensors, a real outdoor fix, charging and power-off.
+
+What that unit showed:
+
+* **SoC**: ESP32-S3 (QFN56) rev v0.2 with **8 MB embedded octal PSRAM**,
+  16 MB GigaDevice flash (`c8/4018`), DIO.
+* **Security**: no secure boot, no flash encryption, no key blocks written,
+  JTAG / USB / download mode not disabled in eFuses. esptool reaches the ROM
+  loader over the USB-C port while the device is running (no button combo),
+  and OpenOCD attaches over the built-in USB-JTAG
+  (`board/esp32s3-builtin.cfg`) without a reset.
+* **Vendor firmware**: `CC700Pro_V1.712-dirty`, built Apr 2 2026, strings
+  `BRAND_OVERSEA_GEOID`. Partition table differs from the C606:
+  `ota_0` @ 0x20000 and `ota_1` @ 0x7F0000, 0x7D0000 bytes each (`ota_1`
+  empty); `nvs` 0x9000, `otadata` 0xD000, `phy_init` 0xF000, `coredump`
+  0x10000. `flash_poc.py` reads the table from the device, so it works as is.
+* **Pins**, read live from the GPIO matrix / IO_MUX of the running vendor
+  firmware over JTAG, match `board_c606pro.h` + `board.h` exactly: LCD data
+  `{4, 38, 5, 48, 6, 47, 7, 11}`, DC 40, WR 3, CS 2, RD 39 (high), backlight
+  45 (LEDC), I2C0 SDA 21 / SCL 12, nRF UART2 TX 42 / RX 41, GPS UART0 TX 1 /
+  RX 0, SDMMC CLK 13 / CMD 14 / D0-D3 16, 17, 18, 15, PSRAM on 33-37 (octal).
+  **GPIO43/44** are plain outputs driven high; `cc700pro` mirrors that
+  (`LCD_AUX_HIGH_MASK`). Its NVS `Res1Page11` byte 3 is 1, so the CC700
+  firmware apparently does not gate this on the C606's HW-variant flag.
+* **Touch**: CST328 at 0x5A. **nRF** firmware 1.8.17. **GNSS** was at
+  115200 baud (found by the auto-baud probe), not 921600. **eMMC**: `MT3204`,
+  3.6 GB, one FAT volume without a partition table.
+* **Panel init**: `mg_panel_st7789_init()` (@ `0x420322b8`) sends the
+  C606's sequence byte for byte (`11`, `36`, `3A`, `B2 0C 0C 00 33 33`,
+  `B7 74`, `BB 1E`, `C0 2C`, `C2 01`, `C3 10`, `C4 20`, `C6 0F`, `D0 A4 A1`,
+  the C606 `E0` / `E1` gamma, `E9 11 11 03`, `21`, `29`, `2C`; tables at
+  `0x3c373718`); the C606 Pro's gamma tables are not in the image. With it
+  text looks crisper than with the `c606pro` init (by eye; contrast and
+  viewing angle about the same).
+* **Display**: transflective. With the backlight forced off (GPIO45
+  switched from LEDC to a low GPIO over JTAG) the *light* theme stays
+  readable under a phone light at a steep angle; the dark theme looks black.
+  Not yet judged in daylight.
+* **RTC**: the nRF reported a valid time 79 min behind UTC (the unit had
+  never been activated with the app). `utc_now()` now corrects the RTC from
+  GPS once there is a fix (checked with `devcon.py sim`, not yet with a real
+  fix); writing the nRF RTC is not implemented yet. A ride started before
+  the first fix keeps the RTC's time base, so its FIT file is off by the same
+  amount.
+* **Dumping the flash**: `esptool read-flash` with the stub fails reliably
+  at sector 0x5BE000 ("Packet content transfer stopped"); read that sector
+  with `--no-stub` and the rest in pieces. `verify-flash` against the dump
+  then differs only in `nvs`, which the running firmware rewrites.
+* **Serial gotcha**: opening the port with DTR/RTS deasserted (e.g. pyserial
+  `dtr=False, rts=False` before `open()`) resets the S3, because DTR drops
+  while RTS is still high. Open with the defaults to attach to a running
+  device.

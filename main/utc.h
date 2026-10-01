@@ -3,7 +3,7 @@
 #include <stdbool.h>
 
 /* Wall-clock time (UTC). Sources, best first: the nRF's RTC (streamed at
- * 5 Hz once its power-on gesture happened, see README), then the GPS date
+ * 5 Hz once its power-on gesture happened, see docs/USER_GUIDE.md), then the GPS date
  * and time from RMC. Either is carried forward with the ESP timer between
  * updates. */
 

@@ -30,6 +30,20 @@ Unzip, switch the device on, then in the unzipped directory:
 python flash_poc.py -p /dev/ttyACM0          # Windows: -p COM5, macOS: -p /dev/cu.usbmodemXXXX
 ```
 
+No esptool on the host? On Linux the ESP-IDF container has it; pass the
+serial port through (`keep-groups` keeps your `dialout` access,
+`label=disable` lets it past SELinux):
+
+```sh
+podman run --rm --device /dev/ttyACM0 --group-add keep-groups \
+    --security-opt label=disable -v "$PWD:/project:Z" -w /project \
+    docker.io/espressif/idf:v5.4.2 python flash_poc.py -p /dev/ttyACM0
+```
+
+(With `docker run` drop `--group-add keep-groups`, which is podman-only.) The backups land in the current
+directory. From the source tree use `tools/flash_poc.py`, which picks the
+image from `build/` (or `build-<board>/` with `--board`).
+
 The helper
 
 1. reads the partition table from the device and prints it,
@@ -52,6 +66,7 @@ all 16 MB instead of just the two partitions; `--no-backup` skips the backup
 * Keys (C606): **0** = next page, hold = power off; **1** = lap; **2** = start
   ride / pause, hold = end ride. C706: **0** = lap, hold = power off; **2** =
   start ride / pause, hold = end ride; **3** / **4** = next / previous page.
+  On the touch screen, swipe left / right for the next / previous page.
   The gear icon on the touch screen opens the
   settings (pages, layouts, fields, sensors, theme, map layers, route…).
 * Rides are recorded as FIT files in `c606oss/` on the eMMC.
@@ -65,8 +80,7 @@ all 16 MB instead of just the two partitions; `--no-backup` skips the backup
   the PC as a removable disk for copying maps, routes and FIT files. The
   serial port is gone while in this mode — eject the disk and tap *Reboot*.
 
-Everything is described in more detail in the project README.
-  On the touch screen, swipe left / right for the next / previous page.
+Everything is described in more detail in the project's docs/USER_GUIDE.md.
 
 ## Back to the vendor firmware
 
