@@ -27,6 +27,8 @@
 #include "route.h"
 #include "nrf_link.h"
 #include "shifting.h"
+#include "config.h"
+#include "theme.h"
 
 static const char *TAG = "devcon";
 
@@ -244,6 +246,21 @@ static void handle(char *cmd)
         char *a = strtok_r(NULL, " ", &save);
         if (a) mapview_zoom_by(atoi(a) - mapview_zoom());
         printf("zoom %u\n", mapview_zoom());
+    } else if (!strcmp(w, "layers")) {   /* map layer mask (hex, bit = mapview layer group) */
+        char *a = strtok_r(NULL, " ", &save);
+        if (a) {
+            config_get()->map_layers = strtoul(a, NULL, 16);
+            config_save();
+        }
+        printf("layers %lx\n", (unsigned long)config_get()->map_layers);
+    } else if (!strcmp(w, "theme")) {   /* switch the theme until the next auto switch / reboot */
+        char *a = strtok_r(NULL, " ", &save);
+        if (a) {
+            ui_lock();
+            theme_set(!strcmp(a, "dark") ? THEME_DARK : THEME_LIGHT);
+            ui_unlock();
+        }
+        printf("theme %s\n", theme_current() == THEME_DARK ? "dark" : "light");
     } else if (!strcmp(w, "put")) {
         char *a = strtok_r(NULL, " ", &save), *b = strtok_r(NULL, " ", &save);
         if (a && b) cmd_put(a, atol(b));

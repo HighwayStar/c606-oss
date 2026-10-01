@@ -87,7 +87,9 @@ saves a screenshot, `... ls` lists the ride files and `... get
 mode), `... put local.gpx /sdcard/c606oss/routes/x.gpx` copies a file to the
 card (e.g. a route), `... mv a b` renames a file on the card, `... pos 55.03 82.92` centres
 the map page on a position without a GPS fix (`pos` alone: back to the GPS),
-`... zoom 13` sets the map zoom, `... shift 2 3 2 11` feeds a synthetic ANT+
+`... zoom 13` sets the map zoom, `... layers 3ffff` sets the map layer mask
+(hex, bit = layer group in `mapview.c`, saved), `... theme light` / `dark`
+switches the theme until the next reboot or auto switch, `... shift 2 3 2 11` feeds a synthetic ANT+
 shifting page (front gear 2 of 2, rear 3 of 11; `shift off` forgets the
 drivetrain), `... di2 2 3 65` and `... di2 speeds 2 11` do the same for the
 Di2 pages, `... sim 55.03 82.92 45 30 60` simulates a

@@ -120,9 +120,17 @@ key 1 = down, key 0 = select; selecting the back arrow goes back):
   and time zone). Applied at once when switched on; picking a theme by
   hand switches it off again.
 * *Map layers*: a toggle per road class (motorway/trunk, primary, …,
-  track, cycleway), water, coastline and "other" — switched-off layers
-  are skipped before their coordinates are even decoded, so a
-  roads-only map renders a little faster, never slower.
+  track, cycleway), water, coastline, "other", land use, parks / forest
+  and buildings — switched-off layers are skipped before their
+  coordinates are even decoded, so a roads-only map renders faster.
+  *Fill areas* paints closed water, land use, park and building
+  polygons in colour (off: outlines only). Footways and paths are only drawn from
+  zoom 14 on, buildings from zoom 15 (skipped before decoding, which
+  halves the points read at zoom 13). The vendor's maps only carry
+  roads and water; official Mapsforge maps have the rest. On a city
+  centre with an official map (C606, zoom 15) a filled view takes
+  ≈ 240 ms, ≈ 190 ms at zoom 13; filling itself is ≈ 40 ms of that,
+  the rest is reading and drawing the ways.
 * *Route*: one of the `.gpx` files in `/sdcard/c606oss/routes/` (the
   loaded one is ticked, "rev." when reversed; the settings row shows its length) or
   the first row — *None*, which becomes *Unload route* while a route is
