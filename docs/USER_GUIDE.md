@@ -167,6 +167,27 @@ key 1 = down, key 0 = select; selecting the back arrow goes back):
   confirmation: everything back to the firmware defaults), *Debug log*,
   *About*.
 
+## Wi-Fi / GPS time assistance
+
+Settings → Wi-Fi / GPS time connects to a **2.4 GHz** network to obtain UTC
+from NTP and send it to the Airoha GNSS receiver. Tap the SSID and password
+fields to use the touch keyboard; its checkmark closes it. Tap *Sync GPS
+time* to start. An empty password selects an open network. Successful
+connection credentials are remembered separately from the vendor settings.
+
+The screen reports connection, NTP and receiver acknowledgement separately.
+*GPS accepted UTC* means the receiver acknowledged the time, **not** that
+it has a position fix. Wi-Fi stops after the attempt; it does not connect
+automatically on boot. A fresh network time reference also corrects the
+displayed clock for up to six hours, with a fresh GPS fix taking precedence.
+
+This is **time assistance only**: no EPO ephemerides are downloaded and no
+reference location is injected. It may reduce time to first fix but still
+needs satellite reception outdoors. Networks with a captive portal are not
+supported. NTP requires working DNS and Internet access to UDP port 123.
+Allow up to 25 seconds to connect and 30 seconds for NTP. On failure, check
+the network details and retry; GPS continues to operate independently.
+
 ## Debug log
 
 Settings → System → Debug log (off by default) writes everything the

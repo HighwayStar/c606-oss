@@ -27,6 +27,7 @@
  *                         "Use as route" (the ride becomes the map's route), Delete
  *     Reset statistics
  *     System           -> USB storage, Power off, Reset settings (confirm), Debug log (toggle), About
+ *     Wi-Fi / GPS time -> network credentials, one-shot SNTP and receiver UTC aid
  *
  * Screens are stacked; each one is a full-screen object on the top layer
  * with a header (back arrow + title). List screens share one implementation
@@ -53,6 +54,7 @@
 #include "ant.h"
 #include "health.h"
 #include "dbglog.h"
+#include "wifi_aid.h"
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -1122,9 +1124,102 @@ static void system_open(void)
     update_hl(s);
 }
 
+/* ---- one-shot Wi-Fi / GNSS time aid ------------------------------------ */
+static lv_obj_t *s_wifi_ssid, *s_wifi_password, *s_wifi_keyboard, *s_wifi_status;
+
+static void wifi_focus(lv_event_t *e)
+{
+    lv_keyboard_set_textarea(s_wifi_keyboard, lv_event_get_target_obj(e));
+    lv_obj_set_hidden(s_wifi_keyboard, false);
+}
+
+static void wifi_keyboard_done(lv_event_t *e)
+{
+    lv_keyboard_set_textarea(s_wifi_keyboard, NULL);
+    lv_obj_set_hidden(s_wifi_keyboard, true);
+}
+
+static void wifi_refresh(screen_t *s)
+{
+    char text[160];
+    wifi_aid_status(text, sizeof text);
+    lv_label_set_text(s_wifi_status, text);
+}
+
+static void wifi_connect_click(lv_event_t *e)
+{
+    esp_err_t err = wifi_aid_start(lv_textarea_get_text(s_wifi_ssid), lv_textarea_get_text(s_wifi_password));
+    if (err != ESP_OK) {
+        lv_label_set_text(s_wifi_status, err == ESP_ERR_INVALID_ARG ?
+            "SSID: 1-32 bytes. Password: 8-63 bytes (or empty for open Wi-Fi)." :
+            err == ESP_ERR_INVALID_STATE ? "Already syncing; please wait." : "Not enough memory.");
+        /* Keep validation errors visible, but let an in-flight sync update. */
+        top()->live = err == ESP_ERR_INVALID_STATE;
+    } else {
+        top()->live = true;
+        lv_label_set_text(s_wifi_status, "Starting Wi-Fi...");
+    }
+}
+
+static void wifi_close(screen_t *s)
+{
+    s_wifi_ssid = s_wifi_password = s_wifi_keyboard = s_wifi_status = NULL;
+}
+
+static void wifi_key(screen_t *s, uint8_t key)
+{
+    if (key == KEY_MENU_SELECT) pop(); /* keyboard text entry uses touch */
+}
+
+static void wifi_open(void)
+{
+    screen_t *s = push("Wi-Fi / GPS time");
+    if (!s) return;
+    s->key_cb = wifi_key;
+    s->close_cb = wifi_close;
+    s->refresh_cb = wifi_refresh;
+    s->live = true;
+    char ssid[33], password[65];
+    wifi_aid_load(ssid, password);
+    s_wifi_ssid = lv_textarea_create(s->root);
+    lv_obj_set_pos(s_wifi_ssid, 6, HDR_H + 5);
+    lv_obj_set_size(s_wifi_ssid, LCD_H_RES - 12, 40);
+    lv_textarea_set_one_line(s_wifi_ssid, true);
+    lv_textarea_set_max_length(s_wifi_ssid, 32);
+    lv_textarea_set_placeholder_text(s_wifi_ssid, "Wi-Fi name (SSID)");
+    lv_textarea_set_text(s_wifi_ssid, ssid);
+    s_wifi_password = lv_textarea_create(s->root);
+    lv_obj_set_pos(s_wifi_password, 6, HDR_H + 50);
+    lv_obj_set_size(s_wifi_password, LCD_H_RES - 12, 40);
+    lv_textarea_set_one_line(s_wifi_password, true);
+    lv_textarea_set_max_length(s_wifi_password, 64);
+    lv_textarea_set_password_mode(s_wifi_password, true);
+    lv_textarea_set_placeholder_text(s_wifi_password, "Password");
+    lv_textarea_set_text(s_wifi_password, password);
+    memset(password, 0, sizeof password);
+    lv_obj_t *button = lv_button_create(s->root);
+    lv_obj_set_pos(button, 6, HDR_H + 97);
+    lv_obj_set_size(button, LCD_H_RES - 12, 38);
+    lv_obj_center(label(button, &lv_font_montserrat_14, lv_color_white(), "Sync GPS time"));
+    lv_obj_add_event_cb(button, wifi_connect_click, LV_EVENT_CLICKED, NULL);
+    s_wifi_status = label(s->root, &lv_font_montserrat_14, C_FG, "");
+    lv_obj_set_pos(s_wifi_status, 8, HDR_H + 145);
+    lv_obj_set_width(s_wifi_status, LCD_H_RES - 16);
+    lv_label_set_long_mode(s_wifi_status, LV_LABEL_LONG_WRAP);
+    s_wifi_keyboard = lv_keyboard_create(s->root);
+    lv_obj_set_size(s_wifi_keyboard, LCD_H_RES, 145);
+    lv_obj_align(s_wifi_keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_hidden(s_wifi_keyboard, true);
+    lv_obj_add_event_cb(s_wifi_ssid, wifi_focus, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(s_wifi_password, wifi_focus, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(s_wifi_keyboard, wifi_keyboard_done, LV_EVENT_READY, NULL);
+    lv_obj_add_event_cb(s_wifi_keyboard, wifi_keyboard_done, LV_EVENT_CANCEL, NULL);
+    wifi_refresh(s);
+}
+
 /* ---- settings root ----------------------------------------------------- */
 enum { ROOT_PAGES, ROOT_SENSORS, ROOT_PROFILE, ROOT_LAP, ROOT_AUTOPAUSE, ROOT_BACKLIGHT, ROOT_TZ, ROOT_THEME, ROOT_AUTOTHEME,
-       ROOT_LAYERS, ROOT_ROUTE, ROOT_HISTORY, ROOT_RESET, ROOT_SYSTEM };
+       ROOT_LAYERS, ROOT_ROUTE, ROOT_HISTORY, ROOT_RESET, ROOT_SYSTEM, ROOT_WIFI };
 
 /* ---- route: GPX files in /sdcard/c606oss/routes ------------------------ */
 
@@ -1628,6 +1723,9 @@ static void settings_select(screen_t *s, int idx)
     case ROOT_SYSTEM:
         system_open();
         break;
+    case ROOT_WIFI:
+        wifi_open();
+        break;
     default:
         break;
     }
@@ -1679,6 +1777,7 @@ void menu_open(void)
     add_item(s, "History", ITEM_ARROW, NULL, false);
     add_item(s, "Reset statistics", ITEM_PLAIN, NULL, false);
     add_item(s, "System", ITEM_ARROW, NULL, false);
+    add_item(s, "Wi-Fi / GPS time", ITEM_ARROW, NULL, false);
     s->sel = 0;
     update_hl(s);
     s_timer = lv_timer_create(timer_cb, 500, NULL);

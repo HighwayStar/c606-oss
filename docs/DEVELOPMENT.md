@@ -101,6 +101,34 @@ GPS back to the receiver), and `... script "key 0 1" "sleep 0.5" "shot
 a.png"` chains them (the device log keeps printing during `sleep`). Useful for
 exercising the UI without touching the device.
 
+## Wi-Fi / GNSS time assistance
+
+`main/wifi_aid.c` runs a one-shot station connection and SNTP in a worker
+task, then queues a PAIR590 reference-time command to the GPS task. Only
+the GPS task writes that command to the receiver UART. The worker reports
+success only after a `$PAIR001,590,0` acknowledgement; timeouts and rejected
+commands are surfaced to the settings screen. Wi-Fi stops after each attempt.
+
+Credentials use NVS namespace `c606wifi`; the Wi-Fi driver uses RAM storage.
+The existing `app_cfg_t` layout is unchanged. This implements UTC assistance,
+not EPO download or position assistance. The format is documented in the
+Quectel LC26G/LC76G/LC86G AGNSS Application Note (PAIR590), on the same Airoha
+AG3352 platform, and appears in the vendor driver described in HARDWARE.md.
+
+Run the host-side protocol tests without ESP-IDF or hardware:
+
+```sh
+sh tools/test_gps_aid.sh
+SANITIZE=1 sh tools/test_gps_aid.sh   # GCC/Clang ASan and UBSan
+```
+
+They check a published PAIR590 example, timezone independence, leap-day
+rollover and buffer bounds. For a receiver integration test, send
+`gps-time <current Unix UTC seconds>` on the developer console from a
+time-synchronized host. Expect `GPS_TIME ESP_OK` only on an actual receiver
+acknowledgement; this command does not inject simulated NMEA coordinates.
+Network association, NTP and outdoor acquisition time require hardware tests.
+
 ## FIT files
 
 A ride is written to `/sdcard/c606oss/<local date-time>.fit` by `main/tracklog.c` on top
@@ -167,6 +195,8 @@ tools/devcon.py    host side of the developer console
 main/backlight.c   LEDC PWM
 main/nrf_link.c    UART framing, CRC16, TX helpers, key decoding
 main/gps.c         UART0 NMEA reader with baud probing
+main/gps_aid_protocol.c PAIR590 UTC frame formatting and checksum
+main/wifi_aid.c    one-shot Wi-Fi / SNTP and GNSS time assistance
 main/sdcard.c      eMMC mount (SDMMC 4-bit)
 main/tracklog.c    ride recorder: FIT activity file (records, laps, session)
 main/fit.c         minimal FIT encoder (definitions, data messages, CRC)

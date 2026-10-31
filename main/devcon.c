@@ -300,6 +300,13 @@ static void handle(char *cmd)
         char *a = strtok_r(NULL, " ", &save), *b = strtok_r(NULL, " ", &save);
         if (a && b) printf(rename(a, b) == 0 ? "ok\n" : "mv failed\n");
         else printf("mv failed\n");
+    } else if (!strcmp(w, "gps-time")) { /* real receiver UTC aid; never simulated NMEA */
+        char *a = strtok_r(NULL, " ", &save);
+        char *end = NULL;
+        unsigned long stamp = a ? strtoul(a, &end, 10) : 0;
+        if (!a || end == a || *end || stamp < 1704067200 || stamp > UINT32_MAX)
+            printf("gps-time: expected current UTC Unix seconds\n");
+        else printf("GPS_TIME %s\n", esp_err_to_name(gps_assist_utc((uint32_t)stamp)));
     } else if (!strcmp(w, "nmea")) {  /* simulated GPS: one sentence, or "nmea off" */
         char *a = strtok_r(NULL, " ", &save);
         if (a && !strcmp(a, "off")) { gps_simulate(false); printf("ok\n"); }
