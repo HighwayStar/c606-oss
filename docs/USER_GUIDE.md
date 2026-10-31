@@ -271,6 +271,12 @@ receiver has a fix.
 
 ## Maps
 
+The header shows latitude and longitude on two compact lines, for example
+`N60.0038` / `E030.2442`. N/S and E/W identify the hemisphere. Coordinates
+are blanked when the GPS fix is invalid or stale, and their clipped area
+never overlaps the settings button or battery. Render statistics remain
+developer diagnostics rather than map-header text.
+
 The map page reads the vendor's vector maps (`MAP/*.map` on the eMMC —
 plain Mapsforge binary files, see [HARDWARE.md](HARDWARE.md)) and draws the
 roads around the GPS position; +/− zoom buttons (zoom 10–17), scale bar,
