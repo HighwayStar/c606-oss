@@ -21,6 +21,7 @@
 #include "menu.h"
 #include "theme.h"
 #include "mapview.h"
+#include "map_header.h"
 #include "l10n.h"
 #include "ui_fonts.h"
 
@@ -251,7 +252,19 @@ static void gear_button(lv_obj_t *hdr)
     lv_obj_center(l);
 }
 
-/* Map page: header with the render status, the map canvas below (mapview.c). */
+static void layout_map_header(void)
+{
+    /* Measure the translated title: Russian and English have different
+     * widths. Reserve four pixels on either side of the coordinate area;
+     * the gear button starts 84 pixels from the right edge. */
+    lv_obj_update_layout(s_map_title);
+    int left = lv_obj_get_x(s_map_title) + lv_obj_get_width(s_map_title) + 4;
+    int width = LCD_H_RES - 88 - left;
+    lv_obj_set_width(s_map_status, width > 0 ? width : 1);
+    lv_obj_align(s_map_status, LV_ALIGN_LEFT_MID, left, 0);
+}
+
+/* Map page: clipped two-line coordinates, with dedicated gear/battery space. */
 static void build_map(lv_obj_t *scr)
 {
     s_page_map = page(scr);
@@ -265,13 +278,16 @@ static void build_map(lv_obj_t *scr)
     s_map_title = t;
     lv_label_set_text(t, tr("Map"));
     lv_obj_align(t, LV_ALIGN_LEFT_MID, 6, 0);
-    s_map_status = label(hdr, &lv_font_montserrat_14, lv_color_white());
+    s_map_status = label(hdr, &lv_font_unscii_8, lv_color_white());
     lv_label_set_text(s_map_status, "");
-    lv_obj_align(s_map_status, LV_ALIGN_LEFT_MID, 62, 0);
+    lv_label_set_long_mode(s_map_status, LV_LABEL_LONG_CLIP);
+    lv_obj_set_style_text_align(s_map_status, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_line_space(s_map_status, 3, 0);
     s_data_bat[PAGE_MAP] = label(hdr, &lv_font_montserrat_14, lv_color_white());
     lv_label_set_text(s_data_bat[PAGE_MAP], "--%");
     lv_obj_align(s_data_bat[PAGE_MAP], LV_ALIGN_RIGHT_MID, -6, 0);
     gear_button(hdr);
+    layout_map_header();
     /* the strip is built first so the map widgets end up above it */
     datapage_build(&s_dp_map, s_page_map, &config_get()->map_page, 0, HDR_H, LCD_H_RES, LCD_V_RES - HDR_H);
     mapview_create(s_page_map, HDR_H, LCD_H_RES, LCD_V_RES - HDR_H);
@@ -377,7 +393,13 @@ static void data_refresh_cb(lv_timer_t *t)
         lv_label_set_text(s_idle_clock, buf);
         idle_sun_refresh();
     } else if (s_page_idx == PAGE_MAP) {
-        lv_label_set_text(s_map_status, tr(mapview_status()));
+        gps_fix_t fix;
+        gps_get(&fix);
+        uint32_t now = esp_timer_get_time() / 1000;
+        char coordinates[24];
+        map_header_format(coordinates, sizeof coordinates, fix.lat, fix.lon,
+                          fix.valid && now - fix.last_rx_ms < 3000);
+        lv_label_set_text(s_map_status, coordinates);
         datapage_refresh(&s_dp_map);
     } else if (s_page_idx >= PAGE_FIRST_DATA && s_page_idx < s_npages) {
         datapage_refresh(&s_dp[s_dp_of_page[s_page_idx]]);
@@ -476,6 +498,7 @@ static void on_menu_closed(void)
         lv_label_set_text(lv_obj_get_child(s_btn_start, 0), tr(LV_SYMBOL_PLAY "  START RIDE"));
         lv_label_set_text_fmt(s_idle_hint, tr("key %d: start ride   key %d: status"), KEY_RIDE, KEY_NEXT_PAGE);
         lv_label_set_text(s_map_title, tr("Map"));
+        layout_map_header();
         for (int i = 0; i < NUM_KEYS; i++)
             lv_label_set_text_fmt(lv_obj_get_child(s_key[i], 0), tr("key %d"), i);
         gps_fix_t g;
