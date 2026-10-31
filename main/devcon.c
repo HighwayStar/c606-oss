@@ -50,23 +50,55 @@ void devcon_mirror(int x1, int y1, int x2, int y2, const void *px)
     }
 }
 
-static void write_all(const char *s, size_t n)
+static bool write_all(const char *s, size_t n)
 {
     while (n) {
-        int w = usb_serial_jtag_write_bytes(s, n, pdMS_TO_TICKS(2000));
-        if (w <= 0) return;   /* host went away */
+        if (!usb_serial_jtag_is_connected()) return false;
+        int w = usb_serial_jtag_write_bytes(s, n, pdMS_TO_TICKS(250));
+        if (w <= 0) return false;
         s += w;
         n -= w;
     }
+    return true;
+}
+
+/* Interruptible input: fgets(stdin) can remain blocked forever after
+ * unplugging USB, leaving an upload open. A zero idle timeout means wait
+ * for interactive input, but still return promptly when the host leaves. */
+static bool read_line(char *line, size_t size, uint32_t idle_ms)
+{
+    size_t n = 0;
+    bool overflow = false;
+    int64_t last_rx = esp_timer_get_time();
+    while (usb_serial_jtag_is_connected()) {
+        char c;
+        if (usb_serial_jtag_read_bytes(&c, 1, pdMS_TO_TICKS(100)) != 1) {
+            if (idle_ms && esp_timer_get_time() - last_rx > (int64_t)idle_ms * 1000) return false;
+            continue;
+        }
+        last_rx = esp_timer_get_time();
+        if (c == '\r') continue;
+        if (c == '\n') {
+            line[n] = 0;
+            return !overflow;
+        }
+        if (n + 1 < size) line[n++] = c;
+        else overflow = true;
+    }
+    /* Discard an interrupted command, never execute its tail on reconnect. */
+    char discarded[64];
+    while (usb_serial_jtag_read_bytes(discarded, sizeof discarded, 0) > 0) {}
+    return false;
 }
 
 static void cmd_shot(void)
 {
+    if (!s_frame) { printf("SHOT_ERR no framebuffer\n"); return; }
     static const char hex[] = "0123456789abcdef";
     static char line[LCD_H_RES * 4 + 3];
     char hdr[32];
     int n = snprintf(hdr, sizeof hdr, "SHOT %d %d\n", LCD_H_RES, LCD_V_RES);
-    write_all(hdr, n);
+    if (!write_all(hdr, n)) return;
     for (int y = 0; y < LCD_V_RES; y++) {
         const uint8_t *row = (const uint8_t *)&s_frame[y * LCD_H_RES];
         char *p = line;
@@ -76,7 +108,7 @@ static void cmd_shot(void)
             *p++ = hex[row[i] & 15];
         }
         *p++ = '\n';
-        write_all(line, p - line);
+        if (!write_all(line, p - line)) return;
     }
     write_all("SHOT_END\n", 9);
 }
@@ -180,12 +212,14 @@ static void cmd_get(const char *path)
         return;
     }
     struct stat st;
-    stat(path, &st);
+    if (fstat(fileno(f), &st) != 0) { fclose(f); printf("FILE_END stat failed\n"); return; }
     char hdr[32];
     int n = snprintf(hdr, sizeof hdr, "FILE %ld\n", (long)st.st_size);
-    write_all(hdr, n);
-    size_t r;
-    while ((r = fread(buf, 1, sizeof buf, f)) > 0) {
+    if (!write_all(hdr, n)) { fclose(f); return; }
+    size_t remaining = st.st_size;
+    while (remaining) {
+        size_t r = fread(buf, 1, remaining < sizeof buf ? remaining : sizeof buf, f);
+        if (!r) { fclose(f); write_all("FILE_END short read\n", 20); return; }
         char *p = line;
         *p++ = 'F';
         for (size_t i = 0; i < r; i++) {
@@ -193,7 +227,8 @@ static void cmd_get(const char *path)
             *p++ = hex[buf[i] & 15];
         }
         *p++ = '\n';
-        write_all(line, p - line);
+        if (!write_all(line, p - line)) { fclose(f); return; }
+        remaining -= r; /* snapshot size: live debug logs may keep growing */
     }
     fclose(f);
     write_all("FILE_END\n", 9);
@@ -213,9 +248,10 @@ static void cmd_put(const char *path, long size)
     static char line[1100];
     long got = 0;
     bool ok = true;
-    while (fgets(line, sizeof line, stdin)) {
+    bool ended = false;
+    while (read_line(line, sizeof line, 5000)) {
         line[strcspn(line, "\r\n")] = 0;
-        if (!strcmp(line, "PUT_END")) break;
+        if (!strcmp(line, "PUT_END")) { ended = true; break; }
         if (line[0] != 'F') continue;
         for (const char *h = line + 1; h[0] && h[1]; h += 2) {
             char b[3] = { h[0], h[1], 0 };
@@ -226,7 +262,7 @@ static void cmd_put(const char *path, long size)
         printf("PUT_ACK\n");   /* the host sends the next line only now (512-byte RX ring) */
     }
     fclose(f);
-    if (ok && got == size) printf("PUT_OK %ld\n", got);
+    if (ok && ended && got == size) printf("PUT_OK %ld\n", got);
     else printf("PUT_ERR got %ld of %ld\n", got, size);
 }
 
@@ -375,7 +411,7 @@ static void devcon_task(void *arg)
 {
     char line[320];
     for (;;) {
-        if (fgets(line, sizeof line, stdin)) {
+        if (read_line(line, sizeof line, 0)) {
             line[strcspn(line, "\r\n")] = 0;
             handle(line);
         } else {

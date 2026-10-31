@@ -16,6 +16,7 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_app_desc.h"
+#include "driver/usb_serial_jtag.h"
 
 #include "board.h"
 #include "sdcard.h"
@@ -64,7 +65,10 @@ static int log_hook(const char *fmt, va_list ap)
 {
     va_list ap2;
     va_copy(ap2, ap);
-    int ret = s_prev ? s_prev(fmt, ap) : vprintf(fmt, ap);
+    /* A missing host must never back-pressure GPS/nRF/UI logging. Keep
+     * recording to eMMC below even when the console cable is unplugged. */
+    int ret = 0;
+    if (usb_serial_jtag_is_connected()) ret = s_prev ? s_prev(fmt, ap) : vprintf(fmt, ap);
     if (s_on && s_ring && !xPortInIsrContext() && xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
         /* short timeout: a logging task must never stall on the file system */
         if (xSemaphoreTake(s_ring_mtx, pdMS_TO_TICKS(20)) == pdTRUE) {
@@ -111,6 +115,8 @@ static const char *reset_reason(void)
     case ESP_RST_WDT:      return "watchdog";
     case ESP_RST_BROWNOUT: return "brownout";
     case ESP_RST_DEEPSLEEP: return "deep sleep";
+    case ESP_RST_USB:       return "USB reset";
+    case ESP_RST_JTAG:      return "JTAG reset";
     default:               return "other";
     }
 }

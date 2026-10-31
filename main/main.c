@@ -48,6 +48,7 @@
 #include "l10n.h"
 #include "esp_system.h"
 #include "tinyusb.h"
+#include "driver/usb_serial_jtag.h"
 
 static const char *TAG = "main";
 
@@ -330,8 +331,15 @@ void app_main(void)
     uint32_t last_pwr_ms = 0;
     bool first = true;
     bool sensors_started = false;
+    bool usb_connected = usb_serial_jtag_is_connected();
     for (;;) {
         uint32_t now = esp_timer_get_time() / 1000;
+        bool connected = usb_serial_jtag_is_connected();
+        if (connected != usb_connected) {
+            usb_connected = connected;
+            ESP_LOGI(TAG, "USB console %s; uptime %lu s (no power action)",
+                     connected ? "connected" : "disconnected", (unsigned long)(now / 1000));
+        }
 
         /* vendor boot: SendQuerySlaveModeCmd once, then SendPowerOnCmd every
          * second until the nRF acknowledges (state INIT_QUERY) */
