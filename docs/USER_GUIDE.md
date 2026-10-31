@@ -328,6 +328,15 @@ descent, laps (`main/fitread.c`, a small tolerant FIT reader) — and can be
 
 ## Troubleshooting
 
+**Unplugging the USB cable in normal mode** does not request power-off or
+restart. Console logging is skipped when the USB host is absent, while the
+on-device debug log continues. Interrupted developer-console transfers are
+aborted and their file handles closed. If the screen still blacks out,
+enable Debug log and reconnect: the log records USB connection changes,
+uptime and reset causes (including USB/JTAG, watchdog and brownout). A loss
+of battery power or a coprocessor reset needs separate diagnosis; do not
+assume a dark screen proves the ESP32 restarted.
+
 **Temperature / pressure show `--.-` after flashing?** The nRF only streams
 its IMU/baro data after the power key has been *held* (its power-on gesture).
 An esptool or software reset skips that, so hold key 0 once and cancel the
