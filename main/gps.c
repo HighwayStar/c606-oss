@@ -23,6 +23,7 @@
 #include "board.h"
 #include "gps.h"
 #include "gps_aid_protocol.h"
+#include "epo.h"
 
 static const char *TAG = "gps";
 
@@ -33,22 +34,23 @@ static void *s_cb_ctx;
 static volatile bool s_simulated;   /* devcon feeds sentences, UART ignored */
 
 /* UTC requests are serialized; only gps_task touches the UART/deadline. */
-typedef struct { uint32_t utc; int64_t sent_us; } time_aid_t;
+typedef struct { uint32_t utc; int64_t sent_us; unsigned command; uint8_t record[72]; } time_aid_t;
 static QueueHandle_t s_aid_queue;
 static SemaphoreHandle_t s_aid_lock;
 static EventGroupHandle_t s_aid_events;
 static int64_t s_aid_deadline; /* owned by gps_task */
+static unsigned s_aid_command;
 #define AID_OK BIT0
 #define AID_ERROR BIT1
 
-esp_err_t gps_assist_utc(uint32_t unix_s)
+static esp_err_t assist(time_aid_t *request)
 {
-    if (!s_aid_queue || unix_s < 1704067200 || s_simulated) return ESP_ERR_INVALID_STATE;
+    if (!s_aid_queue || s_simulated) return ESP_ERR_INVALID_STATE;
     if (xSemaphoreTake(s_aid_lock, 0) != pdTRUE) return ESP_ERR_INVALID_STATE;
     xEventGroupClearBits(s_aid_events, AID_OK | AID_ERROR);
-    time_aid_t request = {unix_s, esp_timer_get_time()};
+    request->sent_us = esp_timer_get_time();
     esp_err_t err = ESP_ERR_TIMEOUT;
-    if (xQueueSend(s_aid_queue, &request, 0) == pdTRUE) {
+    if (xQueueSend(s_aid_queue, request, 0) == pdTRUE) {
         EventBits_t bits = xEventGroupWaitBits(s_aid_events, AID_OK | AID_ERROR,
                                              pdTRUE, pdFALSE, pdMS_TO_TICKS(6000));
         if (bits & AID_OK) err = ESP_OK;
@@ -56,6 +58,21 @@ esp_err_t gps_assist_utc(uint32_t unix_s)
     }
     xSemaphoreGive(s_aid_lock);
     return err;
+}
+
+esp_err_t gps_assist_utc(uint32_t unix_s)
+{
+    if (unix_s < 1704067200) return ESP_ERR_INVALID_ARG;
+    time_aid_t request = { .utc = unix_s, .command = 590 };
+    return assist(&request);
+}
+
+esp_err_t gps_assist_epo(const uint8_t record[72])
+{
+    if (!epo_record_valid(record)) return ESP_ERR_INVALID_ARG;
+    time_aid_t request = { .command = 471 };
+    memcpy(request.record, record, 72);
+    return assist(&request);
 }
 
 /* Run on the UART owner task: never race baud probing or receive handling. */
@@ -68,17 +85,20 @@ static void send_time_aid(void)
         xEventGroupSetBits(s_aid_events, AID_ERROR);
         return;
     }
-    char frame[88];
-    int size = gps_aid_time_frame(request.utc + age / 1000000, frame, sizeof frame);
+    char frame[224];
+    int size = request.command == 590 ?
+        gps_aid_time_frame(request.utc + age / 1000000, frame, sizeof frame) :
+        epo_record_frame(request.record, frame, sizeof frame);
     if (!size) {
         xEventGroupSetBits(s_aid_events, AID_ERROR);
         return;
     }
     s_aid_deadline = esp_timer_get_time() + 4000000;
+    s_aid_command = request.command;
     if (uart_write_bytes(GPS_UART_NUM, frame, size) != size) {
         s_aid_deadline = 0;
         xEventGroupSetBits(s_aid_events, AID_ERROR);
-    } else ESP_LOGI(TAG, "Sent fresh UTC assistance (PAIR590)");
+    } else ESP_LOGI(TAG, "Sent GPS assistance (PAIR%u)", request.command);
 }
 
 /* the board's vendor baud first, then the usual GNSS defaults (C606 opens
@@ -122,9 +142,9 @@ static void parse(char *line, size_t n)
 {
     char *f[24];
     int nf = split(line, f, 24);
-    if (nf >= 3 && !strcmp(f[0], "$PAIR001") && !strcmp(f[1], "590")) {
-        ESP_LOGI(TAG, "PAIR590 acknowledgement: %s", f[2]);
-        if (s_aid_deadline && esp_timer_get_time() <= s_aid_deadline && strcmp(f[2], "1")) {
+    if (nf >= 3 && !strcmp(f[0], "$PAIR001") && (!strcmp(f[1], "590") || !strcmp(f[1], "471"))) {
+        ESP_LOGI(TAG, "PAIR%s acknowledgement: %s", f[1], f[2]);
+        if ((unsigned)atoi(f[1]) == s_aid_command && s_aid_deadline && esp_timer_get_time() <= s_aid_deadline && strcmp(f[2], "1")) {
             xEventGroupSetBits(s_aid_events, !strcmp(f[2], "0") ? AID_OK : AID_ERROR);
             s_aid_deadline = 0;
         }
@@ -207,7 +227,7 @@ static void gps_task(void *arg)
         if (s_aid_deadline && esp_timer_get_time() > s_aid_deadline) {
             s_aid_deadline = 0;
             xEventGroupSetBits(s_aid_events, AID_ERROR);
-            ESP_LOGW(TAG, "No acknowledgement for UTC assistance");
+            ESP_LOGW(TAG, "No acknowledgement for PAIR%u assistance", s_aid_command);
         }
         uint8_t buf[256];
         int n = uart_read_bytes(GPS_UART_NUM, buf, sizeof buf, pdMS_TO_TICKS(100));

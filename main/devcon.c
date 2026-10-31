@@ -27,6 +27,7 @@
 #include "ride.h"
 #include "mapview.h"
 #include "gps.h"
+#include "agnss.h"
 #include "sun.h"
 #include "route.h"
 #include "nrf_link.h"
@@ -307,6 +308,17 @@ static void handle(char *cmd)
         if (!a || end == a || *end || stamp < 1704067200 || stamp > UINT32_MAX)
             printf("gps-time: expected current UTC Unix seconds\n");
         else printf("GPS_TIME %s\n", esp_err_to_name(gps_assist_utc((uint32_t)stamp)));
+    } else if (!strcmp(w, "gps-epo")) { /* real receiver Host EPO from our cache */
+        char *a = strtok_r(NULL, " ", &save), *end = NULL;
+        unsigned long utc = a ? strtoul(a, &end, 10) : 0;
+        if (!a || end == a || *end || utc < 1704067200 || utc > UINT32_MAX) {
+            printf("gps-epo: expected current UTC Unix seconds\n");
+        } else {
+            unsigned accepted;
+            uint32_t expires;
+            esp_err_t err = agnss_apply_cached(utc, &accepted, &expires);
+            printf("GPS_EPO %s %u/32 expires=%lu\n", esp_err_to_name(err), accepted, (unsigned long)expires);
+        }
     } else if (!strcmp(w, "nmea")) {  /* simulated GPS: one sentence, or "nmea off" */
         char *a = strtok_r(NULL, " ", &save);
         if (a && !strcmp(a, "off")) { gps_simulate(false); printf("ok\n"); }

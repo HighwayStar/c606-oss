@@ -39,3 +39,5 @@ void gps_simulate(bool on);
 /* Network task only (blocks up to 6 s). UTC must have just been synchronized.
  * Success means PAIR001,590,0 was received, not that a position is fixed. */
 esp_err_t gps_assist_utc(uint32_t unix_s);
+/* One GPS satellite's 72-byte Host EPO record; waits for PAIR471 ACK. */
+esp_err_t gps_assist_epo(const uint8_t record[72]);

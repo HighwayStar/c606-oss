@@ -110,8 +110,9 @@ success only after a `$PAIR001,590,0` acknowledgement; timeouts and rejected
 commands are surfaced to the settings screen. Wi-Fi stops after each attempt.
 
 Credentials use NVS namespace `c606wifi`; the Wi-Fi driver uses RAM storage.
-The existing `app_cfg_t` layout is unchanged. This implements UTC assistance,
-not EPO download or position assistance. The format is documented in the
+The existing `app_cfg_t` layout is unchanged. The original action implements
+UTC assistance; the additional A-GPS action supplies GPS Host EPO, as described
+in [AGNSS.md](AGNSS.md). Position assistance is not injected. The format is documented in the
 Quectel LC26G/LC76G/LC86G AGNSS Application Note (PAIR590), on the same Airoha
 AG3352 platform, and appears in the vendor driver described in HARDWARE.md.
 
