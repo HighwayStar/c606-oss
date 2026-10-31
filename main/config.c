@@ -11,10 +11,11 @@
 
 #include "config.h"
 #include "fields.h"
+#include "l10n.h"
 
 static const char *TAG = "config";
 #define CFG_MAGIC   0xC606
-#define CFG_VERSION 14
+#define CFG_VERSION 15
 /* keep k_len_by_version in config_load() in sync when appending fields */
 _Static_assert(sizeof(app_cfg_t) == 192, "app_cfg_t layout changed: add its size to k_len_by_version");
 #define NVS_NS      "c606oss"
@@ -103,6 +104,7 @@ static bool valid(const app_cfg_t *c)
 {
     if (c->magic != CFG_MAGIC || c->version != CFG_VERSION) return false;
     if (c->theme > 1) return false;
+    if (c->language >= LANG_COUNT) return false;
     if (c->lap_len_m > CFG_LAP_MAX_M) return false;
     if (c->backlight < 10 || c->backlight > 100) return false;
     if (c->auto_pause > 1) return false;
@@ -155,7 +157,7 @@ void config_load(void)
      * appended) but their length includes the tail padding of that version,
      * so the sizes are listed explicitly. The struct was zeroed before the
      * read; fill in the defaults of the fields the blob does not have. */
-    static const size_t k_len_by_version[] = { 0, 76, 78, 80, 82, 82, 118, 132, 136, 176, 180, 180, 188, 192, 192 };
+    static const size_t k_len_by_version[] = { 0, 76, 78, 80, 82, 82, 118, 132, 136, 176, 180, 180, 188, 192, 192, 192 };
     if (err == ESP_OK && tmp.magic == CFG_MAGIC && tmp.version >= 1 && tmp.version < CFG_VERSION
         && len == k_len_by_version[tmp.version]) {
         if (tmp.version < 2) tmp.theme = 0;
@@ -171,6 +173,7 @@ void config_load(void)
         if (tmp.version < 12) profile_defaults(&tmp);
         if (tmp.version < 13) tmp.bike_kg10 = 100;
         if (tmp.version < 14) tmp.debug_log = 0;
+        if (tmp.version < 15) tmp.language = LANG_EN;
         ESP_LOGI(TAG, "config upgraded from version %u", tmp.version);
         tmp.version = CFG_VERSION;
         len = sizeof tmp;

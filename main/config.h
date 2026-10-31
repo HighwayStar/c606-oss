@@ -53,6 +53,7 @@ typedef struct {
     uint16_t ftp_w;                     /* functional threshold power, 0 = unknown (no power zones) */
     uint16_t bike_kg10;                 /* bike weight in 0.1 kg, for the FIT bike_profile (version 13) */
     uint8_t debug_log;                  /* write the log to /sdcard/c606oss/logs (version 14) */
+    uint8_t language;                   /* language_t, version 15 (uses previous tail padding) */
 } app_cfg_t;
 
 /* Page configs by index; CFG_PAGES = the map page. */

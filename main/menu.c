@@ -55,6 +55,8 @@
 #include "health.h"
 #include "dbglog.h"
 #include "wifi_aid.h"
+#include "l10n.h"
+#include "ui_fonts.h"
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -103,9 +105,9 @@ static void pop(void);
 static lv_obj_t *label(lv_obj_t *parent, const lv_font_t *font, lv_color_t color, const char *txt)
 {
     lv_obj_t *l = lv_label_create(parent);
-    lv_obj_set_style_text_font(l, font, 0);
+    lv_obj_set_style_text_font(l, ui_font(font), 0);
     lv_obj_set_style_text_color(l, color, 0);
-    lv_label_set_text(l, txt);
+    lv_label_set_text(l, tr(txt));
     return l;
 }
 
@@ -132,6 +134,9 @@ static screen_t *push(const char *title)
     lv_obj_set_style_bg_color(hdr, C_HDR, 0);
     lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
     lv_obj_t *t = label(hdr, &lv_font_montserrat_14, lv_color_white(), title);
+    lv_obj_set_width(t, LCD_H_RES - 88);
+    lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(t, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(t, LV_ALIGN_CENTER, 0, 0);
 
     s->back = lv_obj_create(hdr);
@@ -207,6 +212,8 @@ static int add_item(screen_t *s, const char *text, item_kind_t kind, const char 
     s->rows[i] = r;
 
     s->lbl[i] = label(r, &lv_font_montserrat_14, C_FG, text);
+    lv_obj_set_width(s->lbl[i], LCD_H_RES - 20);
+    lv_label_set_long_mode(s->lbl[i], LV_LABEL_LONG_DOT);
     lv_obj_align(s->lbl[i], LV_ALIGN_LEFT_MID, 10, 0);
 
     if (kind == ITEM_TOGGLE) {
@@ -217,8 +224,8 @@ static int add_item(screen_t *s, const char *text, item_kind_t kind, const char 
         lv_obj_set_style_bg_color(s->sw[i], lv_palette_main(LV_PALETTE_GREEN), LV_PART_INDICATOR | LV_STATE_CHECKED);
         if (on) lv_obj_add_state(s->sw[i], LV_STATE_CHECKED);
     } else if (kind == ITEM_ARROW || kind == ITEM_VALUE) {
-        char buf[40];
-        snprintf(buf, sizeof buf, "%s%s%s", right ? right : "", right && kind == ITEM_ARROW ? "  " : "",
+        char buf[96];
+        l10n_format(buf, sizeof buf, "%s%s%s", right ? tr(right) : "", right && kind == ITEM_ARROW ? "  " : "",
                  kind == ITEM_ARROW ? LV_SYMBOL_RIGHT : "");
         s->right[i] = label(r, &lv_font_montserrat_14, C_GREY, buf);
         lv_obj_align(s->right[i], LV_ALIGN_RIGHT_MID, -10, 0);
@@ -233,8 +240,8 @@ static int add_item(screen_t *s, const char *text, item_kind_t kind, const char 
 static void set_right(screen_t *s, int i, const char *right, bool arrow)
 {
     if (!s->right[i]) return;
-    char buf[40];
-    snprintf(buf, sizeof buf, "%s%s%s", right, arrow ? "  " : "", arrow ? LV_SYMBOL_RIGHT : "");
+    char buf[96];
+    l10n_format(buf, sizeof buf, "%s%s%s", tr(right), arrow ? "  " : "", arrow ? LV_SYMBOL_RIGHT : "");
     lv_label_set_text(s->right[i], buf);
 }
 
@@ -301,8 +308,8 @@ static void category_select(screen_t *s, int idx)
 
 static void category_open(int page, int cell)
 {
-    char title[24];
-    snprintf(title, sizeof title, "Cell %d", cell + 1);
+    char title[64];
+    l10n_format(title, sizeof title, "Cell %d", cell + 1);
     screen_t *s = push(title);
     if (!s) return;
     s->page = page; s->cell = cell;
@@ -356,13 +363,13 @@ static void fields_refresh(screen_t *s)
 
 static void page_title(char *buf, size_t n, int page, const char *suffix)
 {
-    if (page == CFG_PAGES) snprintf(buf, n, "Map%s", suffix);
-    else snprintf(buf, n, "Page %d%s", page + 1, suffix);
+    if (page == CFG_PAGES) l10n_format(buf, n, "Map%s", tr(suffix));
+    else l10n_format(buf, n, "Page %d%s", page + 1, tr(suffix));
 }
 
 static void fields_open(int page)
 {
-    char title[24];
+    char title[96];
     page_title(title, sizeof title, page, " fields");
     screen_t *s = push(title);
     if (!s) return;
@@ -411,7 +418,7 @@ static void layout_key(screen_t *s, uint8_t key)
 
 static void layout_open(int page)
 {
-    char title[24];
+    char title[96];
     page_title(title, sizeof title, page, " layout");
     screen_t *s = push(title);
     if (!s) return;
@@ -478,7 +485,7 @@ static void page_select(screen_t *s, int idx)
 
 static void page_open(int page)
 {
-    char title[24];
+    char title[96];
     page_title(title, sizeof title, page, "");
     screen_t *s = push(title);
     if (!s) return;
@@ -518,7 +525,7 @@ static void pages_open(void)
     make_list(s);
     for (int i = 0; i < CFG_PAGES; i++) {
         char t[16];
-        snprintf(t, sizeof t, "Page %d", i + 1);
+        l10n_format(t, sizeof t, "Page %d", i + 1);
         add_item(s, t, ITEM_ARROW, "", false);
     }
     add_item(s, "Map", ITEM_ARROW, "", false);
@@ -589,8 +596,9 @@ static void value_open(const char *title, const value_def_t *def)
     lv_obj_align(round_button(s->root, LV_SYMBOL_MINUS, value_minus_cb), LV_ALIGN_CENTER, -60, 50);
     lv_obj_align(round_button(s->root, LV_SYMBOL_PLUS, value_plus_cb), LV_ALIGN_CENTER, 60, 50);
 
-    lv_obj_t *h = label(s->root, &lv_font_montserrat_14, C_GREY,
-                        "key " KEY_STR(KEY_MENU_UP) ": +   key " KEY_STR(KEY_MENU_DOWN) ": -   key " KEY_STR(KEY_MENU_SELECT) ": back");
+    char hint[128];
+    l10n_format(hint, sizeof hint, "key %d: +   key %d: -   key %d: back", KEY_MENU_UP, KEY_MENU_DOWN, KEY_MENU_SELECT);
+    lv_obj_t *h = label(s->root, &lv_font_montserrat_14, C_GREY, hint);
     lv_obj_add_style(h, &theme_st_muted, 0);
     lv_obj_align(h, LV_ALIGN_BOTTOM_MID, 0, -10);
 
@@ -603,8 +611,8 @@ static void value_open(const char *title, const value_def_t *def)
 static void lap_text(char *buf, size_t n)
 {
     uint16_t m = config_get()->lap_len_m;
-    if (m) snprintf(buf, n, "%u.%u km", m / 1000, m % 1000 / 100);
-    else snprintf(buf, n, "off");
+    if (m) l10n_format(buf, n, "%u.%u km", m / 1000, m % 1000 / 100);
+    else l10n_format(buf, n, "off");
 }
 
 static void lap_step(int dir)
@@ -645,7 +653,7 @@ static void bl_step(int dir)
 
 static void wheel_text(char *buf, size_t n)
 {
-    snprintf(buf, n, "%u mm", config_get()->wheel_mm);
+    l10n_format(buf, n, "%u mm", config_get()->wheel_mm);
 }
 
 static void wheel_step(int dir)
@@ -658,7 +666,7 @@ static void wheel_step(int dir)
 }
 
 /* rider profile */
-static void weight_text(char *buf, size_t n) { snprintf(buf, n, "%u kg", config_get()->weight_kg); }
+static void weight_text(char *buf, size_t n) { l10n_format(buf, n, "%u kg", config_get()->weight_kg); }
 static void weight_step(int dir)
 {
     int v = config_get()->weight_kg + dir;
@@ -666,7 +674,7 @@ static void weight_step(int dir)
     if (v > CFG_WEIGHT_MAX_KG) v = CFG_WEIGHT_MAX_KG;
     config_get()->weight_kg = v;
 }
-static void height_text(char *buf, size_t n) { snprintf(buf, n, "%u cm", config_get()->height_cm); }
+static void height_text(char *buf, size_t n) { l10n_format(buf, n, "%u cm", config_get()->height_cm); }
 static void height_step(int dir)
 {
     int v = config_get()->height_cm + dir;
@@ -677,7 +685,7 @@ static void height_step(int dir)
 static void birth_text(char *buf, size_t n)
 {
     int age = health_age();
-    if (age) snprintf(buf, n, "%u (%d y)", config_get()->birth_year, age);
+    if (age) l10n_format(buf, n, "%u (%d y)", config_get()->birth_year, age);
     else snprintf(buf, n, "%u", config_get()->birth_year);
 }
 static void birth_step(int dir)
@@ -691,8 +699,8 @@ static void birth_step(int dir)
  * auto starts at the estimate so the user only has to correct it */
 static void hr_text(char *buf, size_t n, uint8_t cfg, int est)
 {
-    if (cfg) snprintf(buf, n, "%u bpm", cfg);
-    else snprintf(buf, n, "auto (%d)", est);
+    if (cfg) l10n_format(buf, n, "%u bpm", cfg);
+    else l10n_format(buf, n, "auto (%d)", est);
 }
 static uint8_t hr_step(uint8_t cfg, int est, int dir)
 {
@@ -709,8 +717,8 @@ static void lthr_text(char *buf, size_t n) { hr_text(buf, n, config_get()->lthr,
 static void lthr_step(int dir) { config_get()->lthr = hr_step(config_get()->lthr, health_lthr(), dir); }
 static void ftp_text(char *buf, size_t n)
 {
-    if (config_get()->ftp_w) snprintf(buf, n, "%u W", config_get()->ftp_w);
-    else snprintf(buf, n, "off");
+    if (config_get()->ftp_w) l10n_format(buf, n, "%u W", config_get()->ftp_w);
+    else l10n_format(buf, n, "off");
 }
 static void ftp_step(int dir)
 {
@@ -720,7 +728,7 @@ static void ftp_step(int dir)
     config_get()->ftp_w = v;
 }
 
-static void bike_text(char *buf, size_t n) { snprintf(buf, n, "%u.%u kg", config_get()->bike_kg10 / 10, config_get()->bike_kg10 % 10); }
+static void bike_text(char *buf, size_t n) { l10n_format(buf, n, "%u.%u kg", config_get()->bike_kg10 / 10, config_get()->bike_kg10 % 10); }
 static void bike_step(int dir)
 {
     int v = config_get()->bike_kg10 + dir;
@@ -746,7 +754,7 @@ static const value_def_t k_bl_value  = { bl_text, bl_step };
 
 static void sensor_name(const cfg_sensor_t *e, char *buf, size_t n)
 {
-    snprintf(buf, n, "%s %u", ant_dev_name(e->dev_type), e->dev_num);
+    l10n_format(buf, n, "%s %u", tr(ant_dev_name(e->dev_type)), e->dev_num);
 }
 
 static const char *sensor_status(const cfg_sensor_t *e)
@@ -790,8 +798,8 @@ static void scan_refresh(screen_t *s)
     }
     s_scan_shown = n;
     list_clear(s);
-    char t[40];
-    snprintf(t, sizeof t, "%s  %d found", s_scan_done ? "Scan finished:" : "Scanning...", n);
+    char t[96];
+    l10n_format(t, sizeof t, "%s  %d found", tr(s_scan_done ? "Scan finished:" : "Scanning..."), n);
     add_item(s, t, ITEM_PLAIN, NULL, false);
     lv_obj_set_style_text_color(s->lbl[0], C_GREY, 0);
     for (int i = 0; i < n; i++) {
@@ -863,8 +871,8 @@ static void sensor_open(int idx)
     make_list(s);
     lv_obj_t *h = label(s->root, &lv_font_montserrat_14, C_GREY, "");
     lv_obj_add_style(h, &theme_st_muted, 0);
-    lv_label_set_text_fmt(h, "ANT+ %s\ndevice number %u\ntransmission type %u\nstate: %s",
-                          ant_dev_name(e->dev_type), e->dev_num, e->trans_type, sensor_status(e));
+    lv_label_set_text_fmt(h, tr("ANT+ %s\ndevice number %u\ntransmission type %u\nstate: %s"),
+                          tr(ant_dev_name(e->dev_type)), e->dev_num, e->trans_type, tr(sensor_status(e)));
     lv_obj_set_width(h, LCD_H_RES - 16);
     lv_label_set_long_mode(h, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(h, LV_TEXT_ALIGN_CENTER, 0);
@@ -936,31 +944,31 @@ static void health_open(void)
     lv_obj_set_scroll_dir(box, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_AUTO);
 
-    char txt[640], line[64];
+    char txt[2048], line[128];
     int n = 0;
     const app_cfg_t *c = config_get();
     float bmi = health_bmi();
-    n += snprintf(txt + n, sizeof txt - n, "%s, %u kg, %u cm", c->sex ? "Female" : "Male", c->weight_kg, c->height_cm);
-    if (health_age()) n += snprintf(txt + n, sizeof txt - n, ", %d y", health_age());
-    n += snprintf(txt + n, sizeof txt - n, "\nBMI %.1f (%s)", bmi, health_bmi_class(bmi));
-    if (health_bmr_kcal()) n += snprintf(txt + n, sizeof txt - n, "\nBMR %d kcal/day", health_bmr_kcal());
-    n += snprintf(txt + n, sizeof txt - n, "\nMax HR %d%s, LTHR %d%s\n", health_max_hr(), health_max_hr_auto() ? " (est.)" : "",
-                  health_lthr(), health_lthr_auto() ? " (est.)" : "");
-    n += snprintf(txt + n, sizeof txt - n, "\nHR zones, %% of %s:", c->hr_zone_mode == HRZ_PCT_LTHR ? "LTHR" : "max HR");
+    n += l10n_format(txt + n, sizeof txt - n, "%s, %u kg, %u cm", tr(c->sex ? "Female" : "Male"), c->weight_kg, c->height_cm);
+    if (health_age()) n += l10n_format(txt + n, sizeof txt - n, ", %d y", health_age());
+    n += l10n_format(txt + n, sizeof txt - n, "\nBMI %.1f (%s)", bmi, tr(health_bmi_class(bmi)));
+    if (health_bmr_kcal()) n += l10n_format(txt + n, sizeof txt - n, "\nBMR %d kcal/day", health_bmr_kcal());
+    n += l10n_format(txt + n, sizeof txt - n, "\nMax HR %d%s, LTHR %d%s\n", health_max_hr(), health_max_hr_auto() ? tr(" (est.)") : "",
+                  health_lthr(), health_lthr_auto() ? tr(" (est.)") : "");
+    n += l10n_format(txt + n, sizeof txt - n, "\nHR zones, %% of %s:", c->hr_zone_mode == HRZ_PCT_LTHR ? "LTHR" : tr("max HR"));
     for (int z = 1; z <= HR_ZONES; z++) {
-        if (z < HR_ZONES) snprintf(line, sizeof line, "\n Z%d  %d-%d  %s", z, health_hr_zone_low(z), health_hr_zone_low(z + 1) - 1, k_hr_names[z - 1]);
-        else snprintf(line, sizeof line, "\n Z%d  %d+  %s", z, health_hr_zone_low(z), k_hr_names[z - 1]);
-        n += snprintf(txt + n, sizeof txt - n, "%s", line);
+        if (z < HR_ZONES) l10n_format(line, sizeof line, "\n Z%d  %d-%d  %s", z, health_hr_zone_low(z), health_hr_zone_low(z + 1) - 1, tr(k_hr_names[z - 1]));
+        else l10n_format(line, sizeof line, "\n Z%d  %d+  %s", z, health_hr_zone_low(z), tr(k_hr_names[z - 1]));
+        n += l10n_format(txt + n, sizeof txt - n, "%s", line);
     }
     if (health_pwr_zones_available()) {
-        n += snprintf(txt + n, sizeof txt - n, "\n\nPower zones, FTP %u W:", c->ftp_w);
+        n += l10n_format(txt + n, sizeof txt - n, "\n\nPower zones, FTP %u W:", c->ftp_w);
         for (int z = 1; z <= PWR_ZONES; z++) {
-            if (z < PWR_ZONES) snprintf(line, sizeof line, "\n Z%d  %d-%d  %s", z, health_pwr_zone_low(z), health_pwr_zone_low(z + 1) - 1, k_pwr_names[z - 1]);
-            else snprintf(line, sizeof line, "\n Z%d  %d+  %s", z, health_pwr_zone_low(z), k_pwr_names[z - 1]);
-            n += snprintf(txt + n, sizeof txt - n, "%s", line);
+            if (z < PWR_ZONES) l10n_format(line, sizeof line, "\n Z%d  %d-%d  %s", z, health_pwr_zone_low(z), health_pwr_zone_low(z + 1) - 1, tr(k_pwr_names[z - 1]));
+            else l10n_format(line, sizeof line, "\n Z%d  %d+  %s", z, health_pwr_zone_low(z), tr(k_pwr_names[z - 1]));
+            n += l10n_format(txt + n, sizeof txt - n, "%s", line);
         }
     } else {
-        n += snprintf(txt + n, sizeof txt - n, "\n\nPower zones: set FTP");
+        n += l10n_format(txt + n, sizeof txt - n, "\n\nPower zones: set FTP");
     }
     lv_obj_t *l = label(box, &lv_font_montserrat_14, C_FG, txt);
     lv_obj_add_style(l, &theme_st_text, 0);
@@ -1048,8 +1056,8 @@ static void about_open(void)
     const esp_app_desc_t *d = esp_app_get_description();
     lv_obj_t *l = label(s->root, &lv_font_montserrat_14, C_FG, "");
     lv_obj_add_style(l, &theme_st_text, 0);
-    lv_label_set_text_fmt(l, BOARD_NAME " open firmware\n%s\n\nESP-IDF %s\nbuilt %s\n\nheap %u KB  psram %u KB\nup %lu s",
-                          d->version, d->idf_ver, d->date,
+    lv_label_set_text_fmt(l, tr("%s open firmware\n%s\n\nESP-IDF %s\nbuilt %s\n\nheap %u KB  psram %u KB\nup %lu s"),
+                          BOARD_NAME, d->version, d->idf_ver, d->date,
                           (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
                           (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024),
                           (unsigned long)(esp_timer_get_time() / 1000000));
@@ -1143,21 +1151,21 @@ static void wifi_refresh(screen_t *s)
 {
     char text[160];
     wifi_aid_status(text, sizeof text);
-    lv_label_set_text(s_wifi_status, text);
+    lv_label_set_text(s_wifi_status, tr(text));
 }
 
 static void wifi_connect_click(lv_event_t *e)
 {
     esp_err_t err = wifi_aid_start(lv_textarea_get_text(s_wifi_ssid), lv_textarea_get_text(s_wifi_password));
     if (err != ESP_OK) {
-        lv_label_set_text(s_wifi_status, err == ESP_ERR_INVALID_ARG ?
+        lv_label_set_text(s_wifi_status, tr(err == ESP_ERR_INVALID_ARG ?
             "SSID: 1-32 bytes. Password: 8-63 bytes (or empty for open Wi-Fi)." :
-            err == ESP_ERR_INVALID_STATE ? "Already syncing; please wait." : "Not enough memory.");
+            err == ESP_ERR_INVALID_STATE ? "Already syncing; please wait." : "Not enough memory."));
         /* Keep validation errors visible, but let an in-flight sync update. */
         top()->live = err == ESP_ERR_INVALID_STATE;
     } else {
         top()->live = true;
-        lv_label_set_text(s_wifi_status, "Starting Wi-Fi...");
+        lv_label_set_text(s_wifi_status, tr("Starting Wi-Fi..."));
     }
 }
 
@@ -1186,7 +1194,7 @@ static void wifi_open(void)
     lv_obj_set_size(s_wifi_ssid, LCD_H_RES - 12, 40);
     lv_textarea_set_one_line(s_wifi_ssid, true);
     lv_textarea_set_max_length(s_wifi_ssid, 32);
-    lv_textarea_set_placeholder_text(s_wifi_ssid, "Wi-Fi name (SSID)");
+    lv_textarea_set_placeholder_text(s_wifi_ssid, tr("Wi-Fi name (SSID)"));
     lv_textarea_set_text(s_wifi_ssid, ssid);
     s_wifi_password = lv_textarea_create(s->root);
     lv_obj_set_pos(s_wifi_password, 6, HDR_H + 50);
@@ -1194,7 +1202,7 @@ static void wifi_open(void)
     lv_textarea_set_one_line(s_wifi_password, true);
     lv_textarea_set_max_length(s_wifi_password, 64);
     lv_textarea_set_password_mode(s_wifi_password, true);
-    lv_textarea_set_placeholder_text(s_wifi_password, "Password");
+    lv_textarea_set_placeholder_text(s_wifi_password, tr("Password"));
     lv_textarea_set_text(s_wifi_password, password);
     memset(password, 0, sizeof password);
     lv_obj_t *button = lv_button_create(s->root);
@@ -1217,9 +1225,36 @@ static void wifi_open(void)
     wifi_refresh(s);
 }
 
+static void language_select(screen_t *s, int idx)
+{
+    if (idx < 0 || idx >= LANG_COUNT) return;
+    uint8_t old = config_get()->language;
+    config_get()->language = idx;
+    if (config_save() != ESP_OK) {
+        config_get()->language = old;
+        lv_label_set_text(s->lbl[idx], tr("Language could not be saved"));
+        return;
+    }
+    l10n_set(idx);
+    menu_close();
+    menu_open();
+}
+
+static void language_open(void)
+{
+    screen_t *s = push("Language");
+    if (!s) return;
+    make_list(s);
+    s->select_cb = language_select;
+    for (int i = 0; i < LANG_COUNT; i++)
+        add_item(s, l10n_name(i), ITEM_VALUE, i == l10n_current() ? LV_SYMBOL_OK : "", false);
+    s->sel = l10n_current();
+    update_hl(s);
+}
+
 /* ---- settings root ----------------------------------------------------- */
 enum { ROOT_PAGES, ROOT_SENSORS, ROOT_PROFILE, ROOT_LAP, ROOT_AUTOPAUSE, ROOT_BACKLIGHT, ROOT_TZ, ROOT_THEME, ROOT_AUTOTHEME,
-       ROOT_LAYERS, ROOT_ROUTE, ROOT_HISTORY, ROOT_RESET, ROOT_SYSTEM, ROOT_WIFI };
+       ROOT_LAYERS, ROOT_ROUTE, ROOT_HISTORY, ROOT_RESET, ROOT_SYSTEM, ROOT_WIFI, ROOT_LANGUAGE };
 
 /* ---- route: GPX files in /sdcard/c606oss/routes ------------------------ */
 
@@ -1254,14 +1289,14 @@ static void preview_close(screen_t *s)
 static void preview_update(void)
 {
     char buf[96];
-    int n = snprintf(buf, sizeof buf, "%.1f km   %lu points\n", s_prev.len_m / 1000, (unsigned long)s_prev.npoints);
+    int n = l10n_format(buf, sizeof buf, "%.1f km   %lu points\n", s_prev.len_m / 1000, (unsigned long)s_prev.npoints);
     if (s_prev.has_ele) {
         float up = s_prev_rev ? s_prev.descent_m : s_prev.climb_m;
         float down = s_prev_rev ? s_prev.climb_m : s_prev.descent_m;
         snprintf(buf + n, sizeof buf - n, LV_SYMBOL_UP " %.0f m   " LV_SYMBOL_DOWN " %.0f m   (%.0f-%.0f m)",
                  up, down, s_prev.min_ele_m, s_prev.max_ele_m);
     } else {
-        snprintf(buf + n, sizeof buf - n, "No elevation data");
+        l10n_format(buf + n, sizeof buf - n, "No elevation data");
     }
     lv_label_set_text(s_prev_stats, buf);
     if (s_prev_pts && s_prev.n && s_prev_start) {
@@ -1435,7 +1470,7 @@ static const char *route_text(void)
 {
     static char buf[24];
     if (!route_loaded()) return "none";
-    snprintf(buf, sizeof buf, "%.1f km", route_length_m() / 1000);
+    l10n_format(buf, sizeof buf, "%.1f km", route_length_m() / 1000);
     return buf;
 }
 
@@ -1505,7 +1540,7 @@ static void delete_confirm_open(void)
     make_list(s);
     char buf[96];
     const char *base = strrchr(s_prev_name, '/');
-    snprintf(buf, sizeof buf, "%.40s\nwill be removed from\nthe card for good.", base ? base + 1 : s_prev_name);
+    l10n_format(buf, sizeof buf, "%.40s\nwill be removed from\nthe card for good.", base ? base + 1 : s_prev_name);
     lv_obj_t *h = label(s->root, &lv_font_montserrat_14, C_GREY, buf);
     lv_obj_add_style(h, &theme_st_muted, 0);
     lv_obj_set_style_text_align(h, LV_TEXT_ALIGN_CENTER, 0);
@@ -1549,27 +1584,27 @@ static void ride_open(const history_entry_t *e)
     ride_cell(s->root, 0, "Time", v);
     /* the track length when the file carries no distance (no wheel sensor, no GPS distance) */
     float dist = f->distance_m > 0 ? f->distance_m : s_prev.len_m;
-    snprintf(v, sizeof v, "%.1f km", dist / 1000);
+    l10n_format(v, sizeof v, "%.1f km", dist / 1000);
     ride_cell(s->root, 1, "Distance", v);
-    if (f->avg_speed_ms >= 0) snprintf(v, sizeof v, "%.1f km/h", f->avg_speed_ms * 3.6f); else strcpy(v, "--");
+    if (f->avg_speed_ms >= 0) l10n_format(v, sizeof v, "%.1f km/h", f->avg_speed_ms * 3.6f); else strcpy(v, "--");
     ride_cell(s->root, 2, "Avg spd", v);
-    if (f->max_speed_ms >= 0) snprintf(v, sizeof v, "%.1f km/h", f->max_speed_ms * 3.6f); else strcpy(v, "--");
+    if (f->max_speed_ms >= 0) l10n_format(v, sizeof v, "%.1f km/h", f->max_speed_ms * 3.6f); else strcpy(v, "--");
     ride_cell(s->root, 3, "Max spd", v);
-    if (f->avg_hr >= 0) snprintf(v, sizeof v, "%d bpm", f->avg_hr); else strcpy(v, "--");
+    if (f->avg_hr >= 0) l10n_format(v, sizeof v, "%d bpm", f->avg_hr); else strcpy(v, "--");
     ride_cell(s->root, 4, "Avg HR", v);
-    if (f->max_hr >= 0) snprintf(v, sizeof v, "%d bpm", f->max_hr); else strcpy(v, "--");
+    if (f->max_hr >= 0) l10n_format(v, sizeof v, "%d bpm", f->max_hr); else strcpy(v, "--");
     ride_cell(s->root, 5, "Max HR", v);
-    if (f->avg_cad >= 0) snprintf(v, sizeof v, "%d rpm", f->avg_cad); else strcpy(v, "--");
+    if (f->avg_cad >= 0) l10n_format(v, sizeof v, "%d rpm", f->avg_cad); else strcpy(v, "--");
     ride_cell(s->root, 6, "Cadence", v);
-    if (f->avg_power >= 0) snprintf(v, sizeof v, "%d W", f->avg_power); else strcpy(v, "--");
+    if (f->avg_power >= 0) l10n_format(v, sizeof v, "%d W", f->avg_power); else strcpy(v, "--");
     ride_cell(s->root, 7, "Power", v);
-    if (f->calories >= 0) snprintf(v, sizeof v, "%d kcal", f->calories); else strcpy(v, "--");
+    if (f->calories >= 0) l10n_format(v, sizeof v, "%d kcal", f->calories); else strcpy(v, "--");
     ride_cell(s->root, 8, "Calories", v);
     int up = f->ascent_m >= 0 ? f->ascent_m : s_prev.has_ele ? (int)(s_prev.climb_m + 0.5f) : -1;
     int down = f->descent_m >= 0 ? f->descent_m : s_prev.has_ele ? (int)(s_prev.descent_m + 0.5f) : -1;
-    if (up >= 0) snprintf(v, sizeof v, "%d m", up); else strcpy(v, "--");
+    if (up >= 0) l10n_format(v, sizeof v, "%d m", up); else strcpy(v, "--");
     ride_cell(s->root, 9, "Climb", v);
-    if (down >= 0) snprintf(v, sizeof v, "%d m", down); else strcpy(v, "--");
+    if (down >= 0) l10n_format(v, sizeof v, "%d m", down); else strcpy(v, "--");
     ride_cell(s->root, 10, "Descent", v);
     snprintf(v, sizeof v, "%d", f->laps);
     ride_cell(s->root, 11, "Laps", v);
@@ -1598,7 +1633,7 @@ static void history_fill(screen_t *s)
         add_item(s, buf, ITEM_ARROW, s_hist[i].vendor ? "Magene" : NULL, false);
     }
     if (total > s_nhist) {
-        snprintf(buf, sizeof buf, "%d older not shown", total - s_nhist);
+        l10n_format(buf, sizeof buf, "%d older not shown", total - s_nhist);
         add_item(s, buf, ITEM_PLAIN, NULL, false);
     }
     if (!s_nhist) {
@@ -1726,6 +1761,9 @@ static void settings_select(screen_t *s, int idx)
     case ROOT_WIFI:
         wifi_open();
         break;
+    case ROOT_LANGUAGE:
+        language_open();
+        break;
     default:
         break;
     }
@@ -1778,6 +1816,7 @@ void menu_open(void)
     add_item(s, "Reset statistics", ITEM_PLAIN, NULL, false);
     add_item(s, "System", ITEM_ARROW, NULL, false);
     add_item(s, "Wi-Fi / GPS time", ITEM_ARROW, NULL, false);
+    add_item(s, "Language", ITEM_ARROW, l10n_name(l10n_current()), false);
     s->sel = 0;
     update_hl(s);
     s_timer = lv_timer_create(timer_cb, 500, NULL);

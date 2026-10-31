@@ -148,6 +148,11 @@ without data carry the FIT "invalid" value — this is everything the
 vendor's own files carry except the ClimbPro events and the sensors'
 manufacturer / battery details.
 
+## Localization
+
+English/Russian translation, Cyrillic fonts, config migration and host tests
+are described in [LOCALIZATION.md](LOCALIZATION.md).
+
 ## Configuration storage
 
 The configuration lives in the NVS partition, namespace `c606oss` (the
