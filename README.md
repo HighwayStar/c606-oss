@@ -50,6 +50,10 @@ More in the [screenshot gallery](docs/SCREENSHOTS.md).
 
 The images are not interchangeable — use the one for your device.
 
+See [the compatibility review](docs/COMPATIBILITY.md) for the custom
+features, build checks and per-model verification limits. When several
+model images are present, select one with `flash_poc.py --board <board>`.
+
 ## Getting started
 
 1. Get a release zip for your device (or [build one](docs/DEVELOPMENT.md)).
