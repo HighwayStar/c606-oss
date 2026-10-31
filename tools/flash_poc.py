@@ -25,11 +25,18 @@ def default_app(board=None):
     """<board>_oss.bin next to this script (release zip) or in the source tree's
     build dir (build/ for the C606, build-<board>/ otherwise)."""
     here = os.path.dirname(os.path.abspath(__file__))
+    found = {}
     for b in ([board] if board else BOARDS):
         bdir = "build" if b == "c606" else f"build-{b}"
         for c in (os.path.join(here, f"{b}_oss.bin"), os.path.join(here, "..", bdir, f"{b}_oss.bin"), f"{bdir}/{b}_oss.bin"):
             if os.path.exists(c):
-                return c
+                found[b] = c
+                break
+    if len(found) > 1:
+        raise ValueError("Images for multiple boards found (" + ", ".join(found) +
+                         "). Select --board or --app explicitly.")
+    if found:
+        return next(iter(found.values()))
     b = board or "c606"
     return f"{'build' if b == 'c606' else 'build-' + b}/{b}_oss.bin"
 
@@ -58,7 +65,7 @@ def parse_parttable(data):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-p", "--port", required=True)
-    ap.add_argument("--board", choices=BOARDS, help="which image to look for (default: the first one found)")
+    ap.add_argument("--board", choices=BOARDS, help="which image to look for (required when images for multiple boards exist)")
     ap.add_argument("--app", help="firmware image (default: <board>_oss.bin next to this script or in the build dir)")
     ap.add_argument("--no-backup", action="store_true")
     ap.add_argument("--full-backup", action="store_true", help="dump the whole flash instead of just ota_0/otadata")
@@ -67,7 +74,10 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
 
-    img = a.restore or a.app or default_app(a.board)
+    try:
+        img = a.restore or a.app or default_app(a.board)
+    except ValueError as err:
+        ap.error(str(err))
     if not os.path.exists(img):
         sys.exit(f"{img} not found (build first, or keep <board>_oss.bin next to this script)")
 

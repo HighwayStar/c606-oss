@@ -217,6 +217,8 @@ static int add_item(screen_t *s, const char *text, item_kind_t kind, const char 
     lv_obj_align(s->lbl[i], LV_ALIGN_LEFT_MID, 10, 0);
 
     if (kind == ITEM_TOGGLE) {
+        /* Leave the same 8 px gap used for right-hand value labels. */
+        lv_obj_set_width(s->lbl[i], LCD_H_RES - 28 - 44);
         s->sw[i] = lv_switch_create(r);
         lv_obj_set_size(s->sw[i], 44, 22);
         lv_obj_align(s->sw[i], LV_ALIGN_RIGHT_MID, -10, 0);
