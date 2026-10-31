@@ -19,6 +19,7 @@
 #include "touch.h"
 #include "ui_port.h"
 #include "devcon.h"
+#include "ui_fonts.h"
 
 static const char *TAG = "ui_port";
 
@@ -155,10 +156,13 @@ esp_err_t ui_port_init(void)
     ESP_RETURN_ON_FALSE(buf1 && buf2, ESP_ERR_NO_MEM, TAG, "draw buffers");
 
     lv_init();
+    ui_fonts_init();
     lv_tick_set_cb(tick_cb);
 
     s_disp = lv_display_create(LCD_H_RES, LCD_V_RES);
     ESP_RETURN_ON_FALSE(s_disp, ESP_FAIL, TAG, "display");
+    lv_obj_set_style_text_font(lv_layer_top(), ui_font(&lv_font_montserrat_14), 0);
+    lv_obj_set_style_text_font(lv_screen_active(), ui_font(&lv_font_montserrat_14), 0);
     lv_display_set_color_format(s_disp, LV_COLOR_FORMAT_RGB565);
     lv_display_set_buffers(s_disp, buf1, buf2, LCD_MAX_TRANSFER, LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_flush_cb(s_disp, flush_cb);

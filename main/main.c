@@ -45,6 +45,7 @@
 #include "trail.h"
 #include "utc.h"
 #include "dbglog.h"
+#include "l10n.h"
 #include "esp_system.h"
 #include "tinyusb.h"
 
@@ -89,7 +90,7 @@ static void manual_lap(void)
     char msg[16];
     if (ride_mode() == RIDE_IDLE) return;
     uint32_t n = trip_lap_manual();
-    snprintf(msg, sizeof msg, "LAP %lu", (unsigned long)n);
+    l10n_format(msg, sizeof msg, "LAP %lu", (unsigned long)n);
     ui_toast(msg);
 }
 
@@ -296,8 +297,9 @@ void app_main(void)
     touch_init();                        /* optional: logs and continues if absent */
     stats_init();
     health_init();
-    fields_init();
     config_load();                       /* NVS; defaults if nothing saved */
+    l10n_set(config_get()->language);
+    fields_init();
     dbglog_init(config_get()->debug_log);   /* log to the eMMC when enabled (System menu) */
     sun_init();                          /* last GPS position for sunrise / sunset */
     devcon_init(inject_key);             /* dev console on the USB port; mirrors the screen from the first frame */

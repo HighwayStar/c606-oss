@@ -3,6 +3,7 @@
 #include "wifi_aid.h"
 #include "gps.h"
 #include "utc.h"
+#include "l10n.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,9 +36,14 @@ static void status(const char *text)
 
 void wifi_aid_status(char *out, size_t size)
 {
+    char snapshot[sizeof s_status];
     taskENTER_CRITICAL(&s_mux);
-    snprintf(out, size, "%s", s_status);
+    memcpy(snapshot, s_status, sizeof snapshot);
     taskEXIT_CRITICAL(&s_mux);
+    const char *prefix = "Wi-Fi/time error: ";
+    if (!strncmp(snapshot, prefix, strlen(prefix)))
+        l10n_format(out, size, "Wi-Fi/time error: %s", snapshot + strlen(prefix));
+    else l10n_format(out, size, "%s", tr(snapshot));
 }
 
 void wifi_aid_load(char ssid[33], char password[65])

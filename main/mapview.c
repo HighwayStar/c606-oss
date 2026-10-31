@@ -21,6 +21,8 @@
 #include "config.h"
 #include "route.h"
 #include "trail.h"
+#include "l10n.h"
+#include "ui_fonts.h"
 
 static const char *TAG = "mapview";
 
@@ -690,8 +692,8 @@ static void scale_bar_update(double lat, uint8_t zoom)
     int px = (int)(m / mpp);
     s_scale_pts[1].x = px;
     lv_line_set_points(s_scale_line, s_scale_pts, 2);
-    if (m >= 1000) lv_label_set_text_fmt(s_scale_lbl, "%d km", m / 1000);
-    else lv_label_set_text_fmt(s_scale_lbl, "%d m", m);
+    if (m >= 1000) lv_label_set_text_fmt(s_scale_lbl, tr("%d km"), m / 1000);
+    else lv_label_set_text_fmt(s_scale_lbl, tr("%d m"), m);
 }
 
 static void zoom_in_cb(lv_event_t *e) { mapview_zoom_by(1); }
@@ -707,7 +709,7 @@ static lv_obj_t *zoom_button(lv_obj_t *parent, const char *txt, lv_event_cb_t cb
     lv_obj_set_style_radius(b, 8, 0);
     lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *l = lv_label_create(b);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(l, ui_font(&lv_font_montserrat_20), 0);
     lv_obj_set_style_text_color(l, lv_color_white(), 0);
     lv_label_set_text(l, txt);
     lv_obj_center(l);
@@ -773,9 +775,11 @@ lv_obj_t *mapview_create(lv_obj_t *parent, int32_t y, int32_t w, int32_t h)
     lv_obj_set_clickable(s_marker, false);
 
     s_nomap = lv_label_create(parent);
-    lv_obj_set_style_text_font(s_nomap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(s_nomap, ui_font(&lv_font_montserrat_14), 0);
     lv_obj_add_style(s_nomap, &theme_st_muted, 0);
-    lv_label_set_text(s_nomap, s_nmaps || route_loaded() ? "Waiting for a GPS fix" : "No maps in " MAP_DIR);
+    lv_label_set_text(s_nomap, tr(s_nmaps || route_loaded() ? "Waiting for a GPS fix" : "No maps in " MAP_DIR));
+    lv_obj_set_width(s_nomap, LCD_H_RES - 16);
+    lv_obj_set_style_text_align(s_nomap, LV_TEXT_ALIGN_CENTER, 0);
 
     s_btn_in = zoom_button(parent, LV_SYMBOL_PLUS, zoom_in_cb, 0, 0);
     s_btn_out = zoom_button(parent, LV_SYMBOL_MINUS, zoom_out_cb, 0, 0);
@@ -790,7 +794,7 @@ lv_obj_t *mapview_create(lv_obj_t *parent, int32_t y, int32_t w, int32_t h)
     lv_obj_set_style_line_color(s_scale_line, theme_colors()->fg, 0);
     lv_obj_set_clickable(s_scale_line, false);
     s_scale_lbl = lv_label_create(parent);
-    lv_obj_set_style_text_font(s_scale_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(s_scale_lbl, ui_font(&lv_font_montserrat_14), 0);
     lv_obj_add_style(s_scale_lbl, &theme_st_text, 0);
     lv_label_set_text(s_scale_lbl, "");
     place_widgets();
@@ -899,7 +903,7 @@ esp_err_t mapview_init(void)
     closedir(d);
     if (s_nomap && s_nmaps) {
         ui_lock();
-        lv_label_set_text(s_nomap, "Waiting for a GPS fix");
+        lv_label_set_text(s_nomap, tr("Waiting for a GPS fix"));
         ui_unlock();
     }
     return s_nmaps ? ESP_OK : ESP_ERR_NOT_FOUND;

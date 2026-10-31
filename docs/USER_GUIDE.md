@@ -167,6 +167,15 @@ key 1 = down, key 0 = select; selecting the back arrow goes back):
   confirmation: everything back to the firmware defaults), *Debug log*,
   *About*.
 
+## Language
+
+Settings → Language selects **English** or **Русский**. The choice is saved
+immediately and survives a restart. In Russian, the return path is
+**Настройки → Язык → English**. Existing settings and recorded rides are
+preserved. Main controls and data pages switch without restarting the ride;
+live status messages update as new data arrives. Diagnostic logs remain in
+English. Cyrillic fonts are included in the app image.
+
 ## Wi-Fi / GPS time assistance
 
 Settings → Wi-Fi / GPS time connects to a **2.4 GHz** network to obtain UTC

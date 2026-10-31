@@ -15,8 +15,9 @@
 #include "route.h"
 #include "health.h"
 #include "shifting.h"
+#include "l10n.h"
 
-static char s_name[FIELD_COUNT][24];
+static char s_name[FIELD_COUNT][64];
 static uint8_t s_batt_pct;
 static bool s_batt_valid;
 
@@ -76,11 +77,11 @@ void fields_init(void)
 {
     for (int s = 0; s < STAT_COUNT; s++) {
         for (int a = 0; a < AGG_COUNT; a++) {
-            snprintf(s_name[FIELD_STAT(s, a)], sizeof s_name[0], "%s%s", k_agg_prefix[a], stats_info(s)->name);
+            l10n_format(s_name[FIELD_STAT(s, a)], sizeof s_name[0], "%s%s", tr(k_agg_prefix[a]), tr(stats_info(s)->name));
         }
     }
     for (size_t i = 0; i < N_OTHER; i++) {
-        strncpy(s_name[k_other[i].id], k_other[i].name, sizeof s_name[0] - 1);
+        l10n_format(s_name[k_other[i].id], sizeof s_name[0], "%s", tr(k_other[i].name));
     }
 }
 
@@ -92,10 +93,10 @@ const char *field_name(field_id_t id)
 const char *field_unit(field_id_t id)
 {
     if (id >= FIELD_STAT_BASE && id < FIELD_STAT_END) {
-        return stats_info((id - FIELD_STAT_BASE) / AGG_COUNT)->unit;
+        return tr(stats_info((id - FIELD_STAT_BASE) / AGG_COUNT)->unit);
     }
     int i = other_idx(id);
-    return i >= 0 ? k_other[i].unit : "";
+    return i >= 0 ? tr(k_other[i].unit) : "";
 }
 
 void fields_set_battery_pct(uint8_t pct)
@@ -132,8 +133,8 @@ void field_fmt_sun(bool rise, char *buf, size_t n)
         snprintf(buf, n, "--:--");
         return;
     }
-    if (s.polar_day)   { snprintf(buf, n, "24h");  return; }
-    if (s.polar_night) { snprintf(buf, n, "none"); return; }
+    if (s.polar_day)   { l10n_format(buf, n, "24h");  return; }
+    if (s.polar_night) { l10n_format(buf, n, "none"); return; }
     int32_t local = (int32_t)((rise ? s.rise_unix : s.set_unix) % 86400) + config_get()->tz_min * 60;
     local %= 86400;
     if (local < 0) local += 86400;
@@ -146,8 +147,8 @@ static void fmt_sunset_in(char *buf, size_t n)
     sun_times_t s;
     uint32_t now;
     if (!sun_today(&s) || !utc_now(&now)) { snprintf(buf, n, "--:--"); return; }
-    if (s.polar_day)   { snprintf(buf, n, "24h");  return; }
-    if (s.polar_night) { snprintf(buf, n, "none"); return; }
+    if (s.polar_day)   { l10n_format(buf, n, "24h");  return; }
+    if (s.polar_night) { l10n_format(buf, n, "none"); return; }
     if (now >= s.set_unix) { snprintf(buf, n, "--"); return; }
     uint32_t left = (s.set_unix - now + 30) / 60;   /* minutes, rounded */
     snprintf(buf, n, "%lu:%02lu", (unsigned long)(left / 60), (unsigned long)(left % 60));
@@ -187,7 +188,8 @@ void field_value(field_id_t id, char *buf, size_t n)
         static const char *k_dir[] = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" };
         gps_fix_t g;
         gps_get(&g);
-        if (g.valid && g.speed_kmh > 2.0f) snprintf(buf, n, "%s", k_dir[((int)(g.course_deg + 22.5f) / 45) & 7]);
+        static const char *k_dir_ru[] = { "С", "СВ", "В", "ЮВ", "Ю", "ЮЗ", "З", "СЗ" };
+        if (g.valid && g.speed_kmh > 2.0f) l10n_format(buf, n, "%s", (l10n_current() == LANG_RU ? k_dir_ru : k_dir)[((int)(g.course_deg + 22.5f) / 45) & 7]);
         else snprintf(buf, n, "--");
         break;
     }
@@ -287,7 +289,7 @@ void field_value(field_id_t id, char *buf, size_t n)
         shifting_get(&g);
         if (g.batt_valid && g.batt_pct) snprintf(buf, n, "%u%%", g.batt_pct);     /* Di2 */
         else if (g.batt_valid && g.batt_v > 0) snprintf(buf, n, "%.1fV", g.batt_v);
-        else snprintf(buf, n, "%s", shifting_batt_text());
+        else l10n_format(buf, n, "%s", tr(shifting_batt_text()));
         break;
     }
     default:
@@ -305,13 +307,13 @@ int field_category_count(void)
 
 const char *field_category_name(int cat)
 {
-    if (cat < STAT_COUNT) return stats_info(cat)->name;
+    if (cat < STAT_COUNT) return tr(stats_info(cat)->name);
     switch (cat - STAT_COUNT) {
-    case 0: return "Distance";
-    case 1: return "Lap";
-    case 2: return "Health";
-    case 3: return "Gears";
-    default: return "Other";
+    case 0: return tr("Distance");
+    case 1: return tr("Lap");
+    case 2: return tr("Health");
+    case 3: return tr("Gears");
+    default: return tr("Other");
     }
 }
 

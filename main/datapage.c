@@ -2,6 +2,8 @@
 #include "datapage.h"
 #include "fields.h"
 #include "theme.h"
+#include "ui_fonts.h"
+#include "l10n.h"
 
 #define C_HL (theme_colors()->sel)
 
@@ -29,9 +31,9 @@ static const lv_font_t *pick_font(int w, int h, int len, int unit_len)
     int avail_h = h - NAME_H - 2;
     int avail_w = w - 6 - (unit_len ? unit_len * 9 + 2 : 0);
     for (int i = 0; i < 4; i++) {
-        if (sizes[i] + 6 <= avail_h && len * sizes[i] * 62 / 100 <= avail_w) return fonts[i];
+        if (sizes[i] + 6 <= avail_h && len * sizes[i] * 62 / 100 <= avail_w) return ui_font(fonts[i]);
     }
-    return &lv_font_montserrat_14;
+    return ui_font(&lv_font_montserrat_14);
 }
 
 void datapage_delete(datapage_t *dp)
@@ -76,9 +78,9 @@ void datapage_build(datapage_t *dp, lv_obj_t *parent, const page_cfg_t *cfg, int
         lv_obj_set_style_border_width(ph, 1, 0);
         lv_obj_set_clickable(ph, false);
         lv_obj_t *t = lv_label_create(ph);
-        lv_obj_set_style_text_font(t, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(t, ui_font(&lv_font_montserrat_20), 0);
         lv_obj_add_style(t, &theme_st_muted, 0);
-        lv_label_set_text(t, "Map");
+        lv_label_set_text(t, tr("Map"));
         lv_obj_center(t);
     }
 
@@ -102,11 +104,11 @@ void datapage_build(datapage_t *dp, lv_obj_t *parent, const page_cfg_t *cfg, int
 
         field_id_t f = cfg->field[i];
         lv_obj_t *n = lv_label_create(box);
-        lv_obj_set_style_text_font(n, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(n, ui_font(&lv_font_montserrat_14), 0);
         lv_obj_add_style(n, &theme_st_muted, 0);
         if (f == FIELD_NONE) lv_obj_set_style_text_opa(n, LV_OPA_50, 0);
         lv_label_set_text(n, field_name(f));
-        lv_label_set_long_mode(n, LV_LABEL_LONG_CLIP);
+        lv_label_set_long_mode(n, LV_LABEL_LONG_DOT);
         lv_obj_set_width(n, cw - 4);
         lv_obj_set_style_text_align(n, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_align(n, LV_ALIGN_TOP_MID, 0, 1);
@@ -128,7 +130,7 @@ void datapage_build(datapage_t *dp, lv_obj_t *parent, const page_cfg_t *cfg, int
         dp->cell[i].val = v;
 
         lv_obj_t *u = lv_label_create(row);
-        lv_obj_set_style_text_font(u, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(u, ui_font(&lv_font_montserrat_14), 0);
         lv_obj_add_style(u, &theme_st_muted, 0);
         lv_label_set_text(u, field_unit(f));
         lv_obj_set_style_translate_y(u, 3, 0);   /* sit on the digits' baseline */
@@ -140,6 +142,13 @@ void datapage_build(datapage_t *dp, lv_obj_t *parent, const page_cfg_t *cfg, int
     datapage_refresh(dp);
 }
 
+static int text_length(const char *s)
+{
+    int n = 0;
+    for (; *s; s++) if (((unsigned char)*s & 0xc0) != 0x80) n++;
+    return n;
+}
+
 void datapage_refresh(datapage_t *dp)
 {
     char buf[24];
@@ -148,7 +157,7 @@ void datapage_refresh(datapage_t *dp)
         field_value(f, buf, sizeof buf);
         if (strcmp(buf, dp->cell[i].last) == 0) continue;
         strcpy(dp->cell[i].last, buf);
-        const lv_font_t *font = pick_font(dp->cell[i].w, dp->cell[i].h, strlen(buf), strlen(field_unit(f)));
+        const lv_font_t *font = pick_font(dp->cell[i].w, dp->cell[i].h, text_length(buf), text_length(field_unit(f)));
         if (font != dp->cell[i].font) {
             dp->cell[i].font = font;
             lv_obj_set_style_text_font(dp->cell[i].val, font, 0);
