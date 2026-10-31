@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Magene C606 — c606-oss quick start / Краткая инструкция</title>
+<style>
+  @page { size: A4 portrait; margin: 9mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: #172432; font: 9.4pt/1.15 Arial, "DejaVu Sans", sans-serif; }
+  main { max-width: 192mm; margin: auto; }
+  header { border-bottom: 2pt solid #17618b; padding: 0 0 2mm; margin-bottom: 3mm; }
+  h1 { margin: 0 0 1mm; color: #124565; font-size: 19pt; letter-spacing: -.3pt; }
+  header p { margin: 0; color: #52616e; font-size: 9pt; }
+  .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; }
+  .language { margin: 0 0 2mm; color: #124565; font-size: 12pt; }
+  h3 { font-size: 10.5pt; color: #124565; margin: 1.7mm 0 1mm; }
+  p { margin: 0 0 .8mm; }
+  ul, ol { padding-left: 4.5mm; margin: 0; }
+  li { margin: 0 0 1mm; }
+  b { font-weight: 700; }
+  code { font: 9pt Consolas, "DejaVu Sans Mono", monospace; overflow-wrap: anywhere; }
+  table { width: 100%; border-collapse: collapse; font-size: 8.6pt; }
+  td { padding: 1mm; vertical-align: top; border-bottom: .5pt solid #d5dee4; }
+  td:first-child { width: 29%; font-weight: bold; }
+  .tip { background: #eef4f7; border-left: 2pt solid #17618b; padding: 2mm; margin-top: 3mm; }
+  footer { margin-top: 2mm; padding-top: 1mm; border-top: .5pt solid #9cabb5; color: #52616e; font-size: 7.5pt; }
+  section { break-inside: avoid; }
+  @media screen { body { background: #e8edf0; padding: 10mm; } main { background: white; padding: 11mm; max-width: 210mm; box-shadow: 0 2mm 8mm #bcc8d0; } }
+  @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
+</style>
+</head>
+<body><main>
+<header>
+  <h1>Magene C606 · c606-oss</h1>
+  <p>Quick start / Краткая инструкция · English + Русский · Wi-Fi / A-GPS / auto zoom</p>
+</header>
+<div class="columns">
+<article lang="en">
+  <h2 class="language">English</h2>
+  <section><h3>1 · Controls</h3>
+    <p>Swipe left/right to change pages. Tap <b>⚙</b> for Settings.</p>
+    <table aria-label="Button controls">
+      <tr><td>Power (0)</td><td>Press: next page. Hold: power-off dialog; press again to confirm.</td></tr>
+      <tr><td>Lap (1)</td><td>Press during a ride: new lap.</td></tr>
+      <tr><td>Ride (2)</td><td>Press: start / pause / resume.<br>Hold: end-ride dialog; confirm to save.</td></tr>
+    </table>
+    <p>Menus: <b>2</b> up · <b>1</b> down · <b>0</b> select. Select the back arrow to return.</p>
+  </section>
+  <section><h3>2 · Before your first ride</h3>
+    <ul>
+      <li><b>Settings → Language:</b> English / Русский.</li>
+      <li><b>Profile:</b> set weight, age and training values. Set your <b>Time zone</b>.</li>
+      <li>Take the device outdoors, screen upwards, with a clear view of the sky. Wait for a <b>GPS fix</b>. Satellite count means <b>used / in view</b>.</li>
+    </ul>
+  </section>
+  <section><h3>3 · Ride and save</h3>
+    <p>Tap <b>START RIDE</b> or press 2. Swipe through data pages and the map. Auto pause can stop the timer while stationary. Hold 2 and confirm <b>End</b> to save; see <b>Settings → History</b>.</p>
+    <p><b>Settings → Pages</b> changes layouts and fields.</p>
+  </section>
+  <section><h3>4 · Maps and zoom</h3>
+    <p>The header shows latitude / longitude; N/S/E/W are hemispheres. Without a fix, the map may be blank.</p>
+    <p>Starts at maximum detail. <b>Auto map zoom</b> zooms out as speed rises. <b>+ / −</b> override it for one minute. Disable the option for manual control.</p>
+  </section>
+  <section><h3>5 · Sensors and A-GPS</h3>
+    <p>Wake the sensor, then <b>Sensors → Add sensor</b>. Choose the result; expect <b>ok</b> and live values. <b>Wheel</b> sets circumference. Supported sensors use <b>ANT+</b>, not Bluetooth-only.</p>
+    <p><b>Wi-Fi / GPS time:</b> enter a 2.4 GHz network. <b>Update A-GPS</b> downloads ephemerides; wait for <b>32 EPO records accepted</b>. Repeat after receiver power loss when needed. Wi-Fi stops afterwards. <b>Sync GPS time</b> sends time only.</p>
+  </section>
+  <section><h3>6 · Copy files by USB</h3>
+    <p><b>Settings → System → USB storage</b>. Copy on the computer; safely eject, then tap <b>Reboot</b>.</p>
+    <ul>
+      <li>Mapsforge v3–v5 <code>.map</code> (&lt; 2 GiB each) → <code>MAP/</code></li>
+      <li><code>.gpx</code> → <code>c606oss/routes/</code>; select under <b>Route</b>.</li>
+      <li>Recorded <code>.fit</code> files: <code>c606oss/</code></li>
+    </ul>
+  </section>
+  <div class="tip"><b>Trouble?</b> Enable <b>System → Debug log</b> before reproducing it; logs are in <code>c606oss/logs/</code>. If frozen, hold all three buttons for a hardware reset. A-GPS still needs satellite reception outdoors.</div>
+</article>
+<article lang="ru">
+  <h2 class="language">Русский</h2>
+  <section><h3>1 · Управление</h3>
+    <p>Листайте экраны влево/вправо. Кнопка <b>⚙</b> открывает настройки.</p>
+    <table aria-label="Управление кнопками">
+      <tr><td>Питание (0)</td><td>Нажать: следующий экран. Удержать: диалог выключения; нажать снова для подтверждения.</td></tr>
+      <tr><td>Круг (1)</td><td>Нажать во время поездки: новый круг.</td></tr>
+      <tr><td>Старт (2)</td><td>Нажать: старт / пауза / продолжить.<br>Удержать: завершение; подтвердить сохранение.</td></tr>
+    </table>
+    <p>Меню: <b>2</b> вверх · <b>1</b> вниз · <b>0</b> выбрать. Для возврата выберите стрелку «назад».</p>
+  </section>
+  <section><h3>2 · Перед первой поездкой</h3>
+    <ul>
+      <li><b>Настройки → Язык:</b> Русский / English.</li>
+      <li><b>Профиль:</b> задайте вес, возраст и тренировочные параметры. Укажите <b>Часовой пояс</b>.</li>
+      <li>Выйдите под открытое небо, держите экран вверх. Дождитесь <b>позиции GPS</b>. Число спутников: <b>используются / видны</b>.</li>
+    </ul>
+  </section>
+  <section><h3>3 · Запись поездки</h3>
+    <p>Нажмите <b>ПОЕХАЛИ</b> или кнопку 2. Листайте экраны данных и карту. Автопауза останавливает таймер на стоянке. Удержите 2 и подтвердите <b>Завершить</b>. Запись появится в <b>Настройки → История</b>.</p>
+    <p><b>Настройки → Экраны:</b> макеты и поля данных.</p>
+  </section>
+  <section><h3>4 · Карта и масштаб</h3>
+    <p>Вверху — широта / долгота; N/S/E/W — стороны света. Без позиции GPS карта может быть пустой.</p>
+    <p>Начальный масштаб — максимальное приближение. <b>Автомасштаб карты</b> отдаляет её с ростом скорости. <b>+ / −</b> приостанавливают автомасштаб на минуту. Отключите опцию для ручного управления.</p>
+  </section>
+  <section><h3>5 · Датчики и A-GPS</h3>
+    <p>Разбудите датчик: <b>Датчики → Добавить датчик</b>. Выберите его; проверьте <b>ОК</b> и показания. <b>Колесо</b> — окружность. Нужен <b>ANT+</b>; датчики только с Bluetooth не поддерживаются.</p>
+    <p><b>Wi-Fi / время GPS:</b> введите сеть 2,4 ГГц. <b>Обновить A-GPS</b> загружает эфемериды; дождитесь <b>«GPS принял 32 записи EPO»</b>. При необходимости повторите после полного выключения. Wi-Fi затем отключится. <b>Обновить время GPS</b> передаёт только время.</p>
+  </section>
+  <section><h3>6 · Файлы через USB</h3>
+    <p><b>Настройки → Система → USB-накопитель</b>. Скопируйте файлы, безопасно извлеките диск и нажмите <b>Перезагрузка</b>.</p>
+    <ul>
+      <li>Mapsforge v3–v5 <code>.map</code> (&lt; 2 ГиБ каждый) → <code>MAP/</code></li>
+      <li><code>.gpx</code> → <code>c606oss/routes/</code>; выбрать в <b>Маршрут</b>.</li>
+      <li>Записи <code>.fit</code> находятся в <code>c606oss/</code>.</li>
+    </ul>
+  </section>
+  <div class="tip"><b>Проблема?</b> Включите <b>Система → Журнал отладки</b>; файлы — в <code>c606oss/logs/</code>. При зависании удержите все три кнопки для аппаратного сброса. A-GPS не заменяет приём спутников на улице.</div>
+</article>
+</div>
+<footer>Magene C606 · customized c606-oss / доработанная c606-oss · 2026-11-01 · A4, 100% · No browser headers / Без колонтитулов браузера</footer>
+</main></body></html>

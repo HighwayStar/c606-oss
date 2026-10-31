@@ -65,6 +65,7 @@ the coprocessor hard-resets the ESP32 whatever the firmware is doing.
 
 ## Documentation
 
+* [One-page A4 quick start, English / Русский](docs/QUICK_START_A4.pdf) — controls, rides, maps, sensors, A-GPS and USB files. [Editable HTML](docs/QUICK_START_A4.html); print A4 at 100% with browser headers/footers off.
 * [Flashing](docs/FLASHING.md) — install, back up, restore
 * [User guide](docs/USER_GUIDE.md) — keys, pages, fields, settings, maps, routes
 * [Development](docs/DEVELOPMENT.md) — building, targets, developer console, code layout
