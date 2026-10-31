@@ -4,6 +4,7 @@
 #include "gps.h"
 #include "utc.h"
 #include "l10n.h"
+#include "agnss.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,8 +22,8 @@
 static const char *TAG = "wifi_aid";
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 static bool s_busy;
-static char s_status[160] = "2.4 GHz Wi-Fi. Sync time to assist GPS. No EPO download.";
-typedef struct { char ssid[33], password[65]; EventGroupHandle_t events; } job_t;
+static char s_status[160] = "2.4 GHz Wi-Fi. Sync UTC or update A-GPS (GPS EPO).";
+typedef struct { char ssid[33], password[65]; EventGroupHandle_t events; bool epo; } job_t;
 #define GOT_IP BIT0
 #define LOST_LINK BIT1
 
@@ -129,7 +130,14 @@ static void worker(void *arg)
     utc_set_network((uint32_t)now);
     status("UTC synchronized. Waiting for GPS acknowledgement...");
     err = gps_assist_utc((uint32_t)time(NULL));
-    if (err == ESP_OK) status("GPS accepted UTC. Wi-Fi off. Wait outdoors for a fix.");
+    if (err == ESP_OK && j->epo) {
+        unsigned accepted;
+        uint32_t expires;
+        status("Downloading A-GPS and sending GPS EPO...");
+        err = agnss_update(&accepted, &expires);
+        if (err == ESP_OK) status("GPS accepted 32 EPO records. Wi-Fi off. Wait outdoors for a fix.");
+        else status("A-GPS failed. Time was synced. See debug log for details.");
+    } else if (err == ESP_OK) status("GPS accepted UTC. Wi-Fi off. Wait outdoors for a fix.");
     else status("UTC synced, GPS did not confirm time assistance. Wi-Fi off.");
     goto done;
 fail: {
@@ -155,7 +163,7 @@ done:
 #undef TRY
 }
 
-esp_err_t wifi_aid_start(const char *ssid, const char *password)
+static esp_err_t start(const char *ssid, const char *password, bool epo)
 {
     size_t sn = strlen(ssid), pn = strlen(password);
     if (!sn || sn > 32 || pn > 64 || (pn && pn < 8)) return ESP_ERR_INVALID_ARG;
@@ -169,6 +177,7 @@ esp_err_t wifi_aid_start(const char *ssid, const char *password)
     if (j) {
         strcpy(j->ssid, ssid);
         strcpy(j->password, password);
+        j->epo = epo;
         j->events = xEventGroupCreate();
         if (j->events && xTaskCreate(worker, "wifi_aid", 6144, j, 5, NULL) == pdPASS) return ESP_OK;
         if (j->events) vEventGroupDelete(j->events);
@@ -180,3 +189,6 @@ esp_err_t wifi_aid_start(const char *ssid, const char *password)
     taskEXIT_CRITICAL(&s_mux);
     return ESP_ERR_NO_MEM;
 }
+
+esp_err_t wifi_aid_start(const char *ssid, const char *password) { return start(ssid, password, false); }
+esp_err_t wifi_aid_start_epo(const char *ssid, const char *password) { return start(ssid, password, true); }

@@ -1156,7 +1156,9 @@ static void wifi_refresh(screen_t *s)
 
 static void wifi_connect_click(lv_event_t *e)
 {
-    esp_err_t err = wifi_aid_start(lv_textarea_get_text(s_wifi_ssid), lv_textarea_get_text(s_wifi_password));
+    bool epo = lv_event_get_user_data(e) != NULL;
+    esp_err_t err = epo ? wifi_aid_start_epo(lv_textarea_get_text(s_wifi_ssid), lv_textarea_get_text(s_wifi_password)) :
+                          wifi_aid_start(lv_textarea_get_text(s_wifi_ssid), lv_textarea_get_text(s_wifi_password));
     if (err != ESP_OK) {
         lv_label_set_text(s_wifi_status, tr(err == ESP_ERR_INVALID_ARG ?
             "SSID: 1-32 bytes. Password: 8-63 bytes (or empty for open Wi-Fi)." :
@@ -1210,8 +1212,13 @@ static void wifi_open(void)
     lv_obj_set_size(button, LCD_H_RES - 12, 38);
     lv_obj_center(label(button, &lv_font_montserrat_14, lv_color_white(), "Sync GPS time"));
     lv_obj_add_event_cb(button, wifi_connect_click, LV_EVENT_CLICKED, NULL);
+    button = lv_button_create(s->root);
+    lv_obj_set_pos(button, 6, HDR_H + 140);
+    lv_obj_set_size(button, LCD_H_RES - 12, 38);
+    lv_obj_center(label(button, &lv_font_montserrat_14, lv_color_white(), "Update A-GPS"));
+    lv_obj_add_event_cb(button, wifi_connect_click, LV_EVENT_CLICKED, (void *)1);
     s_wifi_status = label(s->root, &lv_font_montserrat_14, C_FG, "");
-    lv_obj_set_pos(s_wifi_status, 8, HDR_H + 145);
+    lv_obj_set_pos(s_wifi_status, 8, HDR_H + 185);
     lv_obj_set_width(s_wifi_status, LCD_H_RES - 16);
     lv_label_set_long_mode(s_wifi_status, LV_LABEL_LONG_WRAP);
     s_wifi_keyboard = lv_keyboard_create(s->root);

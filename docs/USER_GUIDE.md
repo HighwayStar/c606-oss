@@ -190,12 +190,19 @@ it has a position fix. Wi-Fi stops after the attempt; it does not connect
 automatically on boot. A fresh network time reference also corrects the
 displayed clock for up to six hours, with a fresh GPS fix taking precedence.
 
-This is **time assistance only**: no EPO ephemerides are downloaded and no
-reference location is injected. It may reduce time to first fix but still
-needs satellite reception outdoors. Networks with a captive portal are not
-supported. NTP requires working DNS and Internet access to UDP port 123.
-Allow up to 25 seconds to connect and 30 seconds for NTP. On failure, check
-the network details and retry; GPS continues to operate independently.
+*Update A-GPS* additionally downloads the vendor's GPS EPO ephemerides over
+HTTPS and sends the current six-hour set to the receiver. In Russian this is
+*Обновить A-GPS*. Success means all 32 records were acknowledged; it does not
+mean a position fix has been acquired. No reference location is injected.
+The last successful archive is cached in `c606oss/agnss.bin`. Repeat the
+update after receiver power loss when assistance is needed: Host EPO is
+stored in receiver RAM, not its firmware/flash.
+
+Assistance may reduce time to first fix but still needs satellite reception
+outdoors. Networks with a captive portal are not supported. NTP requires
+working DNS and UDP port 123; EPO requires HTTPS access. Allow up to 25 seconds
+to connect and 30 seconds for NTP, then time for the EPO transfer. On failure,
+check the debug log; GPS continues to operate independently. See [AGNSS.md](AGNSS.md).
 
 ## Debug log
 
