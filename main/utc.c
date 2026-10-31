@@ -7,6 +7,17 @@
  * every access goes through s_mux. `gps_off` is the RTC's offset to GPS time. */
 static struct { bool valid; uint32_t unix_s; uint32_t at_ms; int32_t gps_off; } s_rtc;
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
+static uint32_t s_network_utc;
+static int64_t s_network_us;
+
+void utc_set_network(uint32_t unix_s)
+{
+    int64_t us = esp_timer_get_time();
+    taskENTER_CRITICAL(&s_mux);
+    s_network_utc = unix_s;
+    s_network_us = us;
+    taskEXIT_CRITICAL(&s_mux);
+}
 
 static uint32_t now_ms(void) { return esp_timer_get_time() / 1000; }
 
@@ -59,6 +70,16 @@ bool utc_now(uint32_t *unix_s)
     uint32_t now = now_ms();
     bool fresh_fix = g.valid && gps_date_ok(&g) && (int32_t)(now - g.last_rx_ms) < 2000;
     uint32_t gps = fresh_fix ? utc_from_civil(g.year, g.mon, g.day, g.hh, g.mm, g.ss) : 0;
+
+    int64_t us = esp_timer_get_time();
+    taskENTER_CRITICAL(&s_mux);
+    uint32_t net = s_network_utc;
+    int64_t elapsed = us - s_network_us;
+    taskEXIT_CRITICAL(&s_mux);
+    if (net && elapsed >= 0 && elapsed < 6LL * 3600 * 1000000) {
+        *unix_s = fresh_fix ? gps : net + elapsed / 1000000;
+        return true;
+    }
 
     taskENTER_CRITICAL(&s_mux);
     bool valid = s_rtc.valid;

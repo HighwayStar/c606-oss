@@ -2,10 +2,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Wall-clock time (UTC). Sources, best first: the nRF's RTC (streamed at
- * 5 Hz once its power-on gesture happened, see docs/USER_GUIDE.md), then the GPS date
- * and time from RMC. Either is carried forward with the ESP timer between
- * updates. */
+/* Wall-clock time (UTC). Fresh network time overrides the nRF RTC for up
+ * to six hours; a fresh GPS fix takes precedence over network time.
+ * Otherwise use the nRF RTC (corrected by GPS when available), falling
+ * back to the date/time from RMC. Sources advance with the ESP timer. */
+
+/* Fresh SNTP UTC, retained in RAM for up to six hours. */
+void utc_set_network(uint32_t unix_s);
 
 /* nRF RTC frame payload: struct tm style, month 0-based, year since 1900,
  * day in the low 5 bits. */
