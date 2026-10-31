@@ -15,7 +15,8 @@ esp_err_t nvs_open(const char *ns, int mode, nvs_handle_t *h)
 esp_err_t nvs_get_blob(nvs_handle_t h, const char *key, void *out, size_t *size)
 {
     (void)h; assert(!strcmp(key, "cfg") && *size >= sizeof stored);
-    memcpy(out, &stored, sizeof stored); *size = sizeof stored; return ESP_OK;
+    size_t len = stored.version < 16 ? 192 : sizeof stored;
+    memcpy(out, &stored, len); *size = len; return ESP_OK;
 }
 esp_err_t nvs_set_blob(nvs_handle_t h, const char *key, const void *in, size_t size)
 {
@@ -27,8 +28,9 @@ void nvs_close(nvs_handle_t h) { (void)h; }
 
 int main(void)
 {
-    _Static_assert(sizeof(app_cfg_t) == 192, "binary config layout");
+    _Static_assert(sizeof(app_cfg_t) == 196, "binary config layout");
     _Static_assert(offsetof(app_cfg_t, language) == 191, "language must only use old tail padding");
+    _Static_assert(offsetof(app_cfg_t, map_auto_zoom) == 192, "new option must preserve old bytes");
     config_defaults(&stored);
     stored.version = 14;
     stored.language = 0xff; /* previous tail padding must never become a language */
@@ -40,7 +42,7 @@ int main(void)
     app_cfg_t old = stored;
     config_load();
     app_cfg_t expected = old;
-    expected.version = 15;
+    expected.version = 16;
     expected.language = LANG_EN;
     assert(!memcmp(config_get(), &expected, sizeof expected));
     config_get()->language = LANG_RU;
@@ -48,8 +50,14 @@ int main(void)
     config_load();
     assert(config_get()->language == LANG_RU && config_get()->weight_kg == 91);
     assert(!strcmp(config_get()->route, "saved.gpx"));
+    stored.version = 15;
+    stored.map_auto_zoom = 0; /* not present in serialized v15 */
+    config_load();
+    assert(config_get()->language == LANG_RU && config_get()->map_auto_zoom == 1);
+    assert(config_get()->wheel_mm == 2150 && config_get()->debug_log == 1);
+    assert(config_save() == ESP_OK);
     stored.language = LANG_COUNT;
     config_load();
     assert(config_get()->language == LANG_EN);
-    puts("PASS: v14 migration preserves all settings; language persists; invalid values rejected");
+    puts("PASS: v14/v15 migration preserves settings; language/auto-zoom persist; invalid values rejected");
 }

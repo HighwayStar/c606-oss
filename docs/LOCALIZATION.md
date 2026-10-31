@@ -23,7 +23,8 @@ upstream troubleshooting tools. Proper names (ANT+, GPS, FTP, SRAM, etc.)
 are not translated.
 
 The language byte is appended in config version 15, occupying byte 191
-(previous tail padding); the blob remains 192 bytes. Migration explicitly
+(previous tail padding); version 15 remains 192 bytes. Version 16 appends
+the auto-map-zoom option at byte 192 and is 196 bytes. Migration explicitly
 initializes it to English for older blobs, regardless of old padding bytes.
 Existing field IDs, routes, sensor pairing, profile and other settings remain
 unchanged. See `tools/tests/l10n/test_config_language.c`.

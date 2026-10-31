@@ -29,6 +29,8 @@ void mapview_set_area(int32_t y, int32_t h);
 void mapview_set_visible(bool visible);   /* the page is shown / hidden */
 void mapview_zoom_by(int delta);
 uint8_t mapview_zoom(void);
+/* Called at ~1 Hz with wheel-sensor speed preferred over a fresh GPS speed. */
+void mapview_update_speed(float speed_kmh, bool valid);
 
 /* Position to centre on (WGS-84). A fixed override (developer console
  * `pos lat lon`, `pos off`) wins over the GPS. */
