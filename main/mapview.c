@@ -23,14 +23,15 @@
 #include "trail.h"
 #include "l10n.h"
 #include "ui_fonts.h"
+#include "map_zoom.h"
 
 static const char *TAG = "mapview";
 
 #define MAP_DIR      SD_MOUNT_POINT "/MAP"
 #define MAX_MAPS     4
-#define ZOOM_MIN     10
-#define ZOOM_MAX     17
-#define ZOOM_DEFAULT 15
+#define ZOOM_MIN     MAP_ZOOM_MIN
+#define ZOOM_MAX     MAP_ZOOM_MAX
+#define ZOOM_DEFAULT MAP_ZOOM_MAX
 #define MOVE_PX      12          /* re-render once the position moved this far */
 #define REFRESH_MS   500
 #define TRAIL_REFRESH_MS 5000    /* new trail points alone re-render at most this often */
@@ -188,6 +189,10 @@ static bool s_visible;
 static double s_lat, s_lon;
 static bool s_have_pos, s_override;
 static volatile uint8_t s_zoom = ZOOM_DEFAULT;
+/* Accessed only under the LVGL lock, including calls from main/devcon. */
+static map_zoom_state_t s_auto_zoom = {
+    .zoom = MAP_ZOOM_MAX, .candidate = MAP_ZOOM_MAX, .auto_was_enabled = true,
+};
 static volatile bool s_busy;          /* render in progress (refresh_cb waits for it) */
 static double s_gps_lat, s_gps_lon;   /* last GPS fix, used when the override is removed */
 
@@ -832,11 +837,26 @@ void mapview_set_visible(bool visible)
 
 void mapview_zoom_by(int delta)
 {
+    ui_lock();
     int z = (int)s_zoom + delta;
     if (z < ZOOM_MIN) z = ZOOM_MIN;
     if (z > ZOOM_MAX) z = ZOOM_MAX;
-    s_zoom = z;
+    map_zoom_manual(&s_auto_zoom, z, esp_timer_get_time() / 1000);
+    s_zoom = s_auto_zoom.zoom;
     if (s_visible && s_task) xTaskNotifyGive(s_task);
+    ui_unlock();
+}
+
+void mapview_update_speed(float speed_kmh, bool valid)
+{
+    ui_lock();
+    uint8_t zoom = map_zoom_update(&s_auto_zoom, speed_kmh, valid,
+                                  config_get()->map_auto_zoom, esp_timer_get_time() / 1000);
+    if (zoom != s_zoom) {
+        s_zoom = zoom;
+        if (s_visible && s_task) xTaskNotifyGive(s_task);
+    }
+    ui_unlock();
 }
 
 uint8_t mapview_zoom(void) { return s_zoom; }

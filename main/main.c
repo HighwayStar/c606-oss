@@ -369,8 +369,10 @@ void app_main(void)
             gps_get(&fix);
             if (ant_live(ANT_DEV_SPEED, ANT_DEV_SPD_CAD)) {
                 ride_speed(v.speed_kmh, true);
+                mapview_update_speed(v.speed_kmh, true);
             } else {
                 ride_speed(fix.speed_kmh, fix.valid && now - fix.last_rx_ms < 3000);
+                mapview_update_speed(fix.speed_kmh, fix.valid && now - fix.last_rx_ms < 3000);
             }
         }
         if (sensors_started) {

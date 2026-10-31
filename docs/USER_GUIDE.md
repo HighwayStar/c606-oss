@@ -271,6 +271,14 @@ receiver has a fix.
 
 ## Maps
 
+The map starts at maximum detail (`z17`). **Settings → Auto map zoom** is on
+by default: increasing speed zooms out through z16/z15/z14, and slowing down
+zooms in again. It uses a live wheel sensor first, otherwise fresh GPS speed.
+Changes need three seconds of steady demand and 2 km/h hysteresis around
+the 12/25/40 km/h boundaries. Missing speed data keeps the current scale.
+The `+ / −` buttons always work and pause automatic changes for one minute.
+Turn Auto map zoom off for persistent manual control during the session.
+
 The header shows latitude and longitude on two compact lines, for example
 `N60.0038` / `E030.2442`. N/S and E/W identify the hemisphere. Coordinates
 are blanked when the GPS fix is invalid or stale, and their clipped area

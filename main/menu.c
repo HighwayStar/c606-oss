@@ -1261,7 +1261,7 @@ static void language_open(void)
 
 /* ---- settings root ----------------------------------------------------- */
 enum { ROOT_PAGES, ROOT_SENSORS, ROOT_PROFILE, ROOT_LAP, ROOT_AUTOPAUSE, ROOT_BACKLIGHT, ROOT_TZ, ROOT_THEME, ROOT_AUTOTHEME,
-       ROOT_LAYERS, ROOT_ROUTE, ROOT_HISTORY, ROOT_RESET, ROOT_SYSTEM, ROOT_WIFI, ROOT_LANGUAGE };
+       ROOT_LAYERS, ROOT_ROUTE, ROOT_HISTORY, ROOT_RESET, ROOT_SYSTEM, ROOT_WIFI, ROOT_LANGUAGE, ROOT_MAP_AUTO };
 
 /* ---- route: GPX files in /sdcard/c606oss/routes ------------------------ */
 
@@ -1771,6 +1771,11 @@ static void settings_select(screen_t *s, int idx)
     case ROOT_LANGUAGE:
         language_open();
         break;
+    case ROOT_MAP_AUTO:
+        config_get()->map_auto_zoom = !config_get()->map_auto_zoom;
+        config_save();
+        set_toggle(s, idx, config_get()->map_auto_zoom);
+        break;
     default:
         break;
     }
@@ -1824,6 +1829,7 @@ void menu_open(void)
     add_item(s, "System", ITEM_ARROW, NULL, false);
     add_item(s, "Wi-Fi / GPS time", ITEM_ARROW, NULL, false);
     add_item(s, "Language", ITEM_ARROW, l10n_name(l10n_current()), false);
+    add_item(s, "Auto map zoom", ITEM_TOGGLE, NULL, config_get()->map_auto_zoom);
     s->sel = 0;
     update_hl(s);
     s_timer = lv_timer_create(timer_cb, 500, NULL);
