@@ -220,7 +220,7 @@ static void build_idle(lv_obj_t *scr)
     lv_obj_align(s_idle_gps, LV_ALIGN_TOP_MID, 0, 128);
 
     s_idle_sens = label(s_page_idle, &lv_font_montserrat_14, theme_palette(LV_PALETTE_PINK));
-    lv_label_set_text(s_idle_sens, tr("HR --  cad --  --.- km/h"));
+    lv_label_set_text(s_idle_sens, tr("HR -- | cad -- | --.- km/h"));
     lv_obj_align(s_idle_sens, LV_ALIGN_TOP_MID, 0, 150);
 
     s_idle_sun = tlabel(s_page_idle, &lv_font_montserrat_14, &theme_st_muted);
@@ -880,7 +880,7 @@ void ui_set_sensors(const ant_sensors_t *v, const ant_channel_t *ch, size_t nch)
     snprintf(hr, sizeof hr, have_hr ? "%u" : "--", v->hr_bpm);
     snprintf(cad, sizeof cad, have_cad ? "%.0f" : "--", v->cadence_rpm);
     snprintf(spd, sizeof spd, have_spd ? "%.1f" : "--.-", v->speed_kmh);
-    int n = l10n_format(line, sizeof line, "HR %s  cad %s  %s km/h", hr, cad, spd);
+    int n = l10n_format(line, sizeof line, "HR %s | cad %s | %s km/h", hr, cad, spd);
     if (have_pwr) {
         l10n_format(pwr, sizeof pwr, "%uW", v->power_w);
         snprintf(line + n, sizeof line - n, "  %s", pwr);
